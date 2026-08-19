@@ -65,6 +65,14 @@ class UvSyncBuilder:
     path, so it is never exercised by this repo's tests; the test suite injects a
     builder instead. ``--locked`` is the point: the lock is authority, and a
     resolver free to move is a resolver free to break a pin.
+
+    Honest note on where fetching happens: on this path ``uv`` does the
+    downloading, against the pinned indexes passed in the environment and
+    verifying the lock's recorded artifact hashes. :class:`ArtifactFetcher` is
+    the executor-side fetcher — used for the provider distribution itself and
+    available to any builder that wants to fetch directly — and its
+    index-pinning, redirect, and hash refusals are unit-tested rather than
+    exercised through this builder.
     """
 
     def __init__(self, project_dir: Path, uv_executable: str = "uv") -> None:
@@ -87,13 +95,17 @@ class UvSyncBuilder:
         for name in ("pyproject.toml", "uv.lock"):
             shutil.copyfile(self._project_dir / name, target / name)
         (target / "resolution.json").write_bytes(canonical_json(resolved.triples()))
-        env = minimal_env(
-            {
-                "UV_PROJECT_ENVIRONMENT": str(target / ".venv"),
-                "UV_NO_CONFIG": "1",
-                "UV_INDEX_URL": fetcher.config.index_urls[0],
-            }
-        )
+        # UV_NO_CONFIG stops any ambient uv configuration from adding an index
+        # the accepted artifact never named. The pinned indexes are the only ones
+        # the resolver is told about, and --locked keeps the lock authoritative.
+        overrides = {
+            "UV_PROJECT_ENVIRONMENT": str(target / ".venv"),
+            "UV_NO_CONFIG": "1",
+            "UV_INDEX_URL": fetcher.config.index_urls[0],
+        }
+        if len(fetcher.config.index_urls) > 1:
+            overrides["UV_EXTRA_INDEX_URL"] = " ".join(fetcher.config.index_urls[1:])
+        env = minimal_env(overrides)
         outcome = run_with_budget(
             [executable, "sync", "--locked", "--no-dev", "--directory", str(target)],
             stdin_bytes=b"",
