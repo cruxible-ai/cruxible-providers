@@ -13,6 +13,12 @@
 # The base image is pinned by digest, never by tag: a tag is a moving pointer,
 # and a moving base defeats the point of pinning anything above it.
 ARG BASE_IMAGE_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
+ARG UV_IMAGE_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+# The installer is pinned by digest for the same reason the base image is: an
+# unpinned build tool is an unpinned build.
+FROM ghcr.io/astral-sh/uv@${UV_IMAGE_DIGEST} AS uv
+
 FROM python:3.12-slim@${BASE_IMAGE_DIGEST} AS build
 
 ARG PROVIDER_ARTIFACT_DIGEST
@@ -61,4 +67,11 @@ USER 10001
 # The image speaks the same child protocol as the local backend: a run context
 # on stdin, a result envelope on stdout, credential material on an inherited
 # descriptor named by the run context.
-ENTRYPOINT ["python", "-m", "cruxible_provider_runtime.child"]
+#
+# ENTRYPOINT is deliberately EMPTY and the invocation lives in CMD. The
+# ContainerDriver contract is that the argv the executor supplies REPLACES the
+# command, not that it is appended to an entrypoint: with a non-empty ENTRYPOINT
+# here, the executor's argv would invoke the child harness a second time inside
+# the first. CMD is what a supplied argv displaces.
+ENTRYPOINT []
+CMD ["python", "-m", "cruxible_provider_runtime.child"]

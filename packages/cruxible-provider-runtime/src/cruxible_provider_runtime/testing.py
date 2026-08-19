@@ -18,11 +18,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .artifact import ImageProvenance
-from .backends import CHILD_MODULE
+from .backends import CHILD_MODULE, MaterializationRequest, verify_environment
 from .budget import ProcessOutcome, minimal_env, run_with_budget
 from .canonical import canonical_json
 from .errors import RefusalCode, refuse
-from .index import ArtifactFetcher, TransportResponse
+from .index import TransportResponse
 from .protocol import Budgets
 from .resolution import ResolvedSet
 
@@ -67,14 +67,34 @@ class InjectedEnvironmentBuilder:
     python_path_roots: Sequence[Path] = ()
     interpreter_path: Path = field(default_factory=lambda: Path(sys.executable))
     builds: list[str] = field(default_factory=list)
+    stage_divergent_tree: bool = False
+    """Populate a site-packages that does NOT match the resolution, for tests."""
 
-    def build(self, target: Path, resolved: ResolvedSet, fetcher: ArtifactFetcher) -> None:
-        del fetcher  # nothing is fetched: the resolution alone is materialised
+    def build(self, request: MaterializationRequest) -> None:
+        target = request.target
+        resolved = request.resolved
         self.builds.append(resolved.marker_environment.id)
         (target / "resolution.json").write_bytes(canonical_json(resolved.triples()))
         (target / "marker-environment.json").write_bytes(
             canonical_json(resolved.marker_environment.digest_payload())
         )
+        self._stage_site_packages(target, resolved)
+        # A builder must check its own output before the cache seals it. This
+        # one stages a synthetic tree, so the check is over what it staged.
+        verify_environment(target, resolved)
+
+    def _stage_site_packages(self, target: Path, resolved: ResolvedSet) -> None:
+        site_packages = target / ".venv" / "lib" / "python3.11" / "site-packages"
+        site_packages.mkdir(parents=True)
+        for entry in resolved.distributions:
+            if entry.is_local_source:
+                continue
+            version = "0.0.0-wrong" if self.stage_divergent_tree else entry.version
+            info = site_packages / f"{entry.name}-{version}.dist-info"
+            info.mkdir()
+            (info / "METADATA").write_text(
+                f"Name: {entry.name}\nVersion: {version}\n", encoding="utf-8"
+            )
 
     def interpreter(self, env_path: Path) -> Path:
         del env_path

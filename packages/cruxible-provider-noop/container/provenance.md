@@ -43,15 +43,24 @@ acceptance and no warning mode.
 ```sh
 docker build \
   --build-arg BASE_IMAGE_DIGEST="sha256:<base>" \
+  --build-arg UV_IMAGE_DIGEST="sha256:<uv>" \
   --build-arg PROVIDER_ARTIFACT_DIGEST="sha256:<artifact>" \
   --build-arg MATERIALIZATION_DIGEST="sha256:<materialization>" \
   --build-arg BUILDER_IDENTITY="<workflow-ref>@<runner>" \
-  --build-context uv=ghcr.io/astral-sh/uv:latest \
   -f container/Dockerfile .
 ```
 
-`--build-context uv=` is pinned by digest in CI for the same reason the base
-image is; the tag above is illustrative only.
+Both the base image and the `uv` installer image are pinned by digest. An
+unpinned build tool is an unpinned build, and the provenance labels would be
+recording the identity of something nobody fixed.
+
+## Entrypoint and argv
+
+The image sets an empty `ENTRYPOINT` and carries the child-harness invocation in
+`CMD`. The `ContainerDriver` contract is that the argv the executor supplies
+**replaces** the command rather than being appended to an entrypoint; with a
+non-empty `ENTRYPOINT` the executor's argv would start the harness a second time
+inside the first, and the inner process would read an already-consumed stdin.
 
 ## What is not claimed
 
