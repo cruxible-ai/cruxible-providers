@@ -123,20 +123,34 @@ def test_document_slots_declare_format_scan_and_page_count(interface_id: str) ->
     assert names & {"format", "scanned", "scan_quality", "script"}
 
 
+# A PROVISIONAL guardrail, fitted to the launch vocabularies rather than derived
+# from anything. The largest launch cube (ts.anomaly) enumerates 4800 buckets, so
+# this ceiling sits just above what already exists: it will catch an accidental
+# dimension explosion and will not catch a merely-large vocabulary. It is a
+# tripwire against carelessness, not a considered limit, and whoever finds it
+# blocking a genuine design should move it and say so rather than work around it.
+BUCKET_CUBE_CEILING = 5000
+
+
 def test_cube_sizes_stay_bounded() -> None:
     """A ceiling on the cube, not on what gets fixtured.
 
-    Conformance fixtures are required per declared *selector*, and a selector
-    may wildcard whole dimensions — so a large cube is not automatically a large
-    fixture burden. What a large cube does mean is that enumeration stops being
-    a review tool, so the ceiling is set where an accidental dimension explosion
-    would trip it and a deliberately detailed quantitative slot would not.
+    Conformance fixtures are required per declared *selector*, and a selector may
+    wildcard whole dimensions, so a large cube is not automatically a large
+    fixture burden. What a large cube does mean is that enumeration stops working
+    as a review tool. See the note on the constant: this bound is fitted, not
+    derived.
     """
 
-    for path in VOCABULARY_FILES:
-        vocabulary = load_bucket_vocabulary(path)
-        size = len(vocabulary.all_bucket_ids())
-        assert size <= 5000, f"{path.stem} enumerates {size} buckets"
+    sizes = {
+        path.stem: len(load_bucket_vocabulary(path).all_bucket_ids()) for path in VOCABULARY_FILES
+    }
+    oversized = {name: size for name, size in sizes.items() if size > BUCKET_CUBE_CEILING}
+    assert not oversized, f"vocabularies above the provisional ceiling: {oversized}"
+    assert max(sizes.values()) > 1000, (
+        "the quantitative vocabularies are meant to be detailed; if the largest cube "
+        "has become small, a dimension was probably dropped by accident"
+    )
 
 
 def test_the_published_schema_matches_the_model() -> None:

@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.check_single_package_digest_change import main as check_main  # noqa: E402
-from scripts.materialization_digests import compute, load_environments  # noqa: E402
+from scripts.dependency_closure_digests import compute, load_environments  # noqa: E402
 
 
 def test_every_package_digests_for_every_marker_environment() -> None:
@@ -76,8 +76,24 @@ def synthetic_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _lock(name: str, dependency_version: str) -> str:
+def _lock(name: str, dependency_version: str, editable_on: str | None = None) -> str:
     digest = "a" * 64 if dependency_version == "1.0.0" else "b" * 64
+    sibling_dependency = (
+        f'    {{ name = "cruxible-provider-{editable_on}" }},\n' if editable_on else ""
+    )
+    sibling_package = (
+        f"""
+[[package]]
+name = "cruxible-provider-{editable_on}"
+version = "0.1.0"
+source = {{ editable = "../cruxible-provider-{editable_on}" }}
+dependencies = [
+    {{ name = "shared-leaf" }},
+]
+"""
+        if editable_on
+        else ""
+    )
     return f"""version = 1
 revision = 3
 requires-python = ">=3.11"
@@ -88,8 +104,8 @@ version = "0.1.0"
 source = {{ editable = "." }}
 dependencies = [
     {{ name = "shared-leaf" }},
-]
-
+{sibling_dependency}]
+{sibling_package}
 [[package]]
 name = "shared-leaf"
 version = "{dependency_version}"
@@ -117,5 +133,62 @@ def test_no_change_passes(synthetic_repo: Path) -> None:
     assert check_main(["--repo", str(synthetic_repo), "--base", "HEAD"]) == 0
 
 
-def test_an_unresolvable_base_is_skipped_not_failed(synthetic_repo: Path) -> None:
-    assert check_main(["--repo", str(synthetic_repo), "--base", "no-such-ref"]) == 0
+def test_an_unresolvable_base_fails(synthetic_repo: Path) -> None:
+    """A gate that cannot run reports failure, never green.
+
+    Reporting green when the comparison did not happen is worse than reporting
+    nothing: it is the shallow-clone, renamed-branch, rewritten-base case, which
+    is exactly when a reviewer most needs to be told the gate was blind.
+    """
+
+    assert check_main(["--repo", str(synthetic_repo), "--base", "no-such-ref"]) == 1
+
+
+def test_an_unresolvable_base_can_be_waived_explicitly(synthetic_repo: Path) -> None:
+    """For the initial commit, and it has to be asked for."""
+
+    assert (
+        check_main(["--repo", str(synthetic_repo), "--base", "no-such-ref", "--allow-missing-base"])
+        == 0
+    )
+
+
+def test_a_cross_package_editable_bump_is_visible_to_the_gate(synthetic_repo: Path) -> None:
+    """The scenario the silent local-source skip used to hide.
+
+    ``beta`` depends on ``alpha`` by path. Bumping the dependency that both
+    share moves both closures, and the gate has to say so — previously the
+    editable edge was dropped from the resolution entirely, so a change that
+    re-pinned two packages could read as one.
+    """
+
+    alpha = synthetic_repo / "packages" / "cruxible-provider-alpha"
+    beta = synthetic_repo / "packages" / "cruxible-provider-beta"
+    (alpha / "uv.lock").write_text(_lock("alpha", "1.0.0"), encoding="utf-8")
+    (beta / "uv.lock").write_text(_lock("beta", "1.0.0", editable_on="alpha"), encoding="utf-8")
+    _git(synthetic_repo, "add", "-A")
+    _git(synthetic_repo, "commit", "-q", "-m", "beta depends on alpha by path")
+
+    (alpha / "uv.lock").write_text(_lock("alpha", "2.0.0"), encoding="utf-8")
+    (beta / "uv.lock").write_text(_lock("beta", "2.0.0", editable_on="alpha"), encoding="utf-8")
+    assert check_main(["--repo", str(synthetic_repo), "--base", "HEAD"]) == 1
+
+
+def test_the_editable_edge_itself_enters_the_closure(synthetic_repo: Path) -> None:
+    """Not just the shared dependency: the path edge is in the resolved set."""
+
+    beta = synthetic_repo / "packages" / "cruxible-provider-beta"
+    (beta / "uv.lock").write_text(_lock("beta", "1.0.0", editable_on="alpha"), encoding="utf-8")
+
+    from cruxible_provider_runtime.resolution import load_uv_lock, resolve
+
+    environments = load_environments(REPO_ROOT)
+    resolved = resolve(
+        load_uv_lock(beta / "uv.lock"),
+        "cruxible-provider-beta",
+        environments[0],
+        allow_editable_dev_sources=True,
+    )
+    local = [entry for entry in resolved.distributions if entry.is_local_source]
+    assert [entry.name for entry in local] == ["cruxible-provider-alpha"]
+    assert local[0].artifact_id == "editable:../cruxible-provider-alpha"

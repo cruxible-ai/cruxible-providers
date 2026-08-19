@@ -33,9 +33,41 @@ This is enforced, not merely documented:
 uv run python scripts/check_single_package_digest_change.py --base origin/main
 ```
 
-The check computes each package's materialization digests at the base revision
-and in the working tree, and fails if more than one package moved. A change that
-genuinely needs to move two packages should be two commits.
+The check computes each package's **dependency-closure** digests at the base
+revision and in the working tree, and fails if more than one package moved. A
+change that genuinely needs to move two packages should be two commits.
+
+Closure digest, not materialization digest, and the distinction is not
+pedantry. A materialization digest also pins the root distribution's sha256,
+which does not exist until the package is built and which moves on every release
+by construction — it would drown out the signal the gate is looking for. The
+closure digest covers the root's *name*, the marker environment, and the
+resolved dependency set: exactly what a dependency bump moves.
+
+An unresolvable base **fails** the check. A gate that waves changes through
+whenever it cannot do its job reports green in precisely the situation nobody
+checked. `--allow-missing-base` exists for the initial commit and has to be
+asked for.
+
+### Local sources
+
+A provider environment admits **registry artifacts only**. A path, git,
+editable, or direct-URL dependency has no artifact hash, so it cannot be pinned;
+such a source refuses with `unresolvable_source`. An earlier cut silently
+dropped these entries instead, which produced an environment pin that did not
+cover part of the environment.
+
+`allow_editable_dev_sources` is a development-only escape hatch, false
+everywhere by default. It admits local sources under a path-derived identity so
+that this monorepo can bind its own in-tree packages before they are published,
+and so that the digest-scope gate can see cross-package edges. A binding
+computed with it set records `dev_sources_permitted` in its snapshot, so a
+receipt shows it.
+
+An accepted Provider artifact cannot be produced this way in any case: the
+artifact's `DistributionPin` requires a `sha256` that a local source does not
+have and cannot be given. The escape hatch is therefore structurally confined to
+pre-publication development — it cannot leak into anything governed.
 
 ### The root lock is not an identity source
 
@@ -66,7 +98,7 @@ deliberate, separate act.
 | File | Role |
 |---|---|
 | `pyproject.toml` | Distribution metadata, dependencies, `cruxible.providers` entry points |
-| `uv.lock` | The identity source. Committed. |
+| `uv.lock` | The identity source. Committed, and compared byte-for-byte at bind against what the accepted artifact pinned. |
 | `src/<module>/manifest.yaml` | The package-side manifest. A transcription source, **never** authority. |
 | `src/<module>/py.typed` | Typing marker |
 | `LICENSE`, `NOTICE` | Apache-2.0, per package |
@@ -81,3 +113,21 @@ built artifact, so it does not exist until release. The package-side manifest
 therefore names only the distribution's name and version; the accepted Provider
 artifact carries the hash. A manifest that tried to contain its own artifact's
 hash would be impossible to produce.
+
+
+## The two lock checks at bind
+
+Bind checks the lock twice, and the checks are not redundant.
+
+1. **Bytes** (`lock_bytes_mismatch`) — cheap tamper-evidence over the exact file
+   that was reviewed. An accepted artifact pinned a specific lock; a different
+   file, however innocently reformatted, is one nobody approved. Re-accepting a
+   rewritten lock is a governance step, not an inconvenience to route around.
+2. **Resolution** (`lock_mismatch`) — the primary gate. The lock must resolve,
+   for the target marker environment, to the materialization digest the accepted
+   artifact pinned.
+
+Identity is still never *keyed* on lock bytes: the materialization digest hashes
+the resolution, and a reformatted lock produces a byte-identical one. The test
+`test_formatting_churn_refuses_on_bytes_but_does_not_move_the_resolution` asserts
+both halves of that sentence at once.

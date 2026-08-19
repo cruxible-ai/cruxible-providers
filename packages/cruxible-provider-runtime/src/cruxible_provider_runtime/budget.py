@@ -7,9 +7,13 @@ error — the distinction matters because errors are attributed to the
 implementation's track record as failed answers, while refusals are attributed
 as declined ones.
 
-Two caps are enforced here, wall clock and output size. Cost budgets travel in
-the run context so a provider can report against them, but their enforcement
-belongs to the metering substrate rather than to a local process supervisor.
+Two caps are enforced here, wall clock and output size. Cost is different in
+kind: a local process supervisor cannot price a call, because the price is a
+fact about an account and a rate card, not about a process. Cost enforcement
+therefore belongs to the metering substrate — but the *refusal* still has to
+belong to this taxonomy, or the substrate would invent its own vocabulary for
+the same event. :func:`enforce_cost_budget` is that seam: the substrate reports
+what a run consumed and this module renders the typed refusal.
 """
 
 from __future__ import annotations
@@ -28,7 +32,7 @@ from pathlib import Path
 from .errors import RefusalCode, refuse
 from .protocol import Budgets
 
-__all__ = ["ProcessOutcome", "minimal_env", "run_with_budget"]
+__all__ = ["ProcessOutcome", "enforce_cost_budget", "minimal_env", "run_with_budget"]
 
 _READ_CHUNK = 65536
 
@@ -59,6 +63,30 @@ def minimal_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     if extra:
         env.update(extra)
     return env
+
+
+def enforce_cost_budget(
+    budgets: Budgets, *, consumed_cost_units: float, meter: str = "metering substrate"
+) -> None:
+    """Refuse when a metered run exceeded its cost budget.
+
+    RP-0 meters nothing; this is the seam the metering substrate raises through
+    so that a cost breach arrives as the same kind of typed refusal as a
+    wall-clock breach, and lands on a track record the same way. A run with no
+    declared cost budget passes: an absent budget is not a zero budget.
+    """
+
+    if budgets.cost_units is None:
+        return
+    if consumed_cost_units > budgets.cost_units:
+        raise refuse(
+            RefusalCode.BUDGET_COST,
+            f"provider consumed {consumed_cost_units} cost units against a budget of "
+            f"{budgets.cost_units}",
+            consumed_cost_units=consumed_cost_units,
+            cost_budget=budgets.cost_units,
+            meter=meter,
+        )
 
 
 def _terminate(process: subprocess.Popen[bytes]) -> None:

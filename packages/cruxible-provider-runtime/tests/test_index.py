@@ -22,7 +22,7 @@ def _distribution(url: str = URL, sha256: str | None = None) -> ResolvedDistribu
     return ResolvedDistribution(
         name="leaf",
         version="1.0.0",
-        sha256=sha256 or sha256_hex(BODY),
+        artifact_id=sha256 or sha256_hex(BODY),
         kind="wheel",
         filename="leaf-1.0.0-py3-none-any.whl",
         url=url,
@@ -103,3 +103,24 @@ def test_index_config_requires_at_least_one_index() -> None:
 def test_index_config_rejects_plain_http() -> None:
     with pytest.raises(ValueError, match="https or file"):
         IndexConfig(index_urls=("http://index.example/simple",))
+
+
+@pytest.mark.parametrize(
+    ("url", "covered"),
+    [
+        ("https://index.example/simple/leaf.whl", True),
+        ("https://index.example:443/simple/leaf.whl", True),
+        ("HTTPS://Index.Example/simple/leaf.whl", True),
+        ("https://index.example/simple/nested/leaf.whl", True),
+        ("https://index.example.evil/simple/leaf.whl", False),
+        ("https://index.example/simple-evil/leaf.whl", False),
+        ("https://index.example:8443/simple/leaf.whl", False),
+        ("http://index.example/simple/leaf.whl", False),
+        ("https://evil.example/https://index.example/simple/leaf.whl", False),
+        ("not-a-url", False),
+    ],
+)
+def test_coverage_is_an_origin_comparison_not_a_string_prefix(url: str, covered: bool) -> None:
+    """String prefixes get case, default ports, and path segments wrong."""
+
+    assert IndexConfig(index_urls=(INDEX,)).covers(url) is covered

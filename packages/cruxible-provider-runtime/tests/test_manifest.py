@@ -167,3 +167,30 @@ def test_artifact_with_an_unknown_manifest_field_refuses_with_the_manifest_code(
     with pytest.raises(RefusalError) as exc:
         load_provider_artifact(path)
     assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
+
+
+def test_two_implementations_of_one_interface_is_terminal() -> None:
+    """RP-0 has no tie-break, and inventing one would make ordering decide."""
+
+    document = copy.deepcopy(MANIFEST)
+    second = copy.deepcopy(document["implementations"][0])
+    second["entrypoint"] = "sample_provider.impl:EchoFast"
+    document["implementations"].append(second)
+    manifest = load_manifest_document(document)
+    with pytest.raises(RefusalError) as exc:
+        manifest.implementation("sample.echo")
+    assert exc.value.code is RefusalCode.AMBIGUOUS_IMPLEMENTATION
+    assert "terminal" in exc.value.refusal.message
+    assert exc.value.refusal.detail["entrypoints"] == [
+        "sample_provider.impl:Echo",
+        "sample_provider.impl:EchoFast",
+    ]
+
+
+def test_an_absent_interface_is_a_different_refusal_from_an_ambiguous_one() -> None:
+    """Over-declaration and non-declaration are different faults."""
+
+    manifest = load_manifest_document(MANIFEST)
+    with pytest.raises(RefusalError) as exc:
+        manifest.implementation("sample.absent")
+    assert exc.value.code is RefusalCode.UNDECLARED_INTERFACE

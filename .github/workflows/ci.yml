@@ -88,9 +88,16 @@ jobs:
           version: ${{ env.UV_VERSION }}
       - run: uv sync
       - name: Assert declared == observed with outbound sockets blocked
-        # The lane's guard is in-process (cruxible_provider_runtime.egress.no_network).
-        # A future runner-level network sandbox would strengthen it; it would not
-        # change what is being asserted.
+        # The guard covers BOTH processes: the executor's interpreter via
+        # egress.no_network, and the provider child via the sitecustomize that
+        # egress.write_child_guard puts on its import path. Provider code runs in
+        # the child, so a guard that reached only the executor was asserting a
+        # property about the wrong process.
+        #
+        # What this lane tests is RECORDING CONFORMANCE (declared == observed),
+        # not containment. Containment exists in the cloud backend's default-deny
+        # policy alone. A runner-level network sandbox would harden the lane; it
+        # would not change which of the two claims is being made.
         run: uv run pytest -q -m egress_conformance
 
   packaging:
@@ -111,12 +118,14 @@ jobs:
               uv lock --check --directory "$package"
             fi
           done
-      - name: Assert a change moves at most one package's materialization digest
+      - name: Assert a change moves at most one package's dependency closure
+        # No --allow-missing-base: an unresolvable base fails the gate rather
+        # than reporting green on a comparison that never ran.
         run: |
           uv run python scripts/check_single_package_digest_change.py \
             --base "${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
-      - name: Report the per-package materialization digests
-        run: uv run python scripts/materialization_digests.py
+      - name: Report the per-package dependency-closure digests
+        run: uv run python scripts/dependency_closure_digests.py
 
   licenses:
     name: licenses and SBOM

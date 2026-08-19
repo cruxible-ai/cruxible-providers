@@ -72,6 +72,23 @@ class StubRegistry:
     # -- interfaces --------------------------------------------------------
 
     def register_interface(self, registration: InterfaceRegistration) -> None:
+        """Register an interface, refusing a silent re-registration at a new digest.
+
+        Overwriting would let a second registration move an interface's digest
+        under bindings that already pinned the first — the registry equivalent of
+        a mutable tag.
+        """
+
+        existing = self.interfaces.get(registration.interface_id)
+        if existing is not None and existing.interface_digest != registration.interface_digest:
+            raise refuse(
+                RefusalCode.INTERFACE_DIGEST_MISMATCH,
+                f"interface {registration.interface_id!r} is already registered at a "
+                "different digest; a re-registration is a new interface, not an update",
+                interface_id=registration.interface_id,
+                registered=existing.interface_digest,
+                offered=registration.interface_digest,
+            )
         self.interfaces[registration.interface_id] = registration
 
     def interface(

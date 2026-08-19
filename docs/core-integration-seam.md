@@ -42,6 +42,17 @@ path. A provider becomes bindable when its artifact is accepted, and until then
 authority, and must never resolve an interface without checking its digest. Both
 are the difference between a governed artifact and a configuration file.
 
+**TODO for core: implementation disambiguation.** RP-0 requires that a package
+implement a given interface **at most once**. A manifest declaring two
+implementations of one interface refuses with `ambiguous_implementation`, and
+that refusal is *terminal* here: a bind request names an interface, not an
+entrypoint, so there is nothing to choose with, and a local tie-break would make
+which implementation ran depend on manifest ordering. If core wants to permit
+several implementations of one interface in one distribution — plausible for a
+plane offering a fast and an exact variant — the accepted artifact needs a field
+naming the entrypoint per binding, and `BindRequest` needs to carry it. That is a
+core-seam design decision, deliberately not made here.
+
 ---
 
 ## 2. Interface and bucket registration
@@ -90,6 +101,7 @@ outcome = invoke(binding, registry=registry, payload=..., budgets=..., secrets=.
 | An `EnvironmentBuilder` | `UvSyncBuilder` is the production spelling; the seam is injectable so that conformance suites need no network. |
 | A `ContainerDriver` | The container-engine seam, for the cloud backend. |
 | Resolved secret material | Core resolves secret-refs; this library delivers the material over an inherited descriptor. |
+| Registry-only dependencies | Provider locks must resolve to registry artifacts. `allow_editable_dev_sources` is dev-only and cannot reach an accepted artifact, whose `DistributionPin` requires a sha256 a local source has no way to supply. |
 | `Budgets` | Wall clock and output size. Cost enforcement belongs to the metering substrate. |
 
 **What core records.** `Binding.snapshot()` produces the binding-snapshot fields
@@ -100,18 +112,26 @@ is a deployment revision — never a LineSpec successor and never an epoch chang
 **What core must enforce that this library cannot.**
 
 - **Structural egress.** The cloud backend needs default-deny plus an allowlist
-  read from the accepted artifact. Local enforcement here is best-effort and is
-  explicitly not a containment guarantee; what both backends do guarantee is
-  *recording* what was contacted, and refusing on a contacted endpoint outside
-  the declaration.
+  read from the accepted artifact. Two claims have to stay separate here:
+  *recording conformance* (declared equals observed) holds in both backends and
+  is what this repository's conformance lane tests; *containment* (the provider
+  cannot reach an undeclared endpoint) exists in the cloud backend only. The
+  local socket guard is a test instrument that makes an unrecorded socket fail
+  loudly during a conformance run — it patches an interpreter, and a local
+  provider running with the operator's privileges can go around it.
+- **Cost budgets.** `Budgets.cost_units` travels with every run, but nothing
+  local can price a call: the price is a fact about an account and a rate card.
+  Core's metering substrate raises through `budget.enforce_cost_budget`, which
+  renders the breach as a typed `budget_cost` refusal so it lands on a track
+  record the same way a wall-clock breach does.
 - **Capture and grade.** Provider output enters a Capture under the declared
   CaptureContract with a contract-governed grade. A provider can never emit
   `observed`, and provider success is never world-state truth. This library
   hands core a typed result; it does not create Captures.
 - **Track records.** Keyed on `implementation_digest`, per interface and input
   bucket. Rendering may slice by materialization digest but must never key on
-  it.
-- **Cost budgets and metering.**
+  it. A binding snapshot carrying `dev_sources_permitted` describes a
+  pre-publication development pin and must not accrue production track record.
 
 ---
 

@@ -95,7 +95,14 @@ class MaterializationCache:
         """Create the cache root ``0700`` or refuse an unsafe existing one."""
 
         if not self._root.exists():
-            self._root.mkdir(parents=True, mode=0o700)
+            # Create the chain explicitly. `mkdir(parents=True, mode=...)`
+            # applies the mode to the leaf only; intermediate directories get
+            # the process umask, which can leave a cache root reachable through
+            # a group-readable parent this class then reports as safe.
+            missing = [parent for parent in self._root.parents if not parent.exists()]
+            for parent in reversed(missing):
+                parent.mkdir(mode=0o700)
+            self._root.mkdir(mode=0o700)
             return self._root
         if not self._root.is_dir():
             raise refuse(

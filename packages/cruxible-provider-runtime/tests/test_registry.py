@@ -170,3 +170,33 @@ def test_vocabulary_must_belong_to_its_interface() -> None:
             bucket_vocabulary=VOCABULARY,
             classifier=classify,
         )
+
+
+def test_re_registering_an_interface_at_a_new_digest_refuses() -> None:
+    """A registry that silently overwrites is a mutable tag by another name."""
+
+    registry = _registry()
+    with pytest.raises(RefusalError) as exc:
+        registry.register_interface(
+            InterfaceRegistration(
+                interface_id="sample.echo",
+                interface_digest=OTHER_DIGEST,
+                bucket_vocabulary=VOCABULARY,
+                classifier=classify,
+            )
+        )
+    assert exc.value.code is RefusalCode.INTERFACE_DIGEST_MISMATCH
+    assert registry.interfaces["sample.echo"].interface_digest == INTERFACE_DIGEST
+
+
+def test_re_registering_the_same_interface_is_allowed() -> None:
+    registry = _registry()
+    registry.register_interface(
+        InterfaceRegistration(
+            interface_id="sample.echo",
+            interface_digest=INTERFACE_DIGEST,
+            bucket_vocabulary=VOCABULARY,
+            classifier=classify,
+        )
+    )
+    assert registry.interfaces["sample.echo"].interface_digest == INTERFACE_DIGEST

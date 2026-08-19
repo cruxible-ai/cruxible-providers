@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 
 import pytest
-from cruxible_provider_runtime.budget import minimal_env, run_with_budget
+from cruxible_provider_runtime.budget import enforce_cost_budget, minimal_env, run_with_budget
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.protocol import Budgets
 
@@ -79,3 +79,24 @@ def test_nonzero_exit_is_reported_not_raised() -> None:
         [sys.executable, "-c", "raise SystemExit(3)"], stdin_bytes=b"", budgets=FAST
     )
     assert outcome.returncode == 3
+
+
+def test_cost_budget_seam_raises_a_typed_refusal() -> None:
+    """RP-0 meters nothing; the substrate raises through this seam."""
+
+    budgets = Budgets(wall_clock_seconds=10.0, output_bytes=1024, cost_units=5.0)
+    with pytest.raises(RefusalError) as exc:
+        enforce_cost_budget(budgets, consumed_cost_units=5.5, meter="cloud-metering")
+    assert exc.value.code is RefusalCode.BUDGET_COST
+    assert exc.value.refusal.detail["cost_budget"] == 5.0
+    assert exc.value.refusal.detail["consumed_cost_units"] == 5.5
+    assert exc.value.refusal.detail["meter"] == "cloud-metering"
+
+
+def test_spending_within_the_cost_budget_passes() -> None:
+    budgets = Budgets(wall_clock_seconds=10.0, output_bytes=1024, cost_units=5.0)
+    enforce_cost_budget(budgets, consumed_cost_units=5.0)
+
+
+def test_an_absent_cost_budget_is_not_a_zero_budget() -> None:
+    enforce_cost_budget(FAST, consumed_cost_units=1_000_000.0)

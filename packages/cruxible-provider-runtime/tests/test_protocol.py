@@ -106,3 +106,22 @@ def test_run_context_is_frozen() -> None:
     context = RunContext.model_validate(_context())
     with pytest.raises(ValueError, match="frozen"):
         context.run_id = "other"  # type: ignore[misc]
+
+
+def test_an_executor_side_refusal_renders_in_the_provider_result_shape() -> None:
+    """So a caller reads one envelope shape regardless of who refused."""
+
+    from cruxible_provider_runtime.errors import RefusalCode as _Code
+    from cruxible_provider_runtime.errors import RefusalError
+    from cruxible_provider_runtime.execute import refusal_envelope
+
+    envelope = refusal_envelope(
+        "run-9", RefusalError(_Code.BUDGET_WALL_CLOCK, "took too long", seconds=31)
+    )
+    assert envelope.status == "refused"
+    assert envelope.run_id == "run-9"
+    assert envelope.refusal is not None
+    assert envelope.refusal.code is _Code.BUDGET_WALL_CLOCK
+    assert envelope.refusal.detail["seconds"] == 31
+    assert envelope.output is None
+    assert envelope.protocol_version == PROTOCOL_VERSION.render()

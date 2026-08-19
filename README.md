@@ -41,10 +41,13 @@ rather than an identity. Switching a provider from local execution to a
 container does not change it and does not split earned track record.
 
 **`materialization_digest`** — a per-backend environment pin. Locally it is the
-hashed *resolution* of the package's lock for an explicit marker environment;
-in cloud it is the container image digest. The resolution is hashed, never the
-lock file's bytes: lock formats churn across resolver releases, and one lock
-resolves differently per platform.
+root distribution's identity plus the hashed *resolution* of the package's lock
+for an explicit marker environment; in cloud it is the container image digest.
+The resolution is hashed, never the lock file's bytes: lock formats churn across
+resolver releases, and one lock resolves differently per platform. The root
+identity is in the preimage because without it two packages with identical
+dependency closures — the ordinary case inside one monorepo — collide, and the
+cache is keyed on nothing else.
 
 **`protocol_version`** — the transport envelope version. It is recorded in
 receipts and binding snapshots and appears in neither preimage, because an
@@ -61,7 +64,7 @@ outside the declaration. Refusals are typed and enumerated in
 
 ## Honest boundaries
 
-Two things this repository does **not** claim:
+Things this repository does **not** claim:
 
 - The local isolated environment is a *dependency-isolation* mechanism, **not a
   security boundary**. A local provider runs with the operator's privileges.
@@ -70,6 +73,15 @@ Two things this repository does **not** claim:
   accordingly.
 - Container builds are **not** bit-reproducible. The image digest is
   authoritative; the recorded provenance is what makes it checkable.
+- The egress-conformance lane tests **recording conformance** — declared equals
+  observed, in both the executor process and the provider child. It does not
+  demonstrate **containment**; that exists in the cloud backend's default-deny
+  network policy alone.
+- `UvSyncBuilder`, the production local builder, is marked **experimental**: it
+  needs a network and a `uv` on the path, so no test here executes it end to
+  end. Only its argument construction and its post-build verification are
+  covered. What is not left to trust is the result — a materialized tree is
+  checked against its resolution before the cache will seal it.
 
 ## Getting started
 
@@ -79,7 +91,7 @@ uv run pytest -q              # the whole conformance suite
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy packages/cruxible-provider-runtime/src
-uv run python scripts/materialization_digests.py
+uv run python scripts/dependency_closure_digests.py
 ```
 
 No test in this repository requires a network or a container engine. If one

@@ -158,7 +158,14 @@ class BucketVocabulary(BaseModel):
         return _SEP.join(parts)
 
     def all_bucket_ids(self) -> tuple[str, ...]:
-        """Every bucket in the cube, in canonical order (small by construction)."""
+        """Every bucket in the cube, in canonical order.
+
+        The cube is the product of the dimensions and is **not** small by
+        construction: the launch quantitative vocabularies reach several
+        thousand buckets. Enumeration is for review and testing, not for
+        anything on a run's hot path, and conformance fixtures are required per
+        declared *selector* rather than per bucket.
+        """
 
         buckets: list[str] = [""]
         for dimension in self.dimensions:
