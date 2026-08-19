@@ -14,9 +14,12 @@ from pathlib import Path
 
 import pytest
 from cruxible_provider_runtime.digests import (
+    CLOSURE_DOMAIN_TAG,
     IMPLEMENTATION_DOMAIN_TAG,
     MATERIALIZATION_DOMAIN_TAG,
     container_materialization_digest,
+    dependency_closure_digest,
+    dependency_closure_preimage,
     implementation_digest,
     implementation_preimage,
     materialization_digest,
@@ -41,6 +44,7 @@ def golden() -> dict[str, dict[str, str]]:
 def test_domain_tags_are_the_contract_spelling() -> None:
     assert IMPLEMENTATION_DOMAIN_TAG == "cruxible.provider.implementation.v1"
     assert MATERIALIZATION_DOMAIN_TAG == "cruxible.provider.materialization.v1"
+    assert CLOSURE_DOMAIN_TAG == "cruxible.provider.closure.v1"
 
 
 @pytest.mark.parametrize("case", sorted(IMPLEMENTATION_CASES))
@@ -71,6 +75,10 @@ def test_implementation_digest_ignores_version_and_backend() -> None:
     assert implementation_digest(**changed) != implementation_digest(**base)
 
 
+ROOT_SHA256 = "sha256:" + "4d" * 32
+OTHER_ROOT_SHA256 = "sha256:" + "5e" * 32
+
+
 @pytest.mark.parametrize("env_id", ["linux-cp311", "macos-arm-cp311", "windows-cp312"])
 def test_materialization_digest_golden(
     env_id: str,
@@ -79,37 +87,99 @@ def test_materialization_digest_golden(
     marker_environments: dict[str, MarkerEnvironment],
 ) -> None:
     resolved = resolve(golden_lock, "sample-provider", marker_environments[env_id])
-    assert materialization_digest(resolved) == golden["materialization"][env_id]
+    assert (
+        materialization_digest(resolved, distribution_sha256=ROOT_SHA256)
+        == golden["materialization"][env_id]
+    )
 
 
 def test_materialization_digest_differs_per_environment(
     golden_lock: UvLock, marker_environments: dict[str, MarkerEnvironment]
 ) -> None:
     digests = {
-        env_id: materialization_digest(resolve(golden_lock, "sample-provider", env))
+        env_id: materialization_digest(
+            resolve(golden_lock, "sample-provider", env), distribution_sha256=ROOT_SHA256
+        )
         for env_id, env in marker_environments.items()
     }
     assert len(set(digests.values())) == len(digests)
+
+
+def test_two_packages_with_identical_closures_digest_differently(
+    golden_lock: UvLock, linux_env: MarkerEnvironment
+) -> None:
+    """The collision that made the cache serve one package's tree for another.
+
+    Two packages inside one monorepo routinely resolve to the same dependency
+    set. Before the root identity entered the preimage they produced the same
+    materialization digest, and the cache is keyed on nothing else.
+    """
+
+    resolved = resolve(golden_lock, "sample-provider", linux_env)
+    twin = resolved.model_copy(update={"root_name": "sample-provider-twin"})
+    assert materialization_digest(resolved, distribution_sha256=ROOT_SHA256) != (
+        materialization_digest(twin, distribution_sha256=ROOT_SHA256)
+    )
+
+
+def test_two_versions_of_one_package_digest_differently(
+    golden_lock: UvLock, linux_env: MarkerEnvironment
+) -> None:
+    """A release with unchanged dependencies must still re-pin its environment."""
+
+    resolved = resolve(golden_lock, "sample-provider", linux_env)
+    assert materialization_digest(resolved, distribution_sha256=ROOT_SHA256) != (
+        materialization_digest(resolved, distribution_sha256=OTHER_ROOT_SHA256)
+    )
 
 
 def test_materialization_preimage_hashes_the_resolution_not_the_lock_bytes(
     golden_lock: UvLock, linux_env: MarkerEnvironment
 ) -> None:
     resolved = resolve(golden_lock, "sample-provider", linux_env)
-    preimage = materialization_preimage(resolved)
-    assert sorted(preimage) == ["marker_environment", "resolved"]
+    preimage = materialization_preimage(resolved, distribution_sha256=ROOT_SHA256)
+    assert sorted(preimage) == ["marker_environment", "resolved", "root"]
+    assert preimage["root"] == {
+        "name": "sample-provider",
+        "distribution_sha256": ROOT_SHA256,
+    }
     rendered = json.dumps(preimage)
     assert "revision" not in rendered, "lock-format metadata must not enter the preimage"
     assert "upload-time" not in rendered
     assert preimage["resolved"] == sorted(preimage["resolved"])
 
 
+def test_closure_digest_excludes_the_root_artifact_but_keeps_its_name(
+    golden_lock: UvLock, linux_env: MarkerEnvironment
+) -> None:
+    """The packaging gate's instrument: dependency movement, not release movement."""
+
+    resolved = resolve(golden_lock, "sample-provider", linux_env)
+    preimage = dependency_closure_preimage(resolved)
+    assert sorted(preimage) == ["marker_environment", "resolved", "root_name"]
+    twin = resolved.model_copy(update={"root_name": "sample-provider-twin"})
+    assert dependency_closure_digest(resolved) != dependency_closure_digest(twin)
+
+
+def test_closure_and_materialization_are_different_digests(
+    golden_lock: UvLock, linux_env: MarkerEnvironment
+) -> None:
+    resolved = resolve(golden_lock, "sample-provider", linux_env)
+    assert dependency_closure_digest(resolved) != materialization_digest(
+        resolved, distribution_sha256=ROOT_SHA256
+    )
+
+
 def test_marker_environment_label_does_not_enter_the_preimage(
     golden_lock: UvLock, linux_env: MarkerEnvironment
 ) -> None:
     relabelled = linux_env.model_copy(update={"id": "a-different-label"})
-    a = materialization_digest(resolve(golden_lock, "sample-provider", linux_env))
-    b = materialization_digest(resolve(golden_lock, "sample-provider", relabelled))
+    a = materialization_digest(
+        resolve(golden_lock, "sample-provider", linux_env), distribution_sha256=ROOT_SHA256
+    )
+    b = materialization_digest(
+        resolve(golden_lock, "sample-provider", relabelled), distribution_sha256=ROOT_SHA256
+    )
     assert a == b
 
 

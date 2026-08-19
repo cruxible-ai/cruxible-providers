@@ -17,10 +17,10 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from packaging.markers import InvalidMarker, Marker
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from .canonical import SHA256_RE, normalize_sha256
 from .errors import RefusalCode, refuse
@@ -101,27 +101,45 @@ class MarkerEnvironment(BaseModel):
 
 
 class ResolvedDistribution(BaseModel):
-    """One fetched artifact in a resolved set."""
+    """One entry in a resolved set.
+
+    ``artifact_id`` is the entry's content identity. For a registry artifact it
+    is the ``sha256:<hex>`` the lock records. For a local source — only ever
+    admitted under the dev-only escape hatch below — it is
+    ``editable:<path>`` or ``directory:<path>``, using the path exactly as the
+    lock spells it, because a local source has no content hash to pin.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
     version: str
-    sha256: str
-    kind: Literal["wheel", "sdist"]
-    filename: str
-    url: str
+    artifact_id: str
+    kind: Literal["wheel", "sdist", "editable", "directory"]
+    filename: str = ""
+    url: str = ""
 
-    @field_validator("sha256")
-    @classmethod
-    def _digest(cls, value: str) -> str:
-        if not SHA256_RE.match(value):
-            raise ValueError(f"expected sha256:<hex>, got {value!r}")
-        return value
+    @model_validator(mode="after")
+    def _identity_matches_kind(self) -> Self:
+        if self.kind in {"wheel", "sdist"}:
+            if not SHA256_RE.match(self.artifact_id):
+                raise ValueError(
+                    f"a {self.kind} entry must carry a sha256:<hex>, got {self.artifact_id!r}"
+                )
+        elif not self.artifact_id.startswith(f"{self.kind}:"):
+            raise ValueError(
+                f"a {self.kind} entry must carry a {self.kind}:<path> identity, "
+                f"got {self.artifact_id!r}"
+            )
+        return self
+
+    @property
+    def is_local_source(self) -> bool:
+        return self.kind in {"editable", "directory"}
 
     @property
     def triple(self) -> tuple[str, str, str]:
-        return (self.name, self.version, self.sha256)
+        return (self.name, self.version, self.artifact_id)
 
 
 class ResolvedSet(BaseModel):
@@ -237,6 +255,25 @@ def _artifact_hash(entry: dict[str, Any], name: str) -> str:
         ) from exc
 
 
+def _local_source(package: dict[str, Any]) -> ResolvedDistribution:
+    """Represent a path/editable source, for the dev-only escape hatch.
+
+    The path is taken verbatim from the lock, which spells it relative to the
+    project, so the identity stays stable across machines. It is emphatically
+    not a content hash: a local source can change under a fixed identity, which
+    is the whole reason this is dev-only.
+    """
+
+    source = package["source"]
+    kind: Literal["editable", "directory"] = "editable" if "editable" in source else "directory"
+    return ResolvedDistribution(
+        name=str(package["name"]),
+        version=str(package.get("version", "")),
+        artifact_id=f"{kind}:{source[kind]}",
+        kind=kind,
+    )
+
+
 def _pick_artifact(package: dict[str, Any], env: MarkerEnvironment) -> ResolvedDistribution | None:
     name = str(package["name"])
     version = str(package["version"])
@@ -260,7 +297,7 @@ def _pick_artifact(package: dict[str, Any], env: MarkerEnvironment) -> ResolvedD
         return ResolvedDistribution(
             name=name,
             version=version,
-            sha256=_artifact_hash(wheel, name),
+            artifact_id=_artifact_hash(wheel, name),
             kind="wheel",
             filename=best[1],
             url=url,
@@ -271,7 +308,7 @@ def _pick_artifact(package: dict[str, Any], env: MarkerEnvironment) -> ResolvedD
         return ResolvedDistribution(
             name=name,
             version=version,
-            sha256=_artifact_hash(sdist, name),
+            artifact_id=_artifact_hash(sdist, name),
             kind="sdist",
             filename=url.rsplit("/", 1)[-1],
             url=url,
@@ -284,12 +321,33 @@ def _is_registry(package: dict[str, Any]) -> bool:
     return isinstance(source, dict) and "registry" in source
 
 
-def resolve(lock: UvLock, root_name: str, env: MarkerEnvironment) -> ResolvedSet:
+def resolve(
+    lock: UvLock,
+    root_name: str,
+    env: MarkerEnvironment,
+    *,
+    allow_editable_dev_sources: bool = False,
+) -> ResolvedSet:
     """Resolve ``lock`` for ``env``, starting from ``root_name``.
 
     Only runtime dependencies are traversed; dev-dependency groups and optional
     extras of the root are excluded, because they never enter a materialized
     provider environment.
+
+    Every non-root dependency must come from a registry. A path, git, editable,
+    or direct-URL dependency has no artifact hash, so it cannot be pinned, and
+    silently dropping it — the original behaviour — produced an environment pin
+    that did not cover part of the environment. Such a source now refuses with
+    ``unresolvable_source``.
+
+    ``allow_editable_dev_sources`` is a **development-only** escape hatch, false
+    by default. It admits local sources into the resolved set under a
+    path-derived identity so that a monorepo can bind its own in-tree packages
+    before they are published. A pin computed with it set is not a production
+    pin: :meth:`Binding.snapshot` records that it was used, so a receipt shows
+    it. Accepted Provider artifacts cannot be produced this way in any case —
+    ``DistributionPin`` requires a distribution sha256 that a local source does
+    not have.
     """
 
     entries = _entries_by_name(lock)
@@ -319,9 +377,21 @@ def resolve(lock: UvLock, root_name: str, env: MarkerEnvironment) -> ResolvedSet
         for dependency in package.get("dependencies", []) or []:
             if env.evaluate(dependency.get("marker")):
                 queue.append(str(dependency["name"]))
-        if name == root_name or not _is_registry(package):
+        if name == root_name:
             # The provider distribution itself is pinned separately by the
-            # accepted artifact; local/virtual sources are not fetched artifacts.
+            # accepted artifact, and enters the materialization preimage as the
+            # root identity rather than as a resolved entry.
+            continue
+        if not _is_registry(package):
+            if not allow_editable_dev_sources:
+                raise refuse(
+                    RefusalCode.UNRESOLVABLE_SOURCE,
+                    f"dependency {name!r} comes from a non-registry source and cannot "
+                    "be pinned; a provider environment admits registry artifacts only",
+                    package=name,
+                    source=package.get("source"),
+                )
+            resolved[name] = _local_source(package)
             continue
         distribution = _pick_artifact(package, env)
         if distribution is None:

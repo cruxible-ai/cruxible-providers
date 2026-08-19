@@ -30,6 +30,9 @@ from cruxible_provider_runtime.resolution import (  # noqa: E402
 
 GOLDEN_DIR = TESTS / "fixtures" / "golden"
 
+# Must match tests/test_digests_golden.py::ROOT_SHA256.
+ROOT_SHA256 = "sha256:" + "4d" * 32
+
 
 def main() -> int:
     cases: dict[str, dict[str, str]] = json.loads(
@@ -47,7 +50,9 @@ def main() -> int:
             name: implementation_digest(**case) for name, case in sorted(cases.items())
         },
         "materialization": {
-            env_id: materialization_digest(resolve(lock, "sample-provider", env))
+            env_id: materialization_digest(
+                resolve(lock, "sample-provider", env), distribution_sha256=ROOT_SHA256
+            )
             for env_id, env in sorted(environments.items())
         },
     }

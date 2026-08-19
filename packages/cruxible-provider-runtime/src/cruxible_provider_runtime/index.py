@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -29,6 +29,16 @@ from .errors import RefusalCode, refuse
 from .resolution import ResolvedDistribution
 
 __all__ = ["ArtifactFetcher", "IndexConfig", "Transport", "TransportResponse"]
+
+_DEFAULT_PORTS: dict[str, int | None] = {"https": 443, "http": 80, "file": None}
+
+
+def _effective_port(parts: SplitResult) -> int | None:
+    """The port a URL actually addresses, with the scheme default filled in."""
+
+    if parts.port is not None:
+        return parts.port
+    return _DEFAULT_PORTS.get(parts.scheme.lower())
 
 
 class IndexConfig(BaseModel):
@@ -51,11 +61,28 @@ class IndexConfig(BaseModel):
         return value
 
     def covers(self, url: str) -> bool:
-        """Whether ``url`` lives under one of the pinned index prefixes."""
+        """Whether ``url`` lives under one of the pinned indexes.
 
+        Compared on the parsed origin and path, not as a string prefix. String
+        prefixes get scheme case, default ports, and percent-encoding wrong, and
+        a path segment that merely *starts* with a pinned segment
+        (``/simple-evil/`` under ``/simple``) would slip through.
+        """
+
+        candidate = urlsplit(url)
+        if not candidate.scheme or not candidate.hostname:
+            return False
+        candidate_segments = [part for part in candidate.path.split("/") if part]
         for index_url in self.index_urls:
-            prefix = index_url if index_url.endswith("/") else index_url + "/"
-            if url.startswith(prefix):
+            pinned = urlsplit(index_url)
+            if candidate.scheme.lower() != pinned.scheme.lower():
+                continue
+            if (candidate.hostname or "").lower() != (pinned.hostname or "").lower():
+                continue
+            if _effective_port(candidate) != _effective_port(pinned):
+                continue
+            pinned_segments = [part for part in pinned.path.split("/") if part]
+            if candidate_segments[: len(pinned_segments)] == pinned_segments:
                 return True
         return False
 
@@ -92,7 +119,14 @@ class ArtifactFetcher:
         return self._config
 
     def fetch(self, distribution: ResolvedDistribution) -> bytes:
-        return self.fetch_url(distribution.url, distribution.sha256, distribution.name)
+        if distribution.is_local_source:
+            raise refuse(
+                RefusalCode.UNRESOLVABLE_SOURCE,
+                f"{distribution.name!r} is a local source and has no artifact to fetch",
+                package=distribution.name,
+                artifact_id=distribution.artifact_id,
+            )
+        return self.fetch_url(distribution.url, distribution.artifact_id, distribution.name)
 
     def fetch_url(self, url: str, expected_sha256: str, label: str) -> bytes:
         if self._config.air_gapped:

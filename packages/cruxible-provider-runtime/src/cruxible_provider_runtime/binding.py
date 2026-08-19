@@ -14,9 +14,20 @@ order, each failure typed:
 5. the implementation supports the requested backend kind
    (``unsupported_backend``);
 6. every claimed bucket has a conformance fixture (``bucket_fixture_missing``);
-7. the lock resolves, for the target marker environment, to the materialization
-   digest the accepted artifact pinned (``lock_mismatch``);
-8. the environment materializes into a verified cache entry.
+7. the lock's bytes are the ones the accepted artifact pinned
+   (``lock_bytes_mismatch``) and it resolves, for the target marker environment,
+   to the materialization digest the accepted artifact pinned
+   (``lock_mismatch``);
+8. the environment materializes into a verified cache entry whose contents were
+   checked against the resolution before it was sealed.
+
+On the two lock checks: the byte comparison is cheap tamper-evidence over the
+exact file that was reviewed, and the resolution comparison is the primary gate.
+They are not redundant. Identity is still never *keyed* on lock bytes — the
+materialization digest hashes the resolution — but an accepted artifact pinned a
+specific lock file, and a different file, however innocently reformatted, is one
+nobody approved. Re-accepting a rewritten lock is a governance step, not an
+inconvenience to route around.
 """
 
 from __future__ import annotations
@@ -45,6 +56,13 @@ class BindRequest:
     manifest_path: Path
     lock_path: Path | None = None
     marker_environment: MarkerEnvironment | None = None
+    allow_editable_dev_sources: bool = False
+    """Development-only. Admits in-tree path sources into the resolution.
+
+    False in production and in anything that produces an accepted artifact. When
+    set, the resulting binding records it, so a receipt shows that the pin was
+    computed under the escape hatch rather than over registry artifacts alone.
+    """
 
 
 @dataclass(frozen=True)
@@ -63,11 +81,12 @@ class Binding:
     env_path: Path | None = None
     image_digest: str | None = None
     resolved: ResolvedSet | None = None
+    dev_sources_permitted: bool = False
 
-    def snapshot(self) -> dict[str, str]:
+    def snapshot(self) -> dict[str, str | bool]:
         """The binding snapshot a LineDeployment records."""
 
-        snapshot = {
+        snapshot: dict[str, str | bool] = {
             "provider_id": self.provider_id,
             "interface_id": self.interface_id,
             "interface_digest": self.interface_digest,
@@ -76,6 +95,10 @@ class Binding:
             "protocol_version": self.protocol_version.render(),
             "backend_kind": self.backend_kind,
         }
+        if self.dev_sources_permitted:
+            # Never silently absent-means-false: a pin computed under the
+            # dev-source escape hatch has to be visible wherever it is recorded.
+            snapshot["dev_sources_permitted"] = True
         return snapshot
 
 
@@ -182,8 +205,21 @@ def _bind_local(
         )
     env = request.marker_environment
     lock = load_uv_lock(request.lock_path)
-    resolved = resolve(lock, payload.distribution.name, env)
-    computed = materialization_digest(resolved)
+    if lock.lock_sha256 != payload.local_env.lock_sha256:
+        raise refuse(
+            RefusalCode.LOCK_BYTES_MISMATCH,
+            "the lock file is not the one the accepted artifact pinned",
+            provider_id=request.provider_id,
+            pinned=payload.local_env.lock_sha256,
+            actual=lock.lock_sha256,
+        )
+    resolved = resolve(
+        lock,
+        payload.distribution.name,
+        env,
+        allow_editable_dev_sources=request.allow_editable_dev_sources,
+    )
+    computed = materialization_digest(resolved, distribution_sha256=payload.distribution.sha256)
     pinned = payload.local_env.materialization_digests.get(env.id)
     if pinned is None:
         raise refuse(
@@ -208,7 +244,12 @@ def _bind_local(
             "no local_env backend was supplied to bind",
             provider_id=request.provider_id,
         )
-    env_path = local_backend.materialize(computed, resolved)
+    env_path = local_backend.materialize(
+        computed,
+        resolved,
+        project_dir=request.lock_path.parent,
+        lock_path=request.lock_path,
+    )
     del registry  # the registry's work is done before materialization
     return Binding(
         provider_id=request.provider_id,
@@ -222,6 +263,7 @@ def _bind_local(
         artifact=payload,
         env_path=env_path,
         resolved=resolved,
+        dev_sources_permitted=request.allow_editable_dev_sources,
     )
 
 

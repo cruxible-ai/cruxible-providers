@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from cruxible_provider_runtime.cache import SEAL_FILENAME, MaterializationCache, tree_digest
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
+from cruxible_provider_runtime.resolution import MarkerEnvironment, UvLock
 
 DIGEST_A = "sha256:" + "a1" * 32
 DIGEST_B = "sha256:" + "b2" * 32
@@ -162,3 +163,60 @@ def test_malformed_digest_refuses(tmp_path: Path) -> None:
     with pytest.raises(RefusalError) as exc:
         cache.path_for("not-a-digest")
     assert exc.value.code is RefusalCode.CACHE_INTEGRITY
+
+
+def test_two_packages_with_identical_closures_do_not_share_a_cache_entry(
+    tmp_path: Path, golden_lock: UvLock, linux_env: MarkerEnvironment
+) -> None:
+    """The collision, exercised through the cache that would have served it.
+
+    Two packages resolving to the same dependency set now key different cache
+    entries, because the root's identity is in the materialization preimage. A
+    miss here is the whole point: before the fix this was a hit, and the second
+    package would have executed the first package's sealed tree.
+    """
+
+    from cruxible_provider_runtime.digests import materialization_digest
+    from cruxible_provider_runtime.resolution import resolve
+
+    resolved = resolve(golden_lock, "sample-provider", linux_env)
+    twin = resolved.model_copy(update={"root_name": "sample-provider-twin"})
+    root_sha = "sha256:" + "4d" * 32
+
+    first = materialization_digest(resolved, distribution_sha256=root_sha)
+    second = materialization_digest(twin, distribution_sha256=root_sha)
+    assert first != second
+
+    cache = MaterializationCache(tmp_path / "cache")
+    built: list[str] = []
+
+    def build_for(label: str) -> object:
+        def build(target: Path) -> None:
+            built.append(label)
+            (target / "which-package").write_text(label, encoding="utf-8")
+
+        return build
+
+    first_path = cache.get_or_materialize(first, build_for("sample-provider"))  # type: ignore[arg-type]
+    second_path = cache.get_or_materialize(second, build_for("sample-provider-twin"))  # type: ignore[arg-type]
+
+    assert built == ["sample-provider", "sample-provider-twin"]
+    assert first_path != second_path
+    assert (second_path / "which-package").read_text() == "sample-provider-twin"
+
+
+def test_a_builder_that_fails_verification_seals_nothing(tmp_path: Path) -> None:
+    """A tree the builder did not verify must never reach a sealed entry."""
+
+    from cruxible_provider_runtime.errors import RefusalCode as _Code
+
+    cache = MaterializationCache(tmp_path / "cache")
+
+    def build(target: Path) -> None:
+        (target / "installed").write_text("wrong contents", encoding="utf-8")
+        raise RefusalError(_Code.ENVIRONMENT_DIVERGENCE, "builder rejected its own output")
+
+    with pytest.raises(RefusalError) as exc:
+        cache.get_or_materialize(DIGEST_A, build)
+    assert exc.value.code is _Code.ENVIRONMENT_DIVERGENCE
+    assert not cache.path_for(DIGEST_A).exists()

@@ -28,6 +28,7 @@ class RefusalCode(StrEnum):
     MANIFEST_DIVERGENCE = "manifest_divergence"
     UNACCEPTED_PROVIDER = "unaccepted_provider"
     UNDECLARED_INTERFACE = "undeclared_interface"
+    AMBIGUOUS_IMPLEMENTATION = "ambiguous_implementation"
     UNKNOWN_INTERFACE = "unknown_interface"
     INTERFACE_DIGEST_MISMATCH = "interface_digest_mismatch"
     BUCKET_FIXTURE_MISSING = "bucket_fixture_missing"
@@ -41,9 +42,11 @@ class RefusalCode(StrEnum):
 
     # --- resolution / distribution -----------------------------------------
     LOCK_MISMATCH = "lock_mismatch"
+    LOCK_BYTES_MISMATCH = "lock_bytes_mismatch"
     LOCK_MISSING_HASH = "lock_missing_hash"
     LOCK_AMBIGUOUS_FORK = "lock_ambiguous_fork"
     NO_COMPATIBLE_ARTIFACT = "no_compatible_artifact"
+    UNRESOLVABLE_SOURCE = "unresolvable_source"
     INDEX_NOT_PINNED = "index_not_pinned"
     INDEX_REDIRECT = "index_redirect"
     ARTIFACT_HASH_MISMATCH = "artifact_hash_mismatch"
@@ -53,6 +56,7 @@ class RefusalCode(StrEnum):
     # --- cache -------------------------------------------------------------
     CACHE_PERMISSIONS = "cache_permissions"
     CACHE_INTEGRITY = "cache_integrity"
+    ENVIRONMENT_DIVERGENCE = "environment_divergence"
 
     # --- admission ---------------------------------------------------------
     UNCLAIMED_BUCKET = "unclaimed_bucket"
@@ -61,6 +65,7 @@ class RefusalCode(StrEnum):
     # --- execution ---------------------------------------------------------
     BUDGET_WALL_CLOCK = "budget_wall_clock"
     BUDGET_OUTPUT_SIZE = "budget_output_size"
+    BUDGET_COST = "budget_cost"
     UNDECLARED_EGRESS = "undeclared_egress"
     SECRET_LEAK = "secret_leak"
     PROVIDER_DECLINED = "provider_declined"

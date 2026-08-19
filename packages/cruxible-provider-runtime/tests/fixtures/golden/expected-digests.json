@@ -5,8 +5,8 @@
     "sample-echo-other-entrypoint": "sha256:c8195dc9ca0ed5f0ddca0432c509926486db557819af2e709687d21dd7ef6b79"
   },
   "materialization": {
-    "linux-cp311": "sha256:2262b2ba92cd4ab353b34174fd66f2b862d32568239990f2f02155fd164ce6ea",
-    "macos-arm-cp311": "sha256:bc9b4f80b6ead391ced0dc687d8b1a4ccb2fbb98448c1d2b6b33a0734590cb3f",
-    "windows-cp312": "sha256:3f3566b541c62b3f49c6b68f90d724bca6fd552ce299b4862c58e8733995a306"
+    "linux-cp311": "sha256:b9fd12a340526c7028fe78ad86abc75ccffd570ade80c4a544027fa70ca26f6a",
+    "macos-arm-cp311": "sha256:a78c7107d36b69bad4cfa5d11172fd7addecc00eb5532e62b1ffa87c4d51c062",
+    "windows-cp312": "sha256:c25078f483310e47c5b845f0f2f14a9ea1d4257827741a9cb19b82da3a3065bd"
   }
 }

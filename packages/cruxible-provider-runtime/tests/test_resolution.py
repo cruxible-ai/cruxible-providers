@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
-from cruxible_provider_runtime.resolution import MarkerEnvironment, UvLock, resolve
+from cruxible_provider_runtime.resolution import (
+    MarkerEnvironment,
+    ResolvedDistribution,
+    UvLock,
+    resolve,
+)
 
 
 def test_resolution_follows_markers_and_skips_dev_dependencies(
@@ -28,7 +33,7 @@ def test_resolution_is_platform_specific(
     linux_native = next(d for d in linux.distributions if d.name == "leaf-native")
     macos_native = next(d for d in macos.distributions if d.name == "leaf-native")
 
-    assert linux_native.sha256 != macos_native.sha256
+    assert linux_native.artifact_id != macos_native.artifact_id
     assert "manylinux" in linux_native.filename
     assert "arm64" in macos_native.filename
 
@@ -177,3 +182,71 @@ def test_resolution_markers_disambiguate_a_fork(
 def test_marker_environment_requires_the_marker_variables_it_names() -> None:
     with pytest.raises(ValueError, match="missing"):
         MarkerEnvironment(id="broken", markers={"python_version": "3.11"}, tags=("py3-none-any",))
+
+
+def test_a_non_registry_dependency_refuses_by_default(linux_env: MarkerEnvironment) -> None:
+    """Silently dropping a local source produced a pin that did not cover the tree."""
+
+    lock = UvLock(
+        lock_sha256="sha256:" + "0" * 64,
+        requires_python=">=3.11",
+        packages=(
+            {
+                "name": "root",
+                "version": "1.0.0",
+                "source": {"editable": "."},
+                "dependencies": [{"name": "sibling"}],
+            },
+            {
+                "name": "sibling",
+                "version": "1.0.0",
+                "source": {"editable": "../sibling"},
+            },
+        ),
+    )
+    with pytest.raises(RefusalError) as exc:
+        resolve(lock, "root", linux_env)
+    assert exc.value.code is RefusalCode.UNRESOLVABLE_SOURCE
+    assert exc.value.refusal.detail["package"] == "sibling"
+
+
+def test_the_dev_escape_hatch_admits_a_local_source_under_a_path_identity(
+    linux_env: MarkerEnvironment,
+) -> None:
+    lock = UvLock(
+        lock_sha256="sha256:" + "0" * 64,
+        requires_python=">=3.11",
+        packages=(
+            {
+                "name": "root",
+                "version": "1.0.0",
+                "source": {"editable": "."},
+                "dependencies": [{"name": "sibling"}],
+            },
+            {
+                "name": "sibling",
+                "version": "2.5.0",
+                "source": {"editable": "../sibling"},
+            },
+        ),
+    )
+    resolved = resolve(lock, "root", linux_env, allow_editable_dev_sources=True)
+    entry = resolved.distributions[0]
+    assert entry.name == "sibling"
+    assert entry.kind == "editable"
+    assert entry.artifact_id == "editable:../sibling"
+    assert entry.is_local_source
+
+
+def test_a_local_source_identity_is_not_a_content_hash(linux_env: MarkerEnvironment) -> None:
+    """The dev hatch pins a path, and a path says nothing about contents."""
+
+    with pytest.raises(ValueError, match="must carry a sha256"):
+        ResolvedDistribution(
+            name="sibling", version="1.0", artifact_id="editable:../x", kind="wheel"
+        )
+    with pytest.raises(ValueError, match="must carry a editable:<path>"):
+        ResolvedDistribution(
+            name="sibling", version="1.0", artifact_id="sha256:" + "0" * 64, kind="editable"
+        )
+    assert linux_env.id
