@@ -1,0 +1,37 @@
+# Package-side provider manifest.
+#
+# This file is a transcription SOURCE, never authority. A provider is bindable
+# only through an accepted providers/<provider-id>.yaml governed artifact whose
+# payload transcribes this document; at bind and invoke the runtime recomputes
+# this manifest's digest and refuses on any divergence.
+#
+# The distribution's own sha256 is deliberately absent: an artifact cannot carry
+# its own hash. It is pinned by the accepted artifact, and it is what the
+# implementation digest consumes.
+schema_version: 1
+provider_id: cruxible-provider-noop
+distribution:
+  name: cruxible-provider-noop
+  version: 0.1.0
+entrypoint_group: cruxible.providers
+supported_protocol_majors: [1]
+implementations:
+  - interface_id: noop.echo
+    interface_digest: "sha256:caff71f0df710f7e281a7272a9056d5ca36f22bf3f434c5443e873b9c3872173"
+    entrypoint: "cruxible_provider_noop.provider:NoopEcho"
+    backends: [local_env, container]
+    # payload_size=large is deliberately unclaimed, so that an oversized input
+    # exercises the unclaimed_bucket refusal at admission.
+    declared_input_buckets:
+      - "payload_size=tiny;charset=*"
+      - "payload_size=small;charset=*"
+    bucket_conformance:
+      "payload_size=tiny;charset=*": noop-echo-tiny
+      "payload_size=small;charset=*": noop-echo-small
+    # Zero declared endpoints: the reference provider contacts nothing, and the
+    # egress-conformance lane asserts observed == declared == empty.
+    declared_endpoints: []
+    capture_contract_families:
+      - noop.echo.capture.v1
+    deterministic: true
+    side_effects: false

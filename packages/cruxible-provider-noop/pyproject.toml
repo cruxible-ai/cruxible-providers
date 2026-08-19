@@ -1,0 +1,42 @@
+[project]
+name = "cruxible-provider-noop"
+version = "0.1.0"
+description = "The reference no-op Cruxible provider: the smallest package that exercises every rule the provider protocol imposes."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Cruxible maintainers" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "cruxible-provider-runtime",
+]
+
+[project.entry-points."cruxible.providers"]
+"noop.echo" = "cruxible_provider_noop.provider:NoopEcho"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "types-pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+cruxible-provider-runtime = { path = "../cruxible-provider-runtime", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cruxible_provider_noop"]

@@ -1,0 +1,63 @@
+[project]
+# A development harness, not a distribution. It exists so that `uv run` at the
+# repository root can drive the whole test suite and the linters across every
+# package at once. It is never published, and its lock is never an identity
+# source: identity lives in each package's own committed uv.lock (see
+# docs/packaging.md).
+name = "cruxible-providers-dev"
+version = "0.0.0"
+description = "Development harness for the cruxible-providers monorepo. Not published."
+requires-python = ">=3.11"
+dependencies = [
+  "cruxible-provider-runtime",
+  "cruxible-provider-noop",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "types-pyyaml>=6.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+cruxible-provider-runtime = { path = "packages/cruxible-provider-runtime", editable = true }
+cruxible-provider-noop = { path = "packages/cruxible-provider-noop", editable = true }
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = [
+  "tests",
+  "packages/cruxible-provider-runtime/tests",
+  "packages/cruxible-provider-noop/tests",
+]
+addopts = "-ra --strict-markers"
+markers = [
+  "egress_conformance: runs with outbound sockets blocked; asserts declared == observed",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["packages/_template/src", "packages/_template/tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+  # Assertions are used deliberately in the executor for invariants that a
+  # subprocess API guarantees; the conformance suite covers the real checks.
+  "B011",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+pretty = true
