@@ -27,9 +27,9 @@ from .protocol import Budgets
 from .resolution import ResolvedSet
 
 __all__ = [
+    "FakeContainerDriver",
     "FakeIndexTransport",
     "InjectedEnvironmentBuilder",
-    "FakeContainerDriver",
 ]
 
 

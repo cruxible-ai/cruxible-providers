@@ -1,0 +1,44 @@
+# Package-side manifest template.
+#
+# This file is a transcription SOURCE, never authority. The bindable artifact is
+# the accepted providers/<provider-id>.yaml; at bind and invoke the runtime
+# recomputes this manifest's digest and refuses on any divergence.
+#
+# Unknown fields fail closed. If a field you need is not here, it does not exist
+# yet — propose it, do not add it locally.
+schema_version: 1
+provider_id: cruxible-provider-PLANE
+distribution:
+  # The distribution's own sha256 is deliberately absent: an artifact cannot
+  # carry its own hash. It is pinned by the accepted artifact, and it is what the
+  # implementation digest consumes.
+  name: cruxible-provider-PLANE
+  version: 0.1.0
+entrypoint_group: cruxible.providers
+supported_protocol_majors: [1]
+implementations:
+  - interface_id: PLANE.operation
+    # The exact digest of the registered interface. A mismatch refuses; it never
+    # resolves to "whatever is current".
+    interface_digest: "sha256:REPLACE_WITH_THE_REGISTERED_INTERFACE_DIGEST"
+    entrypoint: "cruxible_provider_PLANE.provider:Implementation"
+    backends: [local_env, container]
+    # Claim only buckets you have a passing conformance fixture for: a claimed
+    # bucket without one refuses at registration. Use dim=* to claim a whole
+    # face of the cube.
+    declared_input_buckets:
+      - "dimension_a=class_one;dimension_b=*"
+    bucket_conformance:
+      "dimension_a=class_one;dimension_b=*": fixture-id
+    # Every endpoint this implementation may contact, as scheme://host[:port].
+    # The cloud backend enforces this as an allowlist; both backends record what
+    # was actually contacted, and a contacted endpoint outside this list is a
+    # conformance violation on the implementation's track record.
+    declared_endpoints: []
+    capture_contract_families:
+      - PLANE.operation.capture.v1
+    # Carried over from the legacy in-process protocol. Be honest: a provider
+    # that reaches the network is not deterministic, and anything a caller
+    # cannot undo has side effects.
+    deterministic: true
+    side_effects: false

@@ -95,8 +95,8 @@ def main(argv: list[str] | None = None) -> int:
                 supported_major=PROTOCOL_VERSION.major,
                 requested=context.protocol_version,
             )
-        entrypoint = args[args.index("--entrypoint") + 1] if "--entrypoint" in args else (
-            context.entrypoint
+        entrypoint = (
+            args[args.index("--entrypoint") + 1] if "--entrypoint" in args else (context.entrypoint)
         )
         provider = resolve_entrypoint(entrypoint)
         declared_interface = getattr(provider, "interface_id", None)
@@ -109,9 +109,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         if context.secret_channel is not None:
             secrets = read_secrets(context.secret_channel.fd)
-            missing = [
-                ref.ref for ref in context.secret_channel.refs if ref.ref not in secrets
-            ]
+            missing = [ref.ref for ref in context.secret_channel.refs if ref.ref not in secrets]
             if missing:
                 raise refuse(
                     RefusalCode.UNRESOLVED_SECRET_REF,
@@ -154,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
             status="refused",
             refusal=exc.refusal,
         )
-    except Exception as exc:  # noqa: BLE001 - any provider crash becomes a typed error
+    except Exception as exc:
         envelope = ResultEnvelope(
             protocol_version=PROTOCOL_VERSION.render(),
             run_id=run_id,

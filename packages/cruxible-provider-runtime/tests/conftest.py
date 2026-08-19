@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from cruxible_provider_runtime.resolution import MarkerEnvironment, UvLock, load_uv_lock
 
 FIXTURES = Path(__file__).parent / "fixtures"

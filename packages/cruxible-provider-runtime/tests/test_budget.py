@@ -10,7 +10,6 @@ from __future__ import annotations
 import sys
 
 import pytest
-
 from cruxible_provider_runtime.budget import minimal_env, run_with_budget
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.protocol import Budgets
@@ -61,7 +60,7 @@ def test_child_environment_is_built_from_scratch() -> None:
         stdin_bytes=b"",
         budgets=FAST,
     )
-    names = set(eval(outcome.stdout.decode()))  # noqa: S307 - fixed, self-produced input
+    names = set(eval(outcome.stdout.decode()))
     assert names <= set(minimal_env()) | {"PYTHONHASHSEED", "__CF_USER_TEXT_ENCODING"}
 
 

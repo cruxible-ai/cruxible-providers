@@ -5,7 +5,6 @@ from __future__ import annotations
 import socket
 
 import pytest
-
 from cruxible_provider_runtime.egress import (
     EgressRecorder,
     compare_egress,
@@ -49,7 +48,8 @@ def test_conformant_when_observed_is_a_subset() -> None:
 def test_undeclared_endpoint_refuses_and_names_the_implementation() -> None:
     with pytest.raises(RefusalError) as exc:
         enforce_egress(
-            ["https://a.example"], ["https://a.example", "https://sneaky.example"],
+            ["https://a.example"],
+            ["https://a.example", "https://sneaky.example"],
             implementation_digest=DIGEST,
         )
     assert exc.value.code is RefusalCode.UNDECLARED_EGRESS

@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 import yaml
-
 from cruxible_provider_runtime.artifact import (
     DistributionPin,
     LocalEnvBackendPin,

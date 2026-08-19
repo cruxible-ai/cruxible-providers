@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 
 import pytest
-
 from cruxible_provider_runtime.cache import SEAL_FILENAME, MaterializationCache, tree_digest
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 
@@ -16,7 +15,7 @@ DIGEST_A = "sha256:" + "a1" * 32
 DIGEST_B = "sha256:" + "b2" * 32
 
 
-def _builder(content: bytes = b"payload") -> "object":
+def _builder(content: bytes = b"payload") -> object:
     def build(target: Path) -> None:
         (target / "lib").mkdir()
         (target / "lib" / "module.py").write_bytes(content)
@@ -129,7 +128,7 @@ def test_racing_binds_materialize_exactly_once(tmp_path: Path) -> None:
         try:
             start.wait(timeout=10)
             results[index] = cache.get_or_materialize(DIGEST_A, build)
-        except BaseException as exc:  # noqa: BLE001 - reported below
+        except BaseException as exc:
             failures.append(exc)
 
     threads = [threading.Thread(target=bind, args=(index,)) for index in range(4)]

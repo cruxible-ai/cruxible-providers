@@ -36,12 +36,12 @@ from .protocol import Budgets
 from .resolution import ResolvedSet
 
 __all__ = [
-    "EnvironmentBuilder",
-    "UvSyncBuilder",
-    "ContainerDriver",
-    "LocalEnvBackend",
-    "ContainerBackend",
     "CHILD_MODULE",
+    "ContainerBackend",
+    "ContainerDriver",
+    "EnvironmentBuilder",
+    "LocalEnvBackend",
+    "UvSyncBuilder",
 ]
 
 CHILD_MODULE = "cruxible_provider_runtime.child"

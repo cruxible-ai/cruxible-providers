@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "Fixed implementation-digest cases, held as data so that the test and the",
+    "regeneration script read the same source. Three cases that differ in exactly",
+    "one preimage field each, so a golden that moves says which field moved."
+  ],
+  "cases": {
+    "sample-echo": {
+      "interface_id": "sample.echo",
+      "interface_digest": "sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "entrypoint": "sample_provider.impl:Echo",
+      "distribution_sha256": "sha256:2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"
+    },
+    "sample-echo-other-entrypoint": {
+      "interface_id": "sample.echo",
+      "interface_digest": "sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "entrypoint": "sample_provider.impl:EchoFast",
+      "distribution_sha256": "sha256:2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"
+    },
+    "sample-echo-other-distribution": {
+      "interface_id": "sample.echo",
+      "interface_digest": "sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "entrypoint": "sample_provider.impl:Echo",
+      "distribution_sha256": "sha256:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+    }
+  }
+}

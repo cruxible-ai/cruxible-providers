@@ -105,8 +105,9 @@ def bind(
     if PROTOCOL_VERSION.major not in package_manifest.supported_protocol_majors:
         raise refuse(
             RefusalCode.UNSUPPORTED_PROTOCOL,
-            f"provider supports protocol majors {list(package_manifest.supported_protocol_majors)}; "
-            f"this executor speaks {PROTOCOL_VERSION.render()}",
+            "provider supports protocol majors "
+            f"{list(package_manifest.supported_protocol_majors)}; this executor speaks "
+            f"{PROTOCOL_VERSION.render()}",
             provider_id=request.provider_id,
             supported=list(package_manifest.supported_protocol_majors),
             executor=PROTOCOL_VERSION.render(),

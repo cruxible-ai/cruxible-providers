@@ -25,9 +25,9 @@ from .manifest import ProviderManifest, load_manifest_document, manifest_digest
 
 __all__ = [
     "ARTIFACT_DOMAIN_TAG",
+    "ContainerBackendPin",
     "DistributionPin",
     "ImageProvenance",
-    "ContainerBackendPin",
     "LocalEnvBackendPin",
     "ProviderArtifactPayload",
     "artifact_digest",
@@ -190,7 +190,8 @@ class ProviderArtifactPayload(BaseModel):
             )
 
     def canonical_payload(self) -> dict[str, Any]:
-        return json.loads(self.model_dump_json())
+        document: dict[str, Any] = json.loads(self.model_dump_json())
+        return document
 
 
 def artifact_digest(payload: ProviderArtifactPayload) -> str:

@@ -14,6 +14,7 @@ belongs to the metering substrate rather than to a local process supervisor.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import selectors
 import signal
@@ -27,7 +28,7 @@ from pathlib import Path
 from .errors import RefusalCode, refuse
 from .protocol import Budgets
 
-__all__ = ["ProcessOutcome", "run_with_budget", "minimal_env"]
+__all__ = ["ProcessOutcome", "minimal_env", "run_with_budget"]
 
 _READ_CHUNK = 65536
 
@@ -66,14 +67,10 @@ def _terminate(process: subprocess.Popen[bytes]) -> None:
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError, OSError):
-        try:
+        with contextlib.suppress(ProcessLookupError):
             process.kill()
-        except ProcessLookupError:
-            pass
-    try:
+    with contextlib.suppress(subprocess.TimeoutExpired):
         process.wait(timeout=5)
-    except subprocess.TimeoutExpired:  # pragma: no cover - defensive
-        pass
 
 
 def run_with_budget(
@@ -93,7 +90,7 @@ def run_with_budget(
     """
 
     started = time.monotonic()
-    process = subprocess.Popen(  # noqa: S603 - argv is executor-constructed
+    process = subprocess.Popen(
         list(argv),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -175,10 +172,8 @@ def run_with_budget(
         if breach is not None or process.poll() is None:
             _terminate(process)
         for stream in (process.stdout, process.stderr):
-            try:
+            with contextlib.suppress(OSError):
                 stream.close()
-            except OSError:  # pragma: no cover - defensive
-                pass
         writer.join(timeout=1)
 
     duration = time.monotonic() - started

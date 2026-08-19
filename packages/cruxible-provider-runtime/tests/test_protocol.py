@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.protocol import (
     PROTOCOL_VERSION,
@@ -51,9 +50,7 @@ def test_unknown_top_level_field_refuses() -> None:
 
 
 def test_unknown_field_inside_the_additive_region_is_carried_not_refused() -> None:
-    context = parse_run_context(
-        json.dumps(_context(additive={"a_future_minor_field": 1})).encode()
-    )
+    context = parse_run_context(json.dumps(_context(additive={"a_future_minor_field": 1})).encode())
     assert context.additive == {"a_future_minor_field": 1}
 
 

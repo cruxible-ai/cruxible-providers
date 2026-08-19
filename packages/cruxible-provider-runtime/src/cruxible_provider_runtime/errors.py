@@ -12,15 +12,15 @@ errors, per the RP-0 contract.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["Refusal", "RefusalCode", "RefusalError", "ProviderErrorPayload"]
+__all__ = ["ProviderErrorPayload", "Refusal", "RefusalCode", "RefusalError"]
 
 
-class RefusalCode(str, Enum):
+class RefusalCode(StrEnum):
     """The closed set of refusal codes RP-0 defines."""
 
     # --- registration / manifest -------------------------------------------

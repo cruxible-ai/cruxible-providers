@@ -26,12 +26,12 @@ from urllib.parse import urlsplit
 from .errors import RefusalCode, refuse
 
 __all__ = [
-    "normalize_endpoint",
-    "EgressRecorder",
     "EgressComparison",
+    "EgressRecorder",
     "compare_egress",
     "enforce_egress",
     "no_network",
+    "normalize_endpoint",
 ]
 
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ftp": 21}
@@ -149,11 +149,11 @@ def no_network() -> Iterator[None]:
         )
 
     socket.socket.connect = _blocked  # type: ignore[method-assign]
-    socket.socket.connect_ex = _blocked  # type: ignore[method-assign]
+    socket.socket.connect_ex = _blocked  # type: ignore[assignment]
     socket.create_connection = _blocked  # type: ignore[assignment]
     try:
         yield
     finally:
         socket.socket.connect = original_connect  # type: ignore[method-assign]
         socket.socket.connect_ex = original_connect_ex  # type: ignore[method-assign]
-        socket.create_connection = original_create_connection  # type: ignore[assignment]
+        socket.create_connection = original_create_connection

@@ -97,7 +97,10 @@ def test_unpinned_marker_environment_refuses(
 
 
 def test_manifest_divergence_refuses(
-    registry: StubRegistry, manifest_path: Path, lock_path: Path, tmp_path: Path,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    tmp_path: Path,
     local_backend: LocalEnvBackend,
 ) -> None:
     """A package-side manifest edited after acceptance is not authority."""
@@ -112,7 +115,10 @@ def test_manifest_divergence_refuses(
 
 
 def test_unknown_manifest_field_refuses(
-    registry: StubRegistry, manifest_path: Path, lock_path: Path, tmp_path: Path,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    tmp_path: Path,
     local_backend: LocalEnvBackend,
 ) -> None:
     def edit(document: dict[str, Any]) -> None:
@@ -125,7 +131,9 @@ def test_unknown_manifest_field_refuses(
 
 
 def test_undeclared_interface_refuses(
-    registry: StubRegistry, manifest_path: Path, lock_path: Path,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
     local_backend: LocalEnvBackend,
 ) -> None:
     with pytest.raises(RefusalError) as exc:
@@ -284,8 +292,12 @@ def test_missing_lock_refuses_rather_than_resolving_freely(
 
 
 def test_interface_digest_mismatch_refuses(
-    registry: StubRegistry, manifest_path: Path, lock_path: Path, tmp_path: Path,
-    local_backend: LocalEnvBackend, accepted_artifact: ProviderArtifactPayload,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    tmp_path: Path,
+    local_backend: LocalEnvBackend,
+    accepted_artifact: ProviderArtifactPayload,
 ) -> None:
     """A manifest pinning a different interface digest cannot bind to this slot."""
 

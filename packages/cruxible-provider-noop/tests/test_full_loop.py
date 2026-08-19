@@ -10,17 +10,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from cruxible_provider_noop.provider import CREDENTIAL_REF
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
-from cruxible_provider_runtime.binding import BindRequest, Binding, bind
+from cruxible_provider_runtime.binding import Binding, BindRequest, bind
 from cruxible_provider_runtime.digests import implementation_digest
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.registry import StubRegistry
-
-from cruxible_provider_noop.provider import CREDENTIAL_REF
 
 from .conftest import DISTRIBUTION_SHA256, MARKER_ENVIRONMENT
 
@@ -62,9 +61,7 @@ def binding(
     container_backend: ContainerBackend,
 ) -> Binding:
     backend_kind: BackendKind = getattr(request, "param", "local_env")
-    return _bind(
-        backend_kind, registry, manifest_path, lock_path, local_backend, container_backend
-    )
+    return _bind(backend_kind, registry, manifest_path, lock_path, local_backend, container_backend)
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)

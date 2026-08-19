@@ -40,7 +40,7 @@ from .protocol import (
 from .registry import StubRegistry
 from .secrets import Redactor, SecretBundle, assert_no_secret_leak, open_secret_channel
 
-__all__ = ["InvocationOutcome", "invoke", "refusal_envelope", "observed_vs_declared"]
+__all__ = ["InvocationOutcome", "invoke", "observed_vs_declared", "refusal_envelope"]
 
 
 @dataclass(frozen=True)
@@ -126,9 +126,7 @@ def invoke(
         # The serialised run context must never carry credential material: that
         # is the whole point of the descriptor channel, so it is asserted rather
         # than assumed.
-        assert_no_secret_leak(
-            json.loads(context.model_dump_json()), secrets, where="run context"
-        )
+        assert_no_secret_leak(json.loads(context.model_dump_json()), secrets, where="run context")
 
         outcome = _execute(
             binding,
@@ -150,9 +148,7 @@ def invoke(
 
     redactor = Redactor(secrets)
     stderr = redactor.text(outcome.stderr.decode("utf-8", "replace"))
-    assert_no_secret_leak(
-        json.loads(envelope.model_dump_json()), secrets, where="result envelope"
-    )
+    assert_no_secret_leak(json.loads(envelope.model_dump_json()), secrets, where="result envelope")
     assert_no_secret_leak(stderr, secrets, where="provider stderr")
 
     egress = enforce_egress(

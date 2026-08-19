@@ -29,15 +29,15 @@ from .canonical import SHA256_RE, domain_digest
 from .errors import RefusalCode, refuse
 
 __all__ = [
+    "ENTRYPOINT_GROUP",
+    "MANIFEST_DOMAIN_TAG",
     "BackendKind",
+    "DistributionRef",
     "ImplementationManifest",
     "ProviderManifest",
-    "DistributionRef",
-    "MANIFEST_DOMAIN_TAG",
-    "ENTRYPOINT_GROUP",
-    "manifest_digest",
     "load_manifest",
     "load_manifest_document",
+    "manifest_digest",
 ]
 
 MANIFEST_DOMAIN_TAG = "cruxible.provider.manifest.v1"
@@ -168,7 +168,8 @@ class ProviderManifest(BaseModel):
     def canonical_payload(self) -> dict[str, Any]:
         """The manifest as a plain JSON-able mapping, for digesting/transcription."""
 
-        return json.loads(self.model_dump_json())
+        document: dict[str, Any] = json.loads(self.model_dump_json())
+        return document
 
 
 def manifest_digest(manifest: ProviderManifest) -> str:

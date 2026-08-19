@@ -1,0 +1,39 @@
+"""Implementation template for a plane provider.
+
+A provider is a callable resolved from ``module:object``. It receives a
+ProviderRunContext and returns a ProviderResult. It never parses JSON, never
+opens the secret channel itself, and never enforces its own budgets — those are
+the executor's job, and a provider doing them itself would be self-certifying.
+"""
+
+from __future__ import annotations
+
+from cruxible_provider_runtime.errors import RefusalCode
+from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
+
+
+class Implementation:
+    """One implementation of one interface."""
+
+    interface_id = "PLANE.operation"
+
+    def __call__(self, context: ProviderRunContext) -> ProviderResult:
+        # Credentials arrive already resolved, by ref:
+        #     token = context.secrets["PLANE.api_key"]
+        #
+        # Record every endpoint contacted, through whatever client this plane
+        # uses, so that declared-versus-observed is a measurement:
+        #     context.egress.record("https://api.example/v1/thing")
+        #
+        # Return one of three things, and nothing else:
+        #     ProviderResult.ok({...})                      an answer
+        #     ProviderResult.refused(RefusalCode.X, "...")  a declined answer
+        #     ProviderResult.failed("Kind", "...")          a failed attempt
+        #
+        # Output is never world-state truth. It enters a Capture under the
+        # declared CaptureContract with a contract-governed grade.
+        if not context.input:
+            return ProviderResult.refused(
+                RefusalCode.PROVIDER_DECLINED, "no input was supplied"
+            )
+        return ProviderResult.ok({"result": None, "input_bucket": context.input_bucket})

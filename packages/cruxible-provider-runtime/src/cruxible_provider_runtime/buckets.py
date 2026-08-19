@@ -43,12 +43,12 @@ from .errors import RefusalCode, refuse
 
 __all__ = [
     "BucketClass",
+    "BucketClassifier",
     "BucketDimension",
-    "BucketVocabulary",
     "BucketSelector",
+    "BucketVocabulary",
     "bucket_id",
     "parse_bucket_id",
-    "BucketClassifier",
 ]
 
 BucketClassifier = Callable[[Mapping[str, Any]], Mapping[str, str] | None]

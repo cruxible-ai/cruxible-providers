@@ -21,8 +21,8 @@ from cruxible_provider_runtime.canonical import domain_digest
 from cruxible_provider_runtime.registry import InterfaceRegistration
 
 __all__ = [
-    "INTERFACE_ID",
     "INTERFACE_DIGEST",
+    "INTERFACE_ID",
     "INTERFACE_PREIMAGE",
     "STUB_INTERFACE_DOMAIN_TAG",
     "VOCABULARY",

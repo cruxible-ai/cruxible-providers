@@ -28,7 +28,7 @@ from .canonical import sha256_hex
 from .errors import RefusalCode, refuse
 from .resolution import ResolvedDistribution
 
-__all__ = ["IndexConfig", "Transport", "TransportResponse", "ArtifactFetcher"]
+__all__ = ["ArtifactFetcher", "IndexConfig", "Transport", "TransportResponse"]
 
 
 class IndexConfig(BaseModel):

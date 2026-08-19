@@ -24,7 +24,7 @@ from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunCo
 
 from .interface import INTERFACE_ID
 
-__all__ = ["NoopEcho", "CREDENTIAL_REF"]
+__all__ = ["CREDENTIAL_REF", "NoopEcho"]
 
 CREDENTIAL_REF = "noop.dummy_credential"
 

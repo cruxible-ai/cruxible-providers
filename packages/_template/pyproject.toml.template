@@ -1,0 +1,53 @@
+# Template for a new plane package. Copy this directory to
+# packages/cruxible-provider-<plane>/, rename the placeholders, then run
+# `uv lock` inside the new directory so it gets its OWN committed lock.
+#
+# One distribution per plane is the identity unit. A single distribution with
+# extras would put one distribution sha256 under every provider's implementation
+# digest, so every release would re-digest every provider — which is exactly the
+# track-record splitting the identity split exists to prevent.
+[project]
+name = "cruxible-provider-PLANE"
+version = "0.1.0"
+description = "Cruxible provider adapters for the PLANE plane."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Cruxible maintainers" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "cruxible-provider-runtime",
+  # Plane dependencies go here. Every one of them enters this package's
+  # materialization digest and nothing else's.
+]
+
+# One entry per implementation, keyed by interface id.
+[project.entry-points."cruxible.providers"]
+"PLANE.operation" = "cruxible_provider_PLANE.provider:Implementation"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "types-pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+cruxible-provider-runtime = { path = "../cruxible-provider-runtime", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cruxible_provider_PLANE"]

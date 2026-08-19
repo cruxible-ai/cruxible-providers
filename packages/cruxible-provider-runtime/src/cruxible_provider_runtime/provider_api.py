@@ -17,7 +17,7 @@ from .egress import EgressRecorder
 from .errors import ProviderErrorPayload, Refusal, RefusalCode
 from .protocol import Budgets
 
-__all__ = ["ProviderRunContext", "ProviderResult", "Provider"]
+__all__ = ["Provider", "ProviderResult", "ProviderRunContext"]
 
 
 @dataclass(frozen=True)
@@ -66,9 +66,7 @@ class ProviderResult:
         )
 
     @classmethod
-    def refused(
-        cls, code: RefusalCode, message: str, **detail: Any
-    ) -> ProviderResult:
+    def refused(cls, code: RefusalCode, message: str, **detail: Any) -> ProviderResult:
         return cls(status="refused", refusal=Refusal(code=code, message=message, detail=detail))
 
     @classmethod

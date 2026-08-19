@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cruxible_provider_noop
 import pytest
+from cruxible_provider_noop.interface import registration
 from cruxible_provider_runtime.artifact import (
     ContainerBackendPin,
     DistributionPin,
@@ -30,15 +32,17 @@ from cruxible_provider_runtime.digests import materialization_digest
 from cruxible_provider_runtime.index import ArtifactFetcher, IndexConfig
 from cruxible_provider_runtime.manifest import ProviderManifest, load_manifest, manifest_digest
 from cruxible_provider_runtime.registry import StubRegistry
-from cruxible_provider_runtime.resolution import MarkerEnvironment, ResolvedSet, load_uv_lock, resolve
+from cruxible_provider_runtime.resolution import (
+    MarkerEnvironment,
+    ResolvedSet,
+    load_uv_lock,
+    resolve,
+)
 from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
 )
-
-import cruxible_provider_noop
-from cruxible_provider_noop.interface import registration
 
 PACKAGE_DIR = Path(cruxible_provider_noop.__file__).resolve().parent.parent.parent
 REPO_ROOT = PACKAGE_DIR.parent.parent
@@ -101,9 +105,7 @@ def accepted_artifact(
         distribution=DistributionPin(
             name=manifest.distribution.name,
             version=manifest.distribution.version,
-            filename=(
-                f"cruxible_provider_noop-{manifest.distribution.version}-py3-none-any.whl"
-            ),
+            filename=(f"cruxible_provider_noop-{manifest.distribution.version}-py3-none-any.whl"),
             sha256=DISTRIBUTION_SHA256,
             index_url="https://index.example/simple",
             url=(

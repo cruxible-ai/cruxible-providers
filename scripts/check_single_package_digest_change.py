@@ -18,9 +18,9 @@ commits.
 from __future__ import annotations
 
 import argparse
-import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -30,23 +30,12 @@ sys.path.insert(0, str(REPO_ROOT))
 from scripts.materialization_digests import compute, load_environments  # noqa: E402
 
 
-def _git(repo: Path, *args: str) -> str:
-    result = subprocess.run(  # noqa: S603 - fixed argv
-        ["git", *args],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout
-
-
 def _materialize_base(repo: Path, base: str, target: Path) -> None:
     """Extract the base revision's tree into ``target`` with ``git archive``."""
 
     archive = target / "base.tar"
     with archive.open("wb") as handle:
-        subprocess.run(  # noqa: S603 - fixed argv
+        subprocess.run(
             ["git", "archive", "--format=tar", base],
             cwd=repo,
             check=True,
@@ -54,7 +43,11 @@ def _materialize_base(repo: Path, base: str, target: Path) -> None:
         )
     extracted = target / "tree"
     extracted.mkdir()
-    shutil.unpack_archive(str(archive), str(extracted), format="tar")
+    with tarfile.open(archive) as tar:
+        if hasattr(tarfile, "data_filter"):
+            tar.extractall(extracted, filter="data")
+        else:  # pragma: no cover - only on interpreters without the tar filters
+            tar.extractall(extracted)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,9 +71,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         base = compute(target / "tree", environments)
 
-    changed = sorted(
-        name for name in set(head) | set(base) if head.get(name) != base.get(name)
-    )
+    changed = sorted(name for name in set(head) | set(base) if head.get(name) != base.get(name))
     for name in sorted(set(head) | set(base)):
         state = "CHANGED" if name in changed else "unchanged"
         print(f"{state:>9}  {name}")

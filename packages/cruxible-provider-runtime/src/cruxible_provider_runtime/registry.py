@@ -35,8 +35,8 @@ from .errors import RefusalCode, refuse
 __all__ = [
     "InterfaceRegistration",
     "StubRegistry",
-    "load_bucket_vocabulary",
     "load_bucket_vocabularies",
+    "load_bucket_vocabulary",
 ]
 
 
@@ -52,7 +52,9 @@ class InterfaceRegistration:
 
     def __post_init__(self) -> None:
         if not SHA256_RE.match(self.interface_digest):
-            raise ValueError(f"interface_digest must be sha256:<hex>, got {self.interface_digest!r}")
+            raise ValueError(
+                f"interface_digest must be sha256:<hex>, got {self.interface_digest!r}"
+            )
         if self.bucket_vocabulary.interface_id != self.interface_id:
             raise ValueError(
                 "bucket vocabulary belongs to interface "
@@ -72,7 +74,9 @@ class StubRegistry:
     def register_interface(self, registration: InterfaceRegistration) -> None:
         self.interfaces[registration.interface_id] = registration
 
-    def interface(self, interface_id: str, interface_digest: str | None = None) -> InterfaceRegistration:
+    def interface(
+        self, interface_id: str, interface_digest: str | None = None
+    ) -> InterfaceRegistration:
         try:
             registration = self.interfaces[interface_id]
         except KeyError:

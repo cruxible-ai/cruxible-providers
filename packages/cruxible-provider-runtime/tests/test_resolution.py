@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.resolution import MarkerEnvironment, UvLock, resolve
 
@@ -139,7 +138,7 @@ def test_ambiguous_fork_refuses(linux_env: MarkerEnvironment) -> None:
 
 
 def test_resolution_markers_disambiguate_a_fork(
-    marker_environments: dict[str, MarkerEnvironment]
+    marker_environments: dict[str, MarkerEnvironment],
 ) -> None:
     def entry(version: str, marker: str, digest_char: str) -> dict[str, object]:
         return {

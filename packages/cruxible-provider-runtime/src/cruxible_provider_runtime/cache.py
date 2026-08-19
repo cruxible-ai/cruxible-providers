@@ -28,7 +28,7 @@ from typing import Any
 from .canonical import SHA256_RE
 from .errors import RefusalCode, refuse
 
-__all__ = ["MaterializationCache", "SEAL_FILENAME", "tree_digest"]
+__all__ = ["SEAL_FILENAME", "MaterializationCache", "tree_digest"]
 
 SEAL_FILENAME = ".cruxible-seal.json"
 SEAL_VERSION = 1
@@ -206,9 +206,7 @@ class MaterializationCache:
 
     # -- the bind path -----------------------------------------------------
 
-    def get_or_materialize(
-        self, materialization_digest: str, builder: EnvironmentBuilder
-    ) -> Path:
+    def get_or_materialize(self, materialization_digest: str, builder: EnvironmentBuilder) -> Path:
         """Return a verified cache entry, materializing it once if absent.
 
         Concurrent binds contend on a per-digest lock: exactly one materializes,
@@ -230,9 +228,7 @@ class MaterializationCache:
                     return self.verify(materialization_digest)
                 except Exception:
                     shutil.rmtree(path, ignore_errors=True)
-            staging = Path(
-                tempfile.mkdtemp(prefix=".staging-", dir=str(self._root))
-            )
+            staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=str(self._root)))
             try:
                 os.chmod(staging, 0o700)
                 builder(staging)

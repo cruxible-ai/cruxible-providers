@@ -1,0 +1,149 @@
+name: ci
+
+# There is no remote yet. This file is committed anyway because the lanes it
+# names ARE the batch's acceptance surface, and a lane that exists only in a
+# reviewer's head is a lane that does not run.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  UV_VERSION: "0.8.13"
+
+jobs:
+  test:
+    name: pytest (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --python ${{ matrix.python-version }}
+      - name: Run the conformance suite
+        run: uv run --python ${{ matrix.python-version }} pytest -q
+
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  typecheck:
+    name: mypy (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [cruxible-provider-runtime, cruxible-provider-noop]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync
+      - name: Typecheck one package's sources
+        run: uv run mypy packages/${{ matrix.package }}/src
+
+  digest-goldens:
+    name: digest goldens
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync
+      - name: Assert the goldens still hold
+        run: uv run pytest packages/cruxible-provider-runtime/tests/test_digests_golden.py -q
+      - name: Assert regeneration is a no-op
+        # A moved digest golden re-keys every track record pinned to the old
+        # value. Regenerating in CI and finding a diff means the preimage moved
+        # without anyone saying so.
+        run: |
+          uv run python scripts/regenerate_digest_goldens.py
+          git diff --exit-code -- packages/cruxible-provider-runtime/tests/fixtures/golden
+
+  egress-conformance:
+    name: egress conformance (no network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync
+      - name: Assert declared == observed with outbound sockets blocked
+        # The lane's guard is in-process (cruxible_provider_runtime.egress.no_network).
+        # A future runner-level network sandbox would strengthen it; it would not
+        # change what is being asserted.
+        run: uv run pytest -q -m egress_conformance
+
+  packaging:
+    name: packaging invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync
+      - name: Assert each package's lock is current
+        run: |
+          for package in packages/*/; do
+            if [ -f "$package/uv.lock" ]; then
+              uv lock --check --directory "$package"
+            fi
+          done
+      - name: Assert a change moves at most one package's materialization digest
+        run: |
+          uv run python scripts/check_single_package_digest_change.py \
+            --base "${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+      - name: Report the per-package materialization digests
+        run: uv run python scripts/materialization_digests.py
+
+  licenses:
+    name: licenses and SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: anchore/sbom-action/download-syft@v0
+      - name: Assert every package ships Apache-2.0 and a NOTICE
+        run: |
+          for package in packages/*/; do
+            test -f "$package/LICENSE" || { echo "$package has no LICENSE"; exit 1; }
+            test -f "$package/NOTICE" || { echo "$package has no NOTICE"; exit 1; }
+            grep -q "Apache License" "$package/LICENSE" || {
+              echo "$package/LICENSE is not Apache-2.0"; exit 1;
+            }
+          done
+      - name: Produce one SBOM per package
+        run: |
+          mkdir -p sbom
+          for package in packages/*/; do
+            name="$(basename "$package")"
+            syft scan "dir:$package" -o cyclonedx-json="sbom/$name.cdx.json"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/

@@ -7,7 +7,6 @@ misbehave in the four ways the contract names.
 from __future__ import annotations
 
 import pytest
-
 from cruxible_provider_runtime.canonical import sha256_hex
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.index import ArtifactFetcher, IndexConfig

@@ -16,6 +16,7 @@ inherit, and out of everything that gets persisted — but it is not containment
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from collections.abc import Iterator, Mapping
@@ -25,12 +26,12 @@ from typing import Any
 from .errors import RefusalCode, refuse
 
 __all__ = [
+    "REDACTION_PLACEHOLDER",
+    "Redactor",
     "SecretBundle",
+    "assert_no_secret_leak",
     "open_secret_channel",
     "read_secrets",
-    "Redactor",
-    "assert_no_secret_leak",
-    "REDACTION_PLACEHOLDER",
 ]
 
 REDACTION_PLACEHOLDER = "[redacted]"
@@ -60,10 +61,8 @@ def open_secret_channel(secrets: SecretBundle) -> Iterator[int]:
     finally:
         if write_fd != -1:
             os.close(write_fd)
-        try:
+        with contextlib.suppress(OSError):
             os.close(read_fd)
-        except OSError:
-            pass
 
 
 def read_secrets(fd: int) -> dict[str, str]:
@@ -101,9 +100,7 @@ class Redactor:
 
     def __init__(self, secrets: SecretBundle) -> None:
         # Longest first, so an overlapping shorter value cannot leave a tail.
-        self._values = sorted(
-            {value for value in secrets.values() if value}, key=len, reverse=True
-        )
+        self._values = sorted({value for value in secrets.values() if value}, key=len, reverse=True)
 
     def text(self, value: str) -> str:
         for secret in self._values:

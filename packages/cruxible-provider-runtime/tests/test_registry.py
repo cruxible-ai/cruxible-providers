@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-
 from cruxible_provider_runtime.artifact import (
     DistributionPin,
     LocalEnvBackendPin,

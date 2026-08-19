@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from cruxible_provider_runtime.digests import (
     IMPLEMENTATION_DOMAIN_TAG,
     MATERIALIZATION_DOMAIN_TAG,
@@ -25,28 +24,13 @@ from cruxible_provider_runtime.digests import (
 )
 from cruxible_provider_runtime.resolution import MarkerEnvironment, UvLock, resolve
 
-GOLDEN_PATH = Path(__file__).parent / "fixtures" / "golden" / "expected-digests.json"
+GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"
+GOLDEN_PATH = GOLDEN_DIR / "expected-digests.json"
+CASES_PATH = GOLDEN_DIR / "implementation-cases.json"
 
-IMPLEMENTATION_CASES = {
-    "sample-echo": {
-        "interface_id": "sample.echo",
-        "interface_digest": "sha256:" + "1a" * 32,
-        "entrypoint": "sample_provider.impl:Echo",
-        "distribution_sha256": "sha256:" + "2b" * 32,
-    },
-    "sample-echo-other-entrypoint": {
-        "interface_id": "sample.echo",
-        "interface_digest": "sha256:" + "1a" * 32,
-        "entrypoint": "sample_provider.impl:EchoFast",
-        "distribution_sha256": "sha256:" + "2b" * 32,
-    },
-    "sample-echo-other-distribution": {
-        "interface_id": "sample.echo",
-        "interface_digest": "sha256:" + "1a" * 32,
-        "entrypoint": "sample_provider.impl:Echo",
-        "distribution_sha256": "sha256:" + "3c" * 32,
-    },
-}
+IMPLEMENTATION_CASES: dict[str, dict[str, str]] = json.loads(
+    CASES_PATH.read_text(encoding="utf-8")
+)["cases"]
 
 
 @pytest.fixture(scope="session")

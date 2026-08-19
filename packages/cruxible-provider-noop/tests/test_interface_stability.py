@@ -5,15 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, load_manifest
-
 from cruxible_provider_noop import interface
+from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, load_manifest
 
 
 def test_the_pinned_interface_digest_still_matches_its_preimage() -> None:
     """A literal digest that no longer matches its preimage is drift, not a typo."""
 
-    assert interface.INTERFACE_DIGEST == interface.recompute_interface_digest()
+    assert interface.recompute_interface_digest() == interface.INTERFACE_DIGEST
 
 
 def test_the_manifest_pins_the_same_interface_digest(manifest_path: Path) -> None:

@@ -215,12 +215,7 @@ def _select_entry(
 
 
 def _expand_wheel_tags(py: str, abi: str, plat: str) -> set[str]:
-    return {
-        f"{p}-{a}-{t}"
-        for p in py.split(".")
-        for a in abi.split(".")
-        for t in plat.split(".")
-    }
+    return {f"{p}-{a}-{t}" for p in py.split(".") for a in abi.split(".") for t in plat.split(".")}
 
 
 def _artifact_hash(entry: dict[str, Any], name: str) -> str:
@@ -242,9 +237,7 @@ def _artifact_hash(entry: dict[str, Any], name: str) -> str:
         ) from exc
 
 
-def _pick_artifact(
-    package: dict[str, Any], env: MarkerEnvironment
-) -> ResolvedDistribution | None:
+def _pick_artifact(package: dict[str, Any], env: MarkerEnvironment) -> ResolvedDistribution | None:
     name = str(package["name"])
     version = str(package["version"])
     best: tuple[int, str, dict[str, Any]] | None = None

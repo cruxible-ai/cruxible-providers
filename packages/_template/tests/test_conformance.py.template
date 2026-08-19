@@ -1,0 +1,33 @@
+"""Conformance skeleton for a plane package.
+
+Every plane package inherits the same suite. The reference no-op provider's
+tests are the worked version of this file — copy from
+packages/cruxible-provider-noop/tests/ and replace the interface, the payloads,
+and the fixtures.
+
+The obligations, in the order the contract states them:
+
+1.  bind refuses without an accepted artifact (unaccepted_provider);
+2.  bind refuses when the package manifest diverges from the accepted artifact
+    (manifest_divergence), and when it carries an unknown field
+    (unknown_manifest_field);
+3.  bind refuses an interface the manifest does not declare
+    (undeclared_interface) and a digest the registry does not hold
+    (interface_digest_mismatch);
+4.  bind refuses an unsupported protocol major (unsupported_protocol) and an
+    unsupported backend kind (unsupported_backend);
+5.  registration refuses a claimed bucket with no conformance fixture
+    (bucket_fixture_missing);
+6.  bind refuses a lock that resolves away from the accepted pin (lock_mismatch);
+7.  invoke refuses an input classifying into an unclaimed bucket
+    (unclaimed_bucket) before any process starts;
+8.  a budget breach is a refusal, not a provider error
+    (budget_wall_clock, budget_output_size);
+9.  a contacted endpoint outside the declaration refuses (undeclared_egress);
+10. credential material appears in no argv, no environment block, no cache file,
+    no digest preimage, and no trace — including when the provider tries;
+11. success, typed refusal, and error paths all work on BOTH backend kinds;
+12. one per-bucket fixture per claimed bucket, each of which actually passes.
+
+No test may require a network or a container engine.
+"""

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
-from cruxible_provider_runtime.binding import BindRequest, Binding, bind
+from cruxible_provider_runtime.binding import Binding, BindRequest, bind
 from cruxible_provider_runtime.egress import compare_egress, no_network
 from cruxible_provider_runtime.execute import invoke, observed_vs_declared
 from cruxible_provider_runtime.manifest import BackendKind, load_manifest

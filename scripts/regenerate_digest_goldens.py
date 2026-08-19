@@ -16,7 +16,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TESTS = REPO_ROOT / "packages" / "cruxible-provider-runtime" / "tests"
-sys.path.insert(0, str(TESTS))
 sys.path.insert(0, str(REPO_ROOT / "packages" / "cruxible-provider-runtime" / "src"))
 
 from cruxible_provider_runtime.digests import (  # noqa: E402
@@ -28,12 +27,14 @@ from cruxible_provider_runtime.resolution import (  # noqa: E402
     load_uv_lock,
     resolve,
 )
-from test_digests_golden import IMPLEMENTATION_CASES  # noqa: E402
 
 GOLDEN_DIR = TESTS / "fixtures" / "golden"
 
 
 def main() -> int:
+    cases: dict[str, dict[str, str]] = json.loads(
+        (GOLDEN_DIR / "implementation-cases.json").read_text(encoding="utf-8")
+    )["cases"]
     lock = load_uv_lock(GOLDEN_DIR / "sample.uv.lock")
     environments = {
         key: MarkerEnvironment.model_validate(value)
@@ -43,7 +44,7 @@ def main() -> int:
     }
     document = {
         "implementation": {
-            name: implementation_digest(**case) for name, case in sorted(IMPLEMENTATION_CASES.items())
+            name: implementation_digest(**case) for name, case in sorted(cases.items())
         },
         "materialization": {
             env_id: materialization_digest(resolve(lock, "sample-provider", env))

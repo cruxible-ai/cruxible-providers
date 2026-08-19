@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "BucketClass": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "description"
+      ],
+      "title": "BucketClass",
+      "type": "object"
+    },
+    "BucketDimension": {
+      "additionalProperties": false,
+      "properties": {
+        "classes": {
+          "items": {
+            "$ref": "#/$defs/BucketClass"
+          },
+          "title": "Classes",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "classes"
+      ],
+      "title": "BucketDimension",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The registered bucket vocabulary for one interface.",
+  "properties": {
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "dimensions": {
+      "items": {
+        "$ref": "#/$defs/BucketDimension"
+      },
+      "title": "Dimensions",
+      "type": "array"
+    },
+    "interface_id": {
+      "title": "Interface Id",
+      "type": "string"
+    },
+    "status": {
+      "default": "draft",
+      "enum": [
+        "draft",
+        "accepted"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "version": {
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "interface_id",
+    "dimensions"
+  ],
+  "title": "BucketVocabulary",
+  "type": "object"
+}

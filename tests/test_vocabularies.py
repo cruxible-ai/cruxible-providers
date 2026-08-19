@@ -1,0 +1,154 @@
+"""The launch bucket vocabularies, as data.
+
+RP-0 ships the format and the launch vocabularies; core registers them. These
+tests are what "ships as data" has to mean if it is to mean anything: the files
+parse under the published schema, they are internally consistent, and they are
+honestly marked draft.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+from cruxible_provider_runtime.buckets import BucketVocabulary
+from cruxible_provider_runtime.registry import load_bucket_vocabularies, load_bucket_vocabulary
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+VOCAB_DIR = REPO_ROOT / "vocab"
+INTERFACES = VOCAB_DIR / "interfaces"
+SCHEMA_PATH = VOCAB_DIR / "bucket-vocabulary.schema.json"
+
+LAUNCH_INTERFACES = {
+    "calc.calibrate",
+    "calc.reduce",
+    "db.cdc_read",
+    "db.row_select",
+    "doc.to_markdown",
+    "effect.notify",
+    "feed.fetch",
+    "match.record",
+    "match.semantic",
+    "ocr.extract",
+    "sbom.parse",
+    "score.rank",
+    "search.web",
+    "stat.test",
+    "text.classify",
+    "text.extract_structured",
+    "ts.anomaly",
+    "ts.forecast",
+    "vcs.events",
+    "web.fetch",
+}
+
+QUANTITATIVE = {
+    "calc.calibrate",
+    "calc.reduce",
+    "match.record",
+    "score.rank",
+    "stat.test",
+    "ts.anomaly",
+    "ts.forecast",
+}
+
+DOCUMENT_SLOTS = {"doc.to_markdown", "ocr.extract"}
+
+VOCABULARY_FILES = sorted(INTERFACES.glob("*.yaml"))
+
+
+def test_every_launch_interface_has_a_vocabulary() -> None:
+    loaded = load_bucket_vocabularies(INTERFACES)
+    assert set(loaded) == LAUNCH_INTERFACES
+
+
+@pytest.mark.parametrize("path", VOCABULARY_FILES, ids=lambda p: p.stem)
+def test_vocabulary_parses(path: Path) -> None:
+    vocabulary = load_bucket_vocabulary(path)
+    assert vocabulary.interface_id == path.stem
+
+
+@pytest.mark.parametrize("path", VOCABULARY_FILES, ids=lambda p: p.stem)
+def test_vocabulary_is_marked_draft(path: Path) -> None:
+    """Acceptance happens in core. Nothing here may pre-declare itself accepted."""
+
+    assert load_bucket_vocabulary(path).status == "draft"
+
+
+@pytest.mark.parametrize("path", VOCABULARY_FILES, ids=lambda p: p.stem)
+def test_every_class_carries_a_description(path: Path) -> None:
+    vocabulary = load_bucket_vocabulary(path)
+    assert vocabulary.description.strip()
+    for dimension in vocabulary.dimensions:
+        assert dimension.description.strip()
+        for bucket_class in dimension.classes:
+            assert bucket_class.description.strip(), (
+                f"{path.stem}/{dimension.name}/{bucket_class.id} has no description; "
+                "an undescribed class is a class nobody can classify into consistently"
+            )
+
+
+@pytest.mark.parametrize("path", VOCABULARY_FILES, ids=lambda p: p.stem)
+def test_every_bucket_id_round_trips(path: Path) -> None:
+    vocabulary = load_bucket_vocabulary(path)
+    for bucket in vocabulary.all_bucket_ids():
+        assignment = dict(segment.split("=", 1) for segment in bucket.split(";"))
+        assert vocabulary.bucket_id(assignment) == bucket
+
+
+@pytest.mark.parametrize("interface_id", sorted(QUANTITATIVE))
+def test_quantitative_slots_carry_the_most_detail(interface_id: str) -> None:
+    """The quant slots are where narrow ML will later compete on the same key."""
+
+    vocabulary = load_bucket_vocabulary(INTERFACES / f"{interface_id}.yaml")
+    assert len(vocabulary.dimensions) >= 4, (
+        f"{interface_id} has {len(vocabulary.dimensions)} dimensions; a quantitative "
+        "slot too coarse to separate competence hides the comparison it exists for"
+    )
+
+
+@pytest.mark.parametrize("interface_id", sorted({"ts.anomaly", "ts.forecast"}))
+def test_series_slots_declare_frequency_length_and_domain(interface_id: str) -> None:
+    vocabulary = load_bucket_vocabulary(INTERFACES / f"{interface_id}.yaml")
+    assert {"frequency", "series_length", "domain_class"} <= set(vocabulary.dimension_names)
+
+
+@pytest.mark.parametrize("interface_id", sorted(DOCUMENT_SLOTS))
+def test_document_slots_declare_format_scan_and_page_count(interface_id: str) -> None:
+    vocabulary = load_bucket_vocabulary(INTERFACES / f"{interface_id}.yaml")
+    names = set(vocabulary.dimension_names)
+    assert "page_count" in names
+    assert "layout" in names
+    assert names & {"format", "scanned", "scan_quality", "script"}
+
+
+def test_cube_sizes_stay_bounded() -> None:
+    """A ceiling on the cube, not on what gets fixtured.
+
+    Conformance fixtures are required per declared *selector*, and a selector
+    may wildcard whole dimensions — so a large cube is not automatically a large
+    fixture burden. What a large cube does mean is that enumeration stops being
+    a review tool, so the ceiling is set where an accidental dimension explosion
+    would trip it and a deliberately detailed quantitative slot would not.
+    """
+
+    for path in VOCABULARY_FILES:
+        vocabulary = load_bucket_vocabulary(path)
+        size = len(vocabulary.all_bucket_ids())
+        assert size <= 5000, f"{path.stem} enumerates {size} buckets"
+
+
+def test_the_published_schema_matches_the_model() -> None:
+    """The schema file is the format; drifting from the model would be a lie."""
+
+    import json
+
+    published = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    assert published == BucketVocabulary.model_json_schema()
+
+
+def test_the_stub_vocabulary_lives_apart_from_the_launch_set() -> None:
+    stub = yaml.safe_load((VOCAB_DIR / "stub" / "noop.echo.yaml").read_text(encoding="utf-8"))
+    assert stub["interface_id"] == "noop.echo"
+    assert "noop.echo" not in LAUNCH_INTERFACES

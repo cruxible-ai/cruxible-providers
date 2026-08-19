@@ -16,7 +16,7 @@ schemas and a conformance harness against a stub registry. See
 from __future__ import annotations
 
 from .artifact import ProviderArtifactPayload, artifact_digest, load_provider_artifact
-from .binding import BindRequest, Binding, bind
+from .binding import Binding, BindRequest, bind
 from .buckets import BucketDimension, BucketSelector, BucketVocabulary
 from .budget import ProcessOutcome, run_with_budget
 from .cache import MaterializationCache

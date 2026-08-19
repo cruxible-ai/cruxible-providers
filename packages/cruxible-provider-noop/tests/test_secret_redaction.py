@@ -12,16 +12,15 @@ import json
 from pathlib import Path
 
 import pytest
+from cruxible_provider_noop.provider import CREDENTIAL_REF
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
-from cruxible_provider_runtime.binding import BindRequest, Binding, bind
+from cruxible_provider_runtime.binding import Binding, BindRequest, bind
 from cruxible_provider_runtime.cache import MaterializationCache
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_runtime.secrets import REDACTION_PLACEHOLDER
-
-from cruxible_provider_noop.provider import CREDENTIAL_REF
 
 from .conftest import MARKER_ENVIRONMENT
 

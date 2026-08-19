@@ -18,11 +18,11 @@ import re
 from typing import Any
 
 __all__ = [
+    "SHA256_RE",
     "canonical_json",
     "domain_digest",
-    "sha256_hex",
     "normalize_sha256",
-    "SHA256_RE",
+    "sha256_hex",
 ]
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")

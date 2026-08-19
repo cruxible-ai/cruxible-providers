@@ -32,11 +32,11 @@ from .resolution import MarkerEnvironment, ResolvedSet
 __all__ = [
     "IMPLEMENTATION_DOMAIN_TAG",
     "MATERIALIZATION_DOMAIN_TAG",
+    "container_materialization_digest",
     "implementation_digest",
     "implementation_preimage",
     "materialization_digest",
     "materialization_preimage",
-    "container_materialization_digest",
 ]
 
 IMPLEMENTATION_DOMAIN_TAG = "cruxible.provider.implementation.v1"

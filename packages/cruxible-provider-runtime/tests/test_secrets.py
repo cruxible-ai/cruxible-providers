@@ -6,7 +6,6 @@ import json
 import os
 
 import pytest
-
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.secrets import (
     REDACTION_PLACEHOLDER,
@@ -67,9 +66,7 @@ def test_redactor_prefers_longer_values_so_no_tail_survives() -> None:
 
 def test_assert_no_secret_leak_refuses() -> None:
     with pytest.raises(RefusalError) as exc:
-        assert_no_secret_leak(
-            {"leaked": "dummy-credential-9f3c1a"}, DUMMY, where="result envelope"
-        )
+        assert_no_secret_leak({"leaked": "dummy-credential-9f3c1a"}, DUMMY, where="result envelope")
     assert exc.value.code is RefusalCode.SECRET_LEAK
     assert exc.value.refusal.detail["refs"] == ["provider.api_key"]
 
