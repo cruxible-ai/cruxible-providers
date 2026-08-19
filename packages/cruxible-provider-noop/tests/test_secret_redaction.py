@@ -24,7 +24,9 @@ from cruxible_provider_runtime.secrets import REDACTION_PLACEHOLDER
 
 from .conftest import MARKER_ENVIRONMENT
 
-DUMMY_CREDENTIAL = "dummy-credential-c0ffee-do-not-use"
+# Deliberately hostile: a quote, a backslash, a newline, and non-ASCII, all of
+# which the original JSON-substring leak detector failed to see.
+DUMMY_CREDENTIAL = 'dummy"cred\\ential\nc0ffee-ünïcode-do-not-use'
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=4_000_000)
 BACKENDS: tuple[BackendKind, ...] = ("local_env", "container")
 
@@ -48,6 +50,7 @@ def binding(
             manifest_path=manifest_path,
             lock_path=lock_path,
             marker_environment=MARKER_ENVIRONMENT,
+            allow_editable_dev_sources=True,
         ),
         local_backend=local_backend,
         container_backend=container_backend,
@@ -174,3 +177,33 @@ def test_the_credential_never_reaches_a_digest_preimage(
         }
     )
     assert DUMMY_CREDENTIAL not in rendered
+
+
+@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
+def test_the_credential_never_reaches_a_provider_context_repr(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """``repr`` mode makes the provider print its own run context.
+
+    A dataclass repr is what a traceback, a log line, and a debugger transcript
+    all reach for, and the default one printed every credential the run held.
+    """
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "context_repr"},
+        budgets=BUDGETS,
+        secrets={CREDENTIAL_REF: DUMMY_CREDENTIAL},
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "ok"
+    assert outcome.envelope.output is not None
+    rendered = outcome.envelope.output["context_repr"]
+    assert DUMMY_CREDENTIAL not in rendered
+    assert "secrets" not in rendered
+    assert DUMMY_CREDENTIAL not in outcome.stderr

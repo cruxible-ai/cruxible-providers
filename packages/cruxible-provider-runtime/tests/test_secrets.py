@@ -73,3 +73,78 @@ def test_assert_no_secret_leak_refuses() -> None:
 
 def test_assert_no_secret_leak_passes_on_clean_payload() -> None:
     assert_no_secret_leak({"clean": "nothing here"}, DUMMY, where="result envelope")
+
+
+# Credentials that broke the original JSON-substring detector. A real secret may
+# contain any of these, and a detector that fails on exactly the values an
+# attacker would pick is worse than none, because it reads as coverage.
+HOSTILE_CREDENTIALS = [
+    pytest.param('quote"inside', id="double-quote"),
+    pytest.param("back\\slash", id="backslash"),
+    pytest.param("line\nbreak", id="newline"),
+    pytest.param("tab\there", id="tab"),
+    pytest.param("ünïcode-Ω-値", id="non-ascii"),
+    pytest.param("emoji-\U0001f511-key", id="astral"),
+    pytest.param('{"looks":"like json"}', id="json-shaped"),
+]
+
+
+@pytest.mark.parametrize("credential", HOSTILE_CREDENTIALS)
+def test_leak_detection_survives_hostile_credentials(credential: str) -> None:
+    secrets = {"provider.api_key": credential}
+    assert Redactor(secrets).leaks({"trace": {"note": credential}}) == [credential]
+    with pytest.raises(RefusalError) as exc:
+        assert_no_secret_leak({"leaked": credential}, secrets, where="result envelope")
+    assert exc.value.code is RefusalCode.SECRET_LEAK
+
+
+@pytest.mark.parametrize("credential", HOSTILE_CREDENTIALS)
+def test_redaction_survives_hostile_credentials(credential: str) -> None:
+    secrets = {"provider.api_key": credential}
+    redactor = Redactor(secrets)
+    scrubbed = redactor.scrub(
+        {"a": credential, credential: ["x", credential], "b": {"c": credential}}
+    )
+    assert redactor.leaks(scrubbed) == []
+
+
+@pytest.mark.parametrize("credential", HOSTILE_CREDENTIALS)
+def test_hostile_credentials_round_trip_through_the_channel(credential: str) -> None:
+    secrets = {"provider.api_key": credential}
+    with open_secret_channel(secrets) as fd:
+        assert read_secrets(os.dup(fd)) == secrets
+
+
+def test_leak_detection_reaches_inside_bytes() -> None:
+    """Trace material is not always ``str``; a bytes blob leaks just as well."""
+
+    secrets = {"provider.api_key": "dummy-credential-9f3c1a"}
+    assert Redactor(secrets).leaks({"blob": b"prefix dummy-credential-9f3c1a suffix"})
+    assert Redactor(secrets).leaks({"blob": bytearray(b"dummy-credential-9f3c1a")})
+
+
+def test_bytes_are_scrubbed_not_merely_detected() -> None:
+    secrets = {"provider.api_key": "dummy-credential-9f3c1a"}
+    redactor = Redactor(secrets)
+    scrubbed = redactor.scrub({"blob": b"x dummy-credential-9f3c1a y"})
+    assert redactor.leaks(scrubbed) == []
+
+
+def test_leak_detection_reaches_inside_sets_and_objects() -> None:
+    secrets = {"provider.api_key": "dummy-credential-9f3c1a"}
+    redactor = Redactor(secrets)
+    assert redactor.leaks({"s": {"dummy-credential-9f3c1a"}})
+
+    class Opaque:
+        def __repr__(self) -> str:
+            return "Opaque(token='dummy-credential-9f3c1a')"
+
+    assert redactor.leaks({"o": Opaque()})
+
+
+def test_a_clean_payload_is_still_clean() -> None:
+    """The detector must not have become one that fires on everything."""
+
+    secrets = {"provider.api_key": "dummy-credential-9f3c1a"}
+    redactor = Redactor(secrets)
+    assert redactor.leaks({"a": "nothing", "b": [1, 2.5, None, True], "c": b"bytes"}) == []

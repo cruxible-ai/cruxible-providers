@@ -118,11 +118,51 @@ class Redactor:
             return [self.scrub(item) for item in value]
         if isinstance(value, tuple):
             return tuple(self.scrub(item) for item in value)
+        if isinstance(value, (bytes, bytearray)):
+            scrubbed = bytes(value)
+            for secret in self._values:
+                scrubbed = scrubbed.replace(
+                    secret.encode("utf-8", "surrogatepass"),
+                    REDACTION_PLACEHOLDER.encode("utf-8"),
+                )
+            return scrubbed
         return value
 
     def leaks(self, value: Any) -> list[str]:
-        rendered = json.dumps(value, default=str)
-        return [secret for secret in self._values if secret in rendered]
+        """Which credential values survive anywhere inside ``value``.
+
+        The walk is structural, mirroring :meth:`scrub`. An earlier version
+        serialised to JSON and substring-searched the result, which silently
+        missed every credential containing a character JSON escapes — a quote, a
+        backslash, a newline — and every non-ASCII credential, because
+        ``json.dumps`` escapes those by default. A detector that fails on
+        exactly the values an attacker would choose is worse than no detector,
+        because it reads as coverage.
+        """
+
+        found: list[str] = []
+        for secret in self._values:
+            if self._contains(value, secret):
+                found.append(secret)
+        return found
+
+    def _contains(self, value: Any, secret: str) -> bool:
+        if isinstance(value, str):
+            return secret in value
+        if isinstance(value, dict):
+            return any(
+                self._contains(key, secret) or self._contains(item, secret)
+                for key, item in value.items()
+            )
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return any(self._contains(item, secret) for item in value)
+        if isinstance(value, (bytes, bytearray)):
+            return secret.encode("utf-8", "surrogatepass") in bytes(value)
+        if value is None or isinstance(value, (bool, int, float)):
+            return False
+        # Anything else is compared by its own repr, which is what would end up
+        # in exhaust if it were serialised with a fallback encoder.
+        return secret in repr(value)
 
 
 def assert_no_secret_leak(payload: Any, secrets: SecretBundle, *, where: str) -> None:

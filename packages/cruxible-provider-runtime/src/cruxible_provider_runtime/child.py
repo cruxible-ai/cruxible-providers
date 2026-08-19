@@ -18,7 +18,7 @@ import sys
 from typing import Any
 
 from .egress import EgressRecorder
-from .errors import RefusalCode, RefusalError, refuse
+from .errors import ProviderErrorPayload, RefusalCode, RefusalError, refuse
 from .protocol import PROTOCOL_VERSION, ProtocolVersion, ResultEnvelope, Trace, parse_run_context
 from .provider_api import ProviderResult, ProviderRunContext
 from .secrets import Redactor, read_secrets
@@ -70,7 +70,7 @@ def _envelope(run_id: str, result: ProviderResult, trace: Trace) -> ResultEnvelo
     return ResultEnvelope(
         protocol_version=PROTOCOL_VERSION.render(),
         run_id=run_id,
-        status=result.status,  # type: ignore[arg-type]
+        status=result.status,
         output=result.output,
         refusal=result.refusal,
         error=result.error,
@@ -157,11 +157,7 @@ def main(argv: list[str] | None = None) -> int:
             protocol_version=PROTOCOL_VERSION.render(),
             run_id=run_id,
             status="error",
-            error={  # type: ignore[arg-type]
-                "kind": type(exc).__name__,
-                "message": str(exc),
-                "detail": {},
-            },
+            error=ProviderErrorPayload(kind=type(exc).__name__, message=str(exc)),
         )
 
     redactor = Redactor(secrets)
