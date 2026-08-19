@@ -1,0 +1,36 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: vcs.events
+version: 1
+status: draft
+description: >-
+  Read repository events. History depth is its own dimension because an adapter
+  that can read recent events cheaply may not be able to walk a full history at
+  all.
+dimensions:
+  - name: host_kind
+    description: where the repository lives and how events are obtained
+    classes:
+      - id: git_local
+        description: a local clone read with ordinary git tooling
+      - id: forge_api
+        description: a hosted forge's events or activity API
+      - id: webhook
+        description: events delivered to the instance rather than pulled
+  - name: event_volume
+    description: events in the requested window
+    classes:
+      - id: small
+        description: at most 100 events
+      - id: medium
+        description: more than 100 and at most 10000 events
+      - id: large
+        description: more than 10000 events
+  - name: history_depth
+    description: how far back the read must reach
+    classes:
+      - id: shallow
+        description: since the last read
+      - id: bounded
+        description: a fixed window, such as a release range
+      - id: full
+        description: the whole history of the repository

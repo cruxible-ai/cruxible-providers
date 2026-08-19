@@ -1,0 +1,46 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+# Quantitative slots carry the most detailed vocabularies; see calc.reduce for why.
+interface_id: score.rank
+version: 1
+status: draft
+description: >-
+  Order candidates by a computed score. There is no generic confidence score at
+  this layer: a rank is meaningful only against the declared objective the
+  implementation names, and the score itself is a reading, not a truth claim.
+dimensions:
+  - name: candidate_count
+    description: candidates to be ordered
+    classes:
+      - id: small
+        description: at most 100 candidates
+      - id: medium
+        description: more than 100 and at most 10000 candidates
+      - id: large
+        description: more than 10000 candidates
+  - name: signal_count
+    description: input signals combined into the score
+    classes:
+      - id: single
+        description: one signal
+      - id: few
+        description: 2 to 10 signals
+      - id: many
+        description: more than 10 signals
+  - name: label_availability
+    description: what ground truth is available for the ordering
+    classes:
+      - id: unlabeled
+        description: no labels; the ordering rests on the stated objective alone
+      - id: partial
+        description: labels for a subset of candidates
+      - id: labeled
+        description: labels for effectively all candidates
+  - name: tie_density
+    description: how often candidates share a score
+    classes:
+      - id: sparse_ties
+        description: ties are rare
+      - id: moderate_ties
+        description: ties affect a material minority of positions
+      - id: heavy_ties
+        description: ties dominate; the tie-break rule decides the ordering

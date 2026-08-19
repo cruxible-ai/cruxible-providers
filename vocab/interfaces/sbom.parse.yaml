@@ -1,0 +1,38 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: sbom.parse
+version: 1
+status: draft
+description: >-
+  Parse a software bill of materials into components. Completeness is a bucket
+  dimension rather than a quality score: an SBOM without hashes supports weaker
+  downstream claims, and that has to be visible before the claim is made.
+dimensions:
+  - name: sbom_format
+    description: the document's serialisation
+    classes:
+      - id: spdx_json
+        description: SPDX in JSON
+      - id: cyclonedx_json
+        description: CycloneDX in JSON
+      - id: cyclonedx_xml
+        description: CycloneDX in XML
+      - id: syft_json
+        description: the native JSON of the syft generator
+  - name: component_count
+    description: components declared in the document
+    classes:
+      - id: small
+        description: at most 100 components
+      - id: medium
+        description: more than 100 and at most 5000 components
+      - id: large
+        description: more than 5000 components
+  - name: completeness
+    description: what identity evidence the document actually carries
+    classes:
+      - id: with_hashes
+        description: components carry artifact hashes
+      - id: names_and_versions
+        description: components carry names and versions but no hashes
+      - id: names_only
+        description: components carry names alone

@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "The marker environments every package's materialization digest is computed",
+    "for. Explicit, because a digest derived from whatever interpreter happened",
+    "to run is not reproducible off that machine.",
+    "Changing this file re-pins every package at once, which is exactly why it",
+    "is a committed artifact and not a runtime default."
+  ],
+  "environments": [
+    {
+      "id": "linux-cp311",
+      "markers": {
+        "implementation_name": "cpython",
+        "os_name": "posix",
+        "platform_machine": "x86_64",
+        "python_full_version": "3.11.9",
+        "python_version": "3.11",
+        "sys_platform": "linux"
+      },
+      "tags": [
+        "cp311-cp311-manylinux_2_17_x86_64",
+        "cp311-abi3-manylinux_2_17_x86_64",
+        "py3-none-any"
+      ]
+    },
+    {
+      "id": "linux-cp312",
+      "markers": {
+        "implementation_name": "cpython",
+        "os_name": "posix",
+        "platform_machine": "x86_64",
+        "python_full_version": "3.12.6",
+        "python_version": "3.12",
+        "sys_platform": "linux"
+      },
+      "tags": [
+        "cp312-cp312-manylinux_2_17_x86_64",
+        "cp312-abi3-manylinux_2_17_x86_64",
+        "py3-none-any"
+      ]
+    },
+    {
+      "id": "macos-arm-cp312",
+      "markers": {
+        "implementation_name": "cpython",
+        "os_name": "posix",
+        "platform_machine": "arm64",
+        "python_full_version": "3.12.6",
+        "python_version": "3.12",
+        "sys_platform": "darwin"
+      },
+      "tags": [
+        "cp312-cp312-macosx_11_0_arm64",
+        "cp312-abi3-macosx_11_0_arm64",
+        "py3-none-any"
+      ]
+    }
+  ]
+}

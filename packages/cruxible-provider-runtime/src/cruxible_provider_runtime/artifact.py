@@ -196,12 +196,26 @@ class ProviderArtifactPayload(BaseModel):
 def artifact_digest(payload: ProviderArtifactPayload) -> str:
     """Digest an artifact payload under ``cruxible.provider.artifact.v1``.
 
-    The digest is taken over the payload with ``status`` removed: acceptance is
-    a governance transition, not a change of what the artifact says.
+    Two fields are excluded from the preimage:
+
+    ``status``
+        Acceptance is a governance transition, not a change of what the artifact
+        says. A proposal and its acceptance must digest identically, or the
+        image built against a proposal would stop verifying the moment it was
+        accepted.
+
+    ``container.provenance.provider_artifact_digest``
+        A self-reference by construction: the image records *this* digest, so
+        including it would make the value depend on itself.
     """
 
     document = payload.canonical_payload()
     document.pop("status", None)
+    container = document.get("container")
+    if isinstance(container, dict):
+        provenance = container.get("provenance")
+        if isinstance(provenance, dict):
+            provenance.pop("provider_artifact_digest", None)
     return domain_digest(ARTIFACT_DOMAIN_TAG, document)
 
 

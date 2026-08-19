@@ -1,0 +1,47 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+# Quantitative slots carry the most detailed vocabularies; see calc.reduce for why.
+interface_id: match.record
+version: 1
+status: draft
+description: >-
+  Link records that refer to the same entity. Output is a proposal, never an
+  identity decision: linkage enters through the governed pathway that already
+  exists for it, and blocking strength is a bucket dimension because it bounds
+  what any linker can see.
+dimensions:
+  - name: pair_space
+    description: candidate pairs after blocking
+    classes:
+      - id: small
+        description: at most 1 million pairs
+      - id: medium
+        description: more than 1 million and at most 1 billion pairs
+      - id: large
+        description: more than 1 billion pairs
+  - name: blocking
+    description: how much the candidate space has been narrowed before matching
+    classes:
+      - id: strong
+        description: an exact key confines candidates to small blocks
+      - id: weak
+        description: a fuzzy or partial key leaves large blocks
+      - id: none
+        description: the full cross product is the candidate space
+  - name: field_richness
+    description: comparable evidence per record
+    classes:
+      - id: single_field
+        description: one comparable field, typically a name
+      - id: few_fields
+        description: 2 to 5 comparable fields
+      - id: rich
+        description: more than 5 comparable fields
+  - name: label_availability
+    description: what confirmed matches are available
+    classes:
+      - id: unlabeled
+        description: no confirmed matches
+      - id: partial
+        description: a confirmed subset, typically from prior governed decisions
+      - id: labeled
+        description: a training set covering the pair space

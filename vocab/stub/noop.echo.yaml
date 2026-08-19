@@ -1,0 +1,25 @@
+# DRAFT stub vocabulary for the reference no-op interface.
+#
+# Kept beside the launch vocabularies as a worked example of the format, and
+# asserted equal to the vocabulary the reference package registers in code.
+interface_id: noop.echo
+version: 1
+status: draft
+description: Stub vocabulary for the reference no-op interface.
+dimensions:
+- name: payload_size
+  description: length of the input text in characters
+  classes:
+  - id: tiny
+    description: at most 16 characters
+  - id: small
+    description: 17 to 1024 characters
+  - id: large
+    description: more than 1024 characters
+- name: charset
+  description: whether the input stays inside ASCII
+  classes:
+  - id: ascii
+    description: every character is ASCII
+  - id: unicode
+    description: at least one non-ASCII character

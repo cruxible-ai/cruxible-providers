@@ -1,0 +1,80 @@
+# A synthetic lock, frozen as a digest-golden fixture.
+#
+# It is synthetic on purpose. A golden taken over a real dependency set moves
+# every time a dependency is bumped, which trains everyone to regenerate goldens
+# without reading them. This lock exercises the resolver's interesting cases and
+# nothing else: a marker-gated dependency, a package published only as an sdist,
+# a package with per-platform wheels, and a dev-only package that must NOT be
+# resolved.
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "sample-provider"
+version = "0.4.2"
+source = { editable = "." }
+dependencies = [
+    { name = "leaf-pure" },
+    { name = "leaf-native" },
+    { name = "leaf-windows-only", marker = "sys_platform == 'win32'" },
+    { name = "leaf-sdist-only" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "leaf-dev-only" },
+]
+
+[[package]]
+name = "leaf-pure"
+version = "1.3.0"
+source = { registry = "https://pypi.example/simple" }
+dependencies = [
+    { name = "leaf-transitive" },
+]
+wheels = [
+    { url = "https://pypi.example/files/leaf_pure-1.3.0-py3-none-any.whl", hash = "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+]
+
+[[package]]
+name = "leaf-transitive"
+version = "0.9.1"
+source = { registry = "https://pypi.example/simple" }
+wheels = [
+    { url = "https://pypi.example/files/leaf_transitive-0.9.1-py3-none-any.whl", hash = "sha256:2222222222222222222222222222222222222222222222222222222222222222" },
+]
+
+[[package]]
+name = "leaf-native"
+version = "2.0.0"
+source = { registry = "https://pypi.example/simple" }
+sdist = { url = "https://pypi.example/files/leaf_native-2.0.0.tar.gz", hash = "sha256:3333333333333333333333333333333333333333333333333333333333333333" }
+wheels = [
+    { url = "https://pypi.example/files/leaf_native-2.0.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:4444444444444444444444444444444444444444444444444444444444444444" },
+    { url = "https://pypi.example/files/leaf_native-2.0.0-cp311-cp311-manylinux_2_17_x86_64.whl", hash = "sha256:5555555555555555555555555555555555555555555555555555555555555555" },
+    { url = "https://pypi.example/files/leaf_native-2.0.0-cp312-cp312-manylinux_2_17_x86_64.whl", hash = "sha256:6666666666666666666666666666666666666666666666666666666666666666" },
+    { url = "https://pypi.example/files/leaf_native-2.0.0-cp312-cp312-win_amd64.whl", hash = "sha256:aaaa111111111111111111111111111111111111111111111111111111111111" },
+]
+
+[[package]]
+name = "leaf-sdist-only"
+version = "0.1.7"
+source = { registry = "https://pypi.example/simple" }
+sdist = { url = "https://pypi.example/files/leaf_sdist_only-0.1.7.tar.gz", hash = "sha256:7777777777777777777777777777777777777777777777777777777777777777" }
+
+[[package]]
+name = "leaf-windows-only"
+version = "5.5.5"
+source = { registry = "https://pypi.example/simple" }
+wheels = [
+    { url = "https://pypi.example/files/leaf_windows_only-5.5.5-py3-none-any.whl", hash = "sha256:8888888888888888888888888888888888888888888888888888888888888888" },
+]
+
+[[package]]
+name = "leaf-dev-only"
+version = "9.9.9"
+source = { registry = "https://pypi.example/simple" }
+wheels = [
+    { url = "https://pypi.example/files/leaf_dev_only-9.9.9-py3-none-any.whl", hash = "sha256:9999999999999999999999999999999999999999999999999999999999999999" },
+]

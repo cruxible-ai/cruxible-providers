@@ -1,0 +1,79 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+# Quantitative slots carry the most detailed vocabularies; see calc.reduce for why.
+interface_id: ts.forecast
+version: 1
+status: draft
+description: >-
+  Produce a forecast for a time series. This is the Playbill-native flagship
+  slot: a forecast becomes a prediction Claim with a ResolutionContract, and it
+  settles. Buckets are what make the resulting calibration comparable across
+  implementations rather than an average over incomparable problems.
+dimensions:
+  - name: frequency
+    description: sampling cadence of the series
+    classes:
+      - id: sub_hourly
+        description: mean spacing under one hour
+      - id: hourly
+        description: mean spacing from one hour to under one day
+      - id: daily
+        description: mean spacing from one day to under one week
+      - id: weekly_or_slower
+        description: mean spacing of one week or more
+      - id: irregular
+        description: no stable mean spacing
+  - name: series_length
+    description: observations available for fitting
+    classes:
+      - id: very_short
+        description: fewer than 30 observations
+      - id: short
+        description: 30 to 199 observations
+      - id: medium
+        description: 200 to 1999 observations
+      - id: long
+        description: 2000 or more observations
+  - name: series_count
+    description: how many series one call covers
+    classes:
+      - id: single
+        description: one series
+      - id: few
+        description: 2 to 10 series
+      - id: many
+        description: 11 to 1000 series
+      - id: massive
+        description: more than 1000 series
+  - name: domain_class
+    description: the measurement domain of the values
+    classes:
+      - id: counts
+        description: non-negative integers; variance tracks the mean
+      - id: rates
+        description: ratios or proportions bounded by a denominator
+      - id: continuous_bounded
+        description: continuous values with hard bounds
+      - id: continuous_unbounded
+        description: continuous values with no natural bound
+      - id: intermittent
+        description: mostly zero with occasional non-zero demand
+  - name: horizon
+    description: steps ahead requested, relative to the series frequency
+    classes:
+      - id: very_short
+        description: at most 3 steps
+      - id: short
+        description: 4 to 12 steps
+      - id: medium
+        description: 13 to 48 steps
+      - id: long
+        description: more than 48 steps
+  - name: exogenous
+    description: what covariate information accompanies the series
+    classes:
+      - id: none
+        description: the series alone
+      - id: past_only
+        description: covariates known only up to the forecast origin
+      - id: known_future
+        description: covariates known over the forecast horizon

@@ -1,0 +1,38 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: db.cdc_read
+version: 1
+status: draft
+description: >-
+  Read a change stream from a relational source. Ordering is a separate dimension
+  from volume because an adapter that can keep up may still not be able to
+  promise a total order.
+dimensions:
+  - name: dialect
+    description: the source engine's change-capture mechanism
+    classes:
+      - id: postgres
+        description: logical replication or a replication slot
+      - id: mysql
+        description: binary-log streaming
+      - id: polled_table
+        description: a monotone column polled on an interval
+      - id: other
+        description: any mechanism outside the three named above
+  - name: change_volume
+    description: changes observed per poll or per window
+    classes:
+      - id: low
+        description: at most 1000 changes
+      - id: medium
+        description: more than 1000 and at most 100000 changes
+      - id: high
+        description: more than 100000 changes
+  - name: ordering
+    description: the ordering guarantee the source can actually offer
+    classes:
+      - id: total_order
+        description: a single global sequence across all rows
+      - id: per_key_order
+        description: order guaranteed only within a primary key
+      - id: unordered
+        description: no ordering guarantee; only set membership is meaningful

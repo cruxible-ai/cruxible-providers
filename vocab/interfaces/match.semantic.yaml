@@ -1,0 +1,34 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: match.semantic
+version: 1
+status: draft
+description: >-
+  Propose semantically similar candidates. Semantic matching produces HINTS; the
+  deterministic candidate search stays in core, and a hint never becomes an
+  identity claim by itself.
+dimensions:
+  - name: candidate_count
+    description: size of the pool being searched
+    classes:
+      - id: small
+        description: at most 100 candidates
+      - id: medium
+        description: more than 100 and at most 10000 candidates
+      - id: large
+        description: more than 10000 candidates
+  - name: text_length
+    description: length of the compared texts
+    classes:
+      - id: short
+        description: at most 128 characters, such as names or titles
+      - id: medium
+        description: more than 128 and at most 2048 characters
+      - id: long
+        description: more than 2048 characters
+  - name: language
+    description: language relationship between query and candidates
+    classes:
+      - id: monolingual
+        description: query and candidates share one language
+      - id: cross_lingual
+        description: query and candidates differ in language

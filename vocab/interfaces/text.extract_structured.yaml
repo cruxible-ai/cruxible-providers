@@ -1,0 +1,36 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: text.extract_structured
+version: 1
+status: draft
+description: >-
+  Extract a typed record from unstructured text. Buckets track how much has to be
+  found, how far apart the evidence lies, and how much text has to be held at
+  once.
+dimensions:
+  - name: schema_size
+    description: how many fields the target record carries
+    classes:
+      - id: few_fields
+        description: at most 5 fields
+      - id: moderate
+        description: 6 to 20 fields
+      - id: many_fields
+        description: more than 20 fields
+  - name: input_length
+    description: length of the source text
+    classes:
+      - id: short
+        description: at most 512 characters
+      - id: medium
+        description: more than 512 and at most 8192 characters
+      - id: long
+        description: more than 8192 characters
+  - name: evidence_locality
+    description: how the evidence for one record is distributed
+    classes:
+      - id: single_span
+        description: every field is supported by one contiguous span
+      - id: multi_span
+        description: fields draw on separated spans of the same document
+      - id: cross_document
+        description: a record is assembled from more than one document

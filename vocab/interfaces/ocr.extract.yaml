@@ -1,0 +1,51 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: ocr.extract
+version: 1
+status: draft
+description: >-
+  Recover text from page images. Buckets track the three things that actually
+  decide whether an engine can read a page: what script it is in, how badly the
+  image is degraded, and how much structure has to survive the read.
+dimensions:
+  - name: script
+    description: the writing system present on the page
+    classes:
+      - id: latin
+        description: Latin script only
+      - id: cjk
+        description: Chinese, Japanese, or Korean
+      - id: rtl
+        description: right-to-left scripts such as Arabic or Hebrew
+      - id: mixed
+        description: more than one script on the same page
+  - name: scan_quality
+    description: the condition of the source image
+    classes:
+      - id: clean
+        description: high-resolution, deskewed, printed text
+      - id: degraded
+        description: low resolution, skew, noise, bleed-through, or photocopying
+      - id: handwritten
+        description: handwriting, whether alone or annotating print
+  - name: page_count
+    description: length of the document
+    classes:
+      - id: single
+        description: one page
+      - id: short
+        description: 2 to 10 pages
+      - id: medium
+        description: 11 to 100 pages
+      - id: long
+        description: more than 100 pages
+  - name: layout
+    description: the structural difficulty of the page
+    classes:
+      - id: linear
+        description: single-column running text
+      - id: multi_column
+        description: two or more columns or sidebars
+      - id: tabular
+        description: ruled or unruled tables carry material content
+      - id: forms
+        description: field-and-value layouts, checkboxes, or stamps

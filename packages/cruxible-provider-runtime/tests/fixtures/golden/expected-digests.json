@@ -1,0 +1,12 @@
+{
+  "implementation": {
+    "sample-echo": "sha256:d86d67b9a9a20aa582868e74fed564c0753c17068d0c95bbceeef9e66e5a9733",
+    "sample-echo-other-distribution": "sha256:07e5af49d42a3a13d2ada9eb4a097fda49a449b9bf38b1e3bc0c20a85f410bd7",
+    "sample-echo-other-entrypoint": "sha256:c8195dc9ca0ed5f0ddca0432c509926486db557819af2e709687d21dd7ef6b79"
+  },
+  "materialization": {
+    "linux-cp311": "sha256:2262b2ba92cd4ab353b34174fd66f2b862d32568239990f2f02155fd164ce6ea",
+    "macos-arm-cp311": "sha256:bc9b4f80b6ead391ced0dc687d8b1a4ccb2fbb98448c1d2b6b33a0734590cb3f",
+    "windows-cp312": "sha256:3f3566b541c62b3f49c6b68f90d724bca6fd552ce299b4862c58e8733995a306"
+  }
+}

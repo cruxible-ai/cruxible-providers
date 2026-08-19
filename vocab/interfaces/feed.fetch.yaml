@@ -1,0 +1,37 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: feed.fetch
+version: 1
+status: draft
+description: >-
+  Read a syndication feed. Buckets track the format's structural guarantees, the
+  size of one pull, and how often the feed moves under the reader.
+dimensions:
+  - name: feed_format
+    description: the feed's serialisation
+    classes:
+      - id: rss
+        description: RSS 2.0 and its predecessors
+      - id: atom
+        description: Atom 1.0
+      - id: json_feed
+        description: JSON Feed
+      - id: sitemap
+        description: sitemap or sitemap-index documents used as a change feed
+  - name: item_volume
+    description: items present in one pull
+    classes:
+      - id: small
+        description: at most 50 items
+      - id: medium
+        description: more than 50 and at most 1000 items
+      - id: large
+        description: more than 1000 items
+  - name: update_cadence
+    description: how often the feed changes
+    classes:
+      - id: slow
+        description: daily or slower
+      - id: hourly
+        description: several times a day
+      - id: realtime
+        description: minutes or faster; pagination races the writer

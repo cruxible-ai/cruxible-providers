@@ -1,0 +1,38 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: text.classify
+version: 1
+status: draft
+description: >-
+  Assign labels to a text. The output is never authority: a classifier's result
+  enters a Capture under its declared CaptureContract with a contract-governed
+  grade, and no classifier can emit an observed grade.
+dimensions:
+  - name: label_space
+    description: the shape of the label set
+    classes:
+      - id: binary
+        description: two mutually exclusive labels
+      - id: small_multiclass
+        description: 3 to 10 mutually exclusive labels
+      - id: large_multiclass
+        description: more than 10 mutually exclusive labels
+      - id: multilabel
+        description: labels are not mutually exclusive
+  - name: input_length
+    description: length of the text being classified
+    classes:
+      - id: short
+        description: at most 512 characters
+      - id: medium
+        description: more than 512 and at most 8192 characters
+      - id: long
+        description: more than 8192 characters
+  - name: domain_shift
+    description: distance between the input and the label set's home domain
+    classes:
+      - id: in_domain
+        description: the label set was defined for text of this kind
+      - id: adjacent
+        description: a related domain with shared vocabulary
+      - id: open_domain
+        description: arbitrary text; no domain assumption holds

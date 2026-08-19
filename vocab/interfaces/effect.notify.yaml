@@ -1,0 +1,38 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: effect.notify
+version: 1
+status: draft
+description: >-
+  Deliver a notification. This is the one launch interface whose implementations
+  declare side_effects true: a delivered message cannot be un-delivered, so the
+  delivery guarantee is a bucket dimension and not a footnote.
+dimensions:
+  - name: channel
+    description: the delivery channel
+    classes:
+      - id: email
+        description: SMTP or a transactional email API
+      - id: webhook
+        description: an HTTP callback to a caller-supplied endpoint
+      - id: chat
+        description: a chat platform's message API
+      - id: ticket
+        description: an issue or ticket tracker
+  - name: delivery
+    description: the strongest guarantee the channel can offer
+    classes:
+      - id: fire_and_forget
+        description: no delivery confirmation is available
+      - id: acknowledged
+        description: the channel confirms acceptance
+      - id: transactional
+        description: the channel supports idempotency keys and exactly-once intent
+  - name: audience_size
+    description: how many recipients one call reaches
+    classes:
+      - id: single
+        description: one recipient
+      - id: small_group
+        description: at most 50 recipients
+      - id: broadcast
+        description: more than 50 recipients

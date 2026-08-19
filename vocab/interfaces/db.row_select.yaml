@@ -1,0 +1,37 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: db.row_select
+version: 1
+status: draft
+description: >-
+  Read rows from a relational source. Buckets separate the dialect the adapter has
+  to speak, the volume it has to move, and whether the caller is waiting.
+dimensions:
+  - name: dialect
+    description: the SQL dialect and wire protocol
+    classes:
+      - id: sqlite
+        description: SQLite files, including read-only attachments
+      - id: postgres
+        description: PostgreSQL and wire-compatible engines
+      - id: mysql
+        description: MySQL and MariaDB
+      - id: duckdb
+        description: DuckDB, including its file and object-store readers
+      - id: other
+        description: any dialect outside the four named above
+  - name: result_size
+    description: rows returned by one call
+    classes:
+      - id: small
+        description: at most 1000 rows
+      - id: medium
+        description: more than 1000 and at most 100000 rows
+      - id: large
+        description: more than 100000 rows
+  - name: latency_class
+    description: what the caller is waiting for
+    classes:
+      - id: interactive
+        description: a person or a synchronous step is blocked on the answer
+      - id: batch
+        description: throughput matters and latency does not
