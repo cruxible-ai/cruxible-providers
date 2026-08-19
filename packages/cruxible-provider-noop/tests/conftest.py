@@ -29,6 +29,7 @@ from cruxible_provider_runtime.artifact import (
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.cache import MaterializationCache
 from cruxible_provider_runtime.digests import materialization_digest
+from cruxible_provider_runtime.egress import write_child_guard
 from cruxible_provider_runtime.index import ArtifactFetcher, IndexConfig
 from cruxible_provider_runtime.manifest import ProviderManifest, load_manifest, manifest_digest
 from cruxible_provider_runtime.registry import StubRegistry
@@ -89,7 +90,15 @@ def manifest(manifest_path: Path) -> ProviderManifest:
 
 @pytest.fixture(scope="session")
 def resolved(lock_path: Path) -> ResolvedSet:
-    return resolve(load_uv_lock(lock_path), "cruxible-provider-noop", MARKER_ENVIRONMENT)
+    # allow_editable_dev_sources is the dev-only escape hatch: this package
+    # depends on the runtime by path, because the runtime is not published yet.
+    # Production binds refuse a local source outright.
+    return resolve(
+        load_uv_lock(lock_path),
+        "cruxible-provider-noop",
+        MARKER_ENVIRONMENT,
+        allow_editable_dev_sources=True,
+    )
 
 
 @pytest.fixture()
@@ -115,14 +124,20 @@ def accepted_artifact(
         ),
         local_env=LocalEnvBackendPin(
             lock_sha256=lock.lock_sha256,
-            materialization_digests={MARKER_ENVIRONMENT.id: materialization_digest(resolved)},
+            materialization_digests={
+                MARKER_ENVIRONMENT.id: materialization_digest(
+                    resolved, distribution_sha256=DISTRIBUTION_SHA256
+                )
+            },
         ),
         container=ContainerBackendPin(
             image_reference="registry.example/cruxible/provider-noop",
             image_digest=IMAGE_DIGEST,
             provenance=ImageProvenance(
                 provider_artifact_digest="sha256:" + "00" * 32,
-                materialization_digest=materialization_digest(resolved),
+                materialization_digest=materialization_digest(
+                    resolved, distribution_sha256=DISTRIBUTION_SHA256
+                ),
                 base_image_digest=BASE_IMAGE_DIGEST,
                 builder_identity=BUILDER_IDENTITY,
             ),
@@ -201,7 +216,8 @@ def tampered_lock(lock_path: Path, tmp_path: Path, resolved: ResolvedSet) -> Pat
     """
 
     text = lock_path.read_text(encoding="utf-8")
-    original = resolved.distributions[0].sha256.removeprefix("sha256:")
+    registry_entries = [d for d in resolved.distributions if not d.is_local_source]
+    original = registry_entries[0].artifact_id.removeprefix("sha256:")
     assert original in text, "the tampered hash must be one the resolution actually selects"
     substituted = ("f" if original[0] != "f" else "0") + original[1:]
     target = tmp_path / "uv.lock"
@@ -220,3 +236,10 @@ def reformatted_lock(lock_path: Path, tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return target
+
+
+@pytest.fixture()
+def egress_guard_root(tmp_path: Path) -> Path:
+    """A directory carrying the child-process egress guard, for the conformance lane."""
+
+    return write_child_guard(tmp_path / "egress-guard")

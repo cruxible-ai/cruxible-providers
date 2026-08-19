@@ -12,6 +12,18 @@ proxy log in cloud). A contacted endpoint outside the accepted declaration is a
 typed conformance violation attributed to the implementation digest and visible
 on its track record.
 
+So there are two separable claims, and only one of them is a containment claim:
+
+* **recording conformance** — declared equals observed — holds in both backends
+  and is what the conformance lane tests;
+* **containment** — the provider *cannot* reach an undeclared endpoint — holds
+  in the cloud backend only, structurally, via default-deny plus an allowlist.
+
+The guard below serves the first claim, not the second. It is a test instrument
+that makes an unrecorded socket fail loudly during conformance runs; a provider
+determined to evade it locally can, because a local provider runs with the
+operator's privileges. Nothing here is a substitute for the cloud policy.
+
 Endpoints normalise to ``scheme://host[:port]``. Paths are deliberately dropped:
 the contract is about who a provider talks to, not what it asks them.
 """
@@ -21,17 +33,20 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from .errors import RefusalCode, refuse
 
 __all__ = [
+    "SITECUSTOMIZE_GUARD",
     "EgressComparison",
     "EgressRecorder",
     "compare_egress",
     "enforce_egress",
     "no_network",
     "normalize_endpoint",
+    "write_child_guard",
 ]
 
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ftp": 21}
@@ -125,14 +140,55 @@ def enforce_egress(
     return comparison
 
 
+SITECUSTOMIZE_GUARD = '''"""Injected by the Cruxible egress-conformance lane.
+
+Blocks outbound sockets in a provider child process. This is a TEST INSTRUMENT,
+not containment: it only patches this interpreter, and a provider running with
+the operator's privileges can go around it. Its job is to make an unrecorded
+socket fail loudly during a conformance run.
+"""
+
+import socket
+
+
+def _blocked(*args, **kwargs):
+    target = args[1] if len(args) > 1 else args
+    raise OSError(
+        "cruxible egress-conformance lane: outbound network access is blocked "
+        f"(attempted {target!r})"
+    )
+
+
+socket.socket.connect = _blocked
+socket.socket.connect_ex = _blocked
+socket.create_connection = _blocked
+'''
+
+
+def write_child_guard(directory: Path) -> Path:
+    """Write the child-process egress guard and return the path to prepend.
+
+    The in-process :func:`no_network` guard patches the *executor's*
+    interpreter. Providers run in a child process, which that patch never
+    reaches — so before this existed, the conformance lane asserted a property
+    about the wrong process. Putting a ``sitecustomize`` on the child's
+    ``PYTHONPATH`` gets the guard into the interpreter that actually runs
+    provider code.
+    """
+
+    directory.mkdir(parents=True, exist_ok=True)
+    guard = directory / "sitecustomize.py"
+    guard.write_text(SITECUSTOMIZE_GUARD, encoding="utf-8")
+    return directory
+
+
 @contextmanager
 def no_network() -> Iterator[None]:
-    """Block outbound sockets for the duration of the block.
+    """Block outbound sockets in *this* interpreter for the duration of the block.
 
-    Used by the no-network egress-conformance lane so that "this adapter
-    declares zero endpoints" is a tested property rather than a claim. It is a
-    test instrument, not a containment mechanism: it only patches this
-    interpreter's socket module.
+    Covers the executor process. For the child process that actually runs
+    provider code, see :func:`write_child_guard` — the two together are what the
+    conformance lane needs, and neither is containment.
     """
 
     import socket

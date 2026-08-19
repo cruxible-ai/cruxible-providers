@@ -45,6 +45,7 @@ def _bind(
             manifest_path=manifest_path,
             lock_path=lock_path,
             marker_environment=MARKER_ENVIRONMENT,
+            allow_editable_dev_sources=True,
         ),
         local_backend=local_backend,
         container_backend=container_backend,
@@ -313,3 +314,30 @@ def test_second_bind_reuses_the_verified_cache_entry(
     _bind("local_env", registry, manifest_path, lock_path, local_backend, container_backend)
     _bind("local_env", registry, manifest_path, lock_path, local_backend, container_backend)
     assert len(builder.builds) == 1  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
+def test_without_the_lane_guard_a_socket_fails_for_a_different_reason(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """Keeps the egress lane's assertion from passing vacuously.
+
+    Outside the conformance lane there is no injected guard, so ``connect`` mode
+    fails on name resolution instead. If this test ever started reporting the
+    lane's guard message, the lane would be proving nothing.
+    """
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "connect"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "error"
+    assert outcome.envelope.error is not None
+    assert "egress-conformance lane" not in outcome.envelope.error.message

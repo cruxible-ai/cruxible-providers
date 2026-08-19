@@ -35,6 +35,7 @@ def _request(
         "manifest_path": manifest_path,
         "lock_path": lock_path,
         "marker_environment": MARKER_ENVIRONMENT,
+        "allow_editable_dev_sources": True,
     }
     fields.update(overrides)
     return BindRequest(**fields)
@@ -56,28 +57,93 @@ def test_unaccepted_provider_refuses(
     assert exc.value.code is RefusalCode.UNACCEPTED_PROVIDER
 
 
-def test_lock_mismatch_refuses(
+def test_a_lock_that_is_not_the_pinned_one_refuses_on_its_bytes(
     registry: StubRegistry,
     manifest_path: Path,
     tampered_lock: Path,
     local_backend: LocalEnvBackend,
 ) -> None:
+    """Cheap tamper-evidence over the exact file that was reviewed."""
+
+    with pytest.raises(RefusalError) as exc:
+        bind(registry, _request(manifest_path, tampered_lock), local_backend=local_backend)
+    assert exc.value.code is RefusalCode.LOCK_BYTES_MISMATCH
+
+
+def test_a_lock_that_resolves_away_from_the_pin_refuses_on_its_resolution(
+    accepted_artifact: ProviderArtifactPayload,
+    manifest_path: Path,
+    tampered_lock: Path,
+    local_backend: LocalEnvBackend,
+) -> None:
+    """The primary gate, isolated from the byte gate.
+
+    The artifact is re-pinned to the tampered lock's *bytes* so that the byte
+    check passes, leaving the resolution comparison as the only thing that can
+    catch the substituted artifact hash. It does.
+    """
+
+    from cruxible_provider_runtime.resolution import load_uv_lock
+
+    assert accepted_artifact.local_env is not None
+    repinned = accepted_artifact.model_copy(
+        update={
+            "local_env": accepted_artifact.local_env.model_copy(
+                update={"lock_sha256": load_uv_lock(tampered_lock).lock_sha256}
+            )
+        }
+    )
+    registry = StubRegistry()
+    from cruxible_provider_noop.interface import registration
+
+    registry.register_interface(registration())
+    registry.register_provider(repinned)
+
     with pytest.raises(RefusalError) as exc:
         bind(registry, _request(manifest_path, tampered_lock), local_backend=local_backend)
     assert exc.value.code is RefusalCode.LOCK_MISMATCH
     assert exc.value.refusal.detail["computed"] != exc.value.refusal.detail["pinned"]
 
 
-def test_formatting_churn_in_the_lock_does_not_break_a_bind(
+def test_formatting_churn_refuses_on_bytes_but_does_not_move_the_resolution(
     registry: StubRegistry,
+    accepted_artifact: ProviderArtifactPayload,
     manifest_path: Path,
     reformatted_lock: Path,
+    lock_path: Path,
     local_backend: LocalEnvBackend,
 ) -> None:
-    """The resolution is hashed, never the lock bytes: comments must not re-pin."""
+    """Both halves of the two-lock-checks argument, in one test.
 
-    binding = bind(registry, _request(manifest_path, reformatted_lock), local_backend=local_backend)
-    assert binding.materialization_digest
+    A reformatted lock refuses: the accepted artifact pinned a specific file and
+    nobody approved a different one, so re-accepting is a governance step. But
+    identity is still not keyed on lock bytes — the resolution, and therefore the
+    materialization digest, is byte-for-byte unchanged by the reformatting.
+    """
+
+    from cruxible_provider_runtime.digests import materialization_digest
+    from cruxible_provider_runtime.resolution import load_uv_lock, resolve
+
+    from .conftest import DISTRIBUTION_SHA256
+
+    with pytest.raises(RefusalError) as exc:
+        bind(registry, _request(manifest_path, reformatted_lock), local_backend=local_backend)
+    assert exc.value.code is RefusalCode.LOCK_BYTES_MISMATCH
+
+    def pin(path: Path) -> str:
+        resolution = resolve(
+            load_uv_lock(path),
+            "cruxible-provider-noop",
+            MARKER_ENVIRONMENT,
+            allow_editable_dev_sources=True,
+        )
+        return materialization_digest(resolution, distribution_sha256=DISTRIBUTION_SHA256)
+
+    assert pin(reformatted_lock) == pin(lock_path)
+    assert accepted_artifact.local_env is not None
+    assert (
+        pin(lock_path) == accepted_artifact.local_env.materialization_digests[MARKER_ENVIRONMENT.id]
+    )
 
 
 def test_unpinned_marker_environment_refuses(
