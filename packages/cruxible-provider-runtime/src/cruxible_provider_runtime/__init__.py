@@ -21,11 +21,15 @@ from .buckets import BucketDimension, BucketSelector, BucketVocabulary
 from .budget import ProcessOutcome, enforce_cost_budget, run_with_budget
 from .cache import MaterializationCache
 from .canonical import canonical_json, domain_digest
+
+# dependency_closure_digest and CLOSURE_DOMAIN_TAG are deliberately NOT
+# re-exported here. They belong to the packaging-scope gate, not to identity: a
+# core executor importing this package should see exactly two digest functions,
+# because a third one sitting beside them invites someone to pin a track record
+# to it. The gate imports them from cruxible_provider_runtime.digests directly.
 from .digests import (
-    CLOSURE_DOMAIN_TAG,
     IMPLEMENTATION_DOMAIN_TAG,
     MATERIALIZATION_DOMAIN_TAG,
-    dependency_closure_digest,
     implementation_digest,
     materialization_digest,
 )
@@ -42,7 +46,6 @@ from .resolution import MarkerEnvironment, ResolvedSet, load_uv_lock, resolve
 __version__ = "0.1.0"
 
 __all__ = [
-    "CLOSURE_DOMAIN_TAG",
     "IMPLEMENTATION_DOMAIN_TAG",
     "MATERIALIZATION_DOMAIN_TAG",
     "PROTOCOL_VERSION",
@@ -81,7 +84,6 @@ __all__ = [
     "bind",
     "canonical_json",
     "compare_egress",
-    "dependency_closure_digest",
     "domain_digest",
     "enforce_cost_budget",
     "enforce_egress",

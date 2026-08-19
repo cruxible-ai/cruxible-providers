@@ -7,6 +7,8 @@ across a pipe, with credential material arriving on an inherited descriptor.
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,7 @@ from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.registry import StubRegistry
+from cruxible_provider_runtime.resolution import ResolvedSet
 
 from .conftest import DISTRIBUTION_SHA256, MARKER_ENVIRONMENT
 
@@ -301,6 +304,91 @@ def test_binding_snapshot_carries_all_three_identity_levels(binding: Binding) ->
     assert snapshot["implementation_digest"] == binding.implementation_digest
     assert snapshot["materialization_digest"] == binding.materialization_digest
     assert snapshot["protocol_version"] == "1.0"
+
+
+def test_the_snapshot_always_states_whether_dev_sources_were_permitted(
+    binding: Binding,
+) -> None:
+    """Present in both directions, never absent-means-false.
+
+    This suite binds with the escape hatch set, because the reference package
+    depends on the runtime by path. A consumer that has never heard of the key
+    would otherwise read this pin as a production one.
+    """
+
+    snapshot = binding.snapshot()
+    assert "dev_sources_permitted" in snapshot
+    assert snapshot["dev_sources_permitted"] is True
+
+
+def test_a_production_pin_states_dev_sources_permitted_false(binding: Binding) -> None:
+    """The false case is emitted too, which is the half that is easy to forget."""
+
+    production = replace(binding, dev_sources_permitted=False)
+    snapshot = production.snapshot()
+    assert "dev_sources_permitted" in snapshot
+    assert snapshot["dev_sources_permitted"] is False
+
+
+def test_no_closure_digest_ever_reaches_a_snapshot_or_a_receipt(
+    binding: Binding,
+    registry: StubRegistry,
+    resolved: ResolvedSet,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """Only two digests are identity; the third is a packaging-gate instrument.
+
+    The closure digest exists so the one-package-one-change gate can measure
+    dependency movement without the root distribution sha256 drowning out the
+    signal. It is not an identity and must never be pinned to a track record, so
+    its value is asserted absent from everything that gets recorded -- keys and
+    values alike.
+    """
+
+    from cruxible_provider_runtime.digests import (
+        dependency_closure_digest,
+        implementation_digest,
+        materialization_digest,
+    )
+
+    closure = dependency_closure_digest(resolved)
+    implementation = implementation_digest(
+        interface_id="noop.echo",
+        interface_digest=binding.interface_digest,
+        entrypoint="cruxible_provider_noop.provider:NoopEcho",
+        distribution_sha256=DISTRIBUTION_SHA256,
+    )
+    materialization = materialization_digest(resolved, distribution_sha256=DISTRIBUTION_SHA256)
+    assert len({closure, implementation, materialization}) == 3
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "echo"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    recorded = json.dumps({"snapshot": binding.snapshot(), "receipt": outcome.receipt_fields()})
+
+    assert closure not in recorded
+    assert "closure" not in recorded
+    assert implementation in recorded
+    assert materialization in recorded
+
+
+def test_the_closure_digest_is_not_on_the_packages_public_surface() -> None:
+    """A core executor importing the package sees two digest functions, not three."""
+
+    import cruxible_provider_runtime as runtime
+
+    assert "dependency_closure_digest" not in runtime.__all__
+    assert "CLOSURE_DOMAIN_TAG" not in runtime.__all__
+    assert not hasattr(runtime, "dependency_closure_digest")
+    assert not hasattr(runtime, "CLOSURE_DOMAIN_TAG")
+    assert "implementation_digest" in runtime.__all__
+    assert "materialization_digest" in runtime.__all__
 
 
 def test_second_bind_reuses_the_verified_cache_entry(

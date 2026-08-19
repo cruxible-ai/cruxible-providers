@@ -94,11 +94,12 @@ class Binding:
             "materialization_digest": self.materialization_digest,
             "protocol_version": self.protocol_version.render(),
             "backend_kind": self.backend_kind,
+            # Always present, both ways. Emitting only the true case makes the
+            # key absent-means-false, and a consumer that has never heard of it
+            # then reads a dev-source pin as a production pin -- the exact
+            # misreading the field exists to prevent.
+            "dev_sources_permitted": self.dev_sources_permitted,
         }
-        if self.dev_sources_permitted:
-            # Never silently absent-means-false: a pin computed under the
-            # dev-source escape hatch has to be visible wherever it is recorded.
-            snapshot["dev_sources_permitted"] = True
         return snapshot
 
 
