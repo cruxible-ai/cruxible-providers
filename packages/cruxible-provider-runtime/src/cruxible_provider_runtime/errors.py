@@ -97,6 +97,9 @@ class RefusalCode(StrEnum):
     MALFORMED_MODEL_REF = "malformed_model_ref"
     UNDECLARED_MATCH_PARAMETERS = "undeclared_match_parameters"
     INVALID_PARAMETER = "invalid_parameter"
+    CROSS_ORIGIN_CREDENTIALED_REDIRECT = "cross_origin_credentialed_redirect"
+    UNSUPPORTED_REDIRECT_SCHEME = "unsupported_redirect_scheme"
+    REDIRECT_LIMIT = "redirect_limit"
 
     # --- container ---------------------------------------------------------
     IMAGE_PROVENANCE_MISMATCH = "image_provenance_mismatch"

@@ -55,6 +55,15 @@ Both implementations split their output in two, and the split is the contract:
 - **`derived`** — what an extractor or this adapter made of it. Derived under
   every contract, whatever the engine's confidence.
 
+A rendered fetch is where that line is easiest to lose, so `web.fetch` draws it
+twice. `retrieved` describes the main-frame response the browser actually
+received — the final URL after its redirects, the status it ended on, its
+headers, and the digest of the body an origin sent. The DOM a browser assembles
+is script output over that body, not a body anyone sent, so it is reported under
+`derived.assembled_document` with its own byte count and digest. A page that
+redirects across origins and settles on a 404 a script repaints is a failed
+retrieval, and it is reported as one.
+
 Neither adapter mints a Capture. They return a typed payload plus trace; the
 executor carries both to the CaptureContract, which decides the grade. A provider
 that graded its own output would be certifying itself.
@@ -67,6 +76,28 @@ only ever be wrong; what governs instead is the recording. Every request the
 client issues — redirect hops included — reaches the run's egress recorder
 through an httpx event hook, and the receipt records that the declaration was
 dynamic so an empty `undeclared` set is not misread as an allowlist that held.
+
+A **rendered** fetch does not go through that client: a browser opens its own
+sockets and pulls whatever the markup names. It gets its own hooks, on the page's
+`request` and `response` events, so the redirect it follows, the CDN its script
+comes from and the API that script queries all land in the same recorder.
+
+## Credentials and redirects
+
+`web.fetch` lets a run name the header its credential travels on, so this
+package's HTTP client follows redirects **by hand**: httpx would carry every
+header it was given to the destination, stripping only `Authorization`, and a
+token on `x-api-key` would reach a host the run never named before the recorder
+learned that host existed.
+
+An authenticated fetch redirected to a **different origin refuses**, rather than
+following the hop anonymously. A run admitted into the `access=authenticated`
+bucket does not silently go out anonymous — the undelivered-credential refusal
+already says so — and stripping would hand the caller a document retrieved under
+terms the receipt no longer describes. An `http` → `https` upgrade of the same
+host is not an origin change for this purpose: the credential has already crossed
+the wire in clear. An unauthenticated chain is followed to its end, and every hop
+of it is recorded.
 
 `search.web` declares a concrete origin, because its target is configuration
 rather than input. The instance is named per run by an `instance_url` coordinate
