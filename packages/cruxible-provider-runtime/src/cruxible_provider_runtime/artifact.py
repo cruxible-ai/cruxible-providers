@@ -43,6 +43,30 @@ def _digest_field(value: str) -> str:
     return value
 
 
+def _plain_filename(value: str) -> str:
+    """Reject a filename that is anything other than a plain name.
+
+    The local builder writes the fetched artifact to ``<staging>/artifact/<filename>``
+    and creates the parents, so a name carrying ``..`` or a leading separator
+    picks the directory rather than the file inside it — a governed artifact
+    deciding where the operator's process writes bytes it also supplied. That the
+    payload is accepted before it can be bound is a governance control and not a
+    parser: acceptance reviews what the artifact *says*, and this is the check
+    that what it says is a filename.
+
+    ``:`` goes with the separators. A Windows drive-relative path (``C:evil.whl``)
+    carries no separator at all and still names somewhere else.
+    """
+
+    if not value or value in {".", ".."} or value.startswith("."):
+        raise ValueError(f"filename must be a plain name, not a relative path, got {value!r}")
+    if any(character in value for character in ("/", "\\", ":", "\x00")):
+        raise ValueError(
+            f"filename must carry no path separator, drive letter, or NUL, got {value!r}"
+        )
+    return value
+
+
 class DistributionPin(BaseModel):
     """The exact provider distribution artifact the implementation digest covers."""
 
@@ -56,6 +80,7 @@ class DistributionPin(BaseModel):
     url: str
 
     _validate_sha256 = field_validator("sha256")(_digest_field)
+    _validate_filename = field_validator("filename")(_plain_filename)
 
 
 class ImageProvenance(BaseModel):

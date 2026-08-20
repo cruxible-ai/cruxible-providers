@@ -41,6 +41,10 @@ def _validate_filename(filename: str) -> str:
     A document's name has no legitimate reason to carry a separator, so this
     refuses one rather than sanitising it. A sanitiser answers a different
     request than the one that was made, and does it quietly.
+
+    ``:`` is refused with the separators, for the case that carries none:
+    ``C:evil.png`` is drive-relative on Windows and names somewhere other than
+    the directory it was joined to.
     """
 
     if filename in {".", ".."} or filename.startswith("."):
@@ -49,10 +53,10 @@ def _validate_filename(filename: str) -> str:
             "a document filename must be a plain name, not a relative path",
             filename=filename,
         )
-    if posixpath.isabs(filename) or "/" in filename or "\\" in filename or "\x00" in filename:
+    if posixpath.isabs(filename) or any(part in filename for part in ("/", "\\", ":", "\x00")):
         raise refuse(
             RefusalCode.PROVIDER_DECLINED,
-            "a document filename must carry no path separator and no absolute path",
+            "a document filename must carry no path separator, drive letter, or absolute path",
             filename=filename,
         )
     return filename

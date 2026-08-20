@@ -41,6 +41,8 @@ HOSTILE_FILENAMES = [
     pytest.param(".", id="here"),
     pytest.param(".hidden.png", id="leading-dot"),
     pytest.param("scan\x00.png", id="nul"),
+    # Carries no separator at all and still names somewhere else.
+    pytest.param("C:evil.png", id="drive-relative"),
 ]
 
 

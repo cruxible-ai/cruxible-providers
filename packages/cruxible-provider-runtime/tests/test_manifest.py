@@ -22,6 +22,7 @@ from cruxible_provider_runtime.manifest import (
     load_manifest_document,
     manifest_digest,
 )
+from pydantic import ValidationError
 
 DIGEST_ONE = "sha256:" + "11" * 32
 DIGEST_TWO = "sha256:" + "22" * 32
@@ -248,3 +249,56 @@ def test_a_declared_endpoint_that_is_not_an_endpoint_refuses() -> None:
     with pytest.raises(RefusalError) as exc:
         load_manifest_document(document)
     assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
+
+
+# --------------------------------------------------------------------------
+# the pinned filename is a filename
+# --------------------------------------------------------------------------
+
+HOSTILE_ARTIFACT_FILENAMES = [
+    pytest.param("../../../../tmp/ESCAPED.whl", id="traversal"),
+    pytest.param("/tmp/ESCAPED.whl", id="absolute"),
+    pytest.param("nested/provider.whl", id="separator"),
+    pytest.param("nested\\provider.whl", id="windows-separator"),
+    pytest.param("C:provider.whl", id="drive-relative"),
+    pytest.param("provider\x00.whl", id="nul"),
+    pytest.param("..", id="parent"),
+    pytest.param(".", id="here"),
+    pytest.param(".hidden.whl", id="leading-dot"),
+    pytest.param("", id="empty"),
+]
+
+
+@pytest.mark.parametrize("filename", HOSTILE_ARTIFACT_FILENAMES)
+def test_a_pinned_filename_that_is_not_a_filename_refuses(filename: str) -> None:
+    """The local builder joins this name onto a staging directory it then creates.
+
+    ``<staging>/artifact/<filename>`` with ``..`` in it picks a directory outside
+    the staging tree, and ``mkdir(parents=True)`` obligingly builds the way there.
+    Acceptance reviews what an artifact *says*; this is the check that what it
+    says under ``filename`` is a filename.
+    """
+
+    with pytest.raises(ValidationError):
+        DistributionPin(
+            name="cruxible-provider-sample",
+            version="0.1.0",
+            filename=filename,
+            sha256=DIGEST_TWO,
+            index_url="https://index.example/simple",
+            url="https://index.example/simple/x.whl",
+        )
+
+
+def test_an_ordinary_pinned_filename_still_validates() -> None:
+    """The check must not have become one that refuses every wheel name."""
+
+    pin = DistributionPin(
+        name="cruxible-provider-sample",
+        version="0.1.0",
+        filename="cruxible_provider_sample-0.1.0-cp311-abi3-manylinux_2_17_x86_64.whl",
+        sha256=DIGEST_TWO,
+        index_url="https://index.example/simple",
+        url="https://index.example/simple/x.whl",
+    )
+    assert pin.filename.endswith(".whl")
