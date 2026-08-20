@@ -40,7 +40,6 @@ from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunCo
 
 from .refusals import DeclineReason, decline
 from .series import Series, parse_series
-from .stdio import stdout_to_stderr
 
 __all__ = ["DEFAULT_MODIFIED_Z_THRESHOLD", "METHODS", "Anomaly"]
 
@@ -127,9 +126,8 @@ class Anomaly:
         threshold = float(threshold)
 
         values = np.asarray(series.values, dtype=np.float64)
-        with stdout_to_stderr():
-            fitted = STL(values, period=period, robust=True).fit()
-            residual = np.asarray(fitted.resid, dtype=np.float64)
+        fitted = STL(values, period=period, robust=True).fit()
+        residual = np.asarray(fitted.resid, dtype=np.float64)
 
         median_residual = float(np.median(residual))
         mad = float(np.median(np.abs(residual - median_residual)))
@@ -218,9 +216,8 @@ class Anomaly:
             )
 
         values = np.asarray(series.values, dtype=np.float64).reshape(-1, 1)
-        with stdout_to_stderr():
-            algorithm = rpt.Binseg(model="l2", min_size=2, jump=1).fit(values)
-            boundaries = [int(edge) for edge in algorithm.predict(n_bkps=count)]
+        algorithm = rpt.Binseg(model="l2", min_size=2, jump=1).fit(values)
+        boundaries = [int(edge) for edge in algorithm.predict(n_bkps=count)]
 
         starts = [0, *boundaries[:-1]]
         segments = [

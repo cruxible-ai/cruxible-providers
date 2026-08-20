@@ -38,7 +38,6 @@ from typing import Any
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .refusals import DeclineReason, decline
-from .stdio import stdout_to_stderr
 
 __all__ = ["DEFAULT_THRESHOLD", "RecordLinkage"]
 
@@ -215,16 +214,15 @@ class RecordLinkage:
             retain_intermediate_calculation_columns=True,
         )
 
-        with stdout_to_stderr():
-            linker = Linker(frame, settings, db_api=DuckDBAPI())
-            # splink ships a py.typed marker but leaves this accessor unannotated,
-            # so a strict check reads it as an untyped call in typed context. The
-            # ignore is pinned to the one call rather than widened to the module:
-            # everything else splink exposes here does type-check, and the row
-            # values are re-typed field by field immediately below.
-            predicted = linker.inference.predict(
-                threshold_match_probability=threshold
-            ).as_pandas_dataframe()  # type: ignore[no-untyped-call]
+        linker = Linker(frame, settings, db_api=DuckDBAPI())
+        # splink ships a py.typed marker but leaves this accessor unannotated,
+        # so a strict check reads it as an untyped call in typed context. The
+        # ignore is pinned to the one call rather than widened to the module:
+        # everything else splink exposes here does type-check, and the row
+        # values are re-typed field by field immediately below.
+        predicted = linker.inference.predict(
+            threshold_match_probability=threshold
+        ).as_pandas_dataframe()  # type: ignore[no-untyped-call]
 
         pairs: list[dict[str, Any]] = []
         for row in predicted.to_dict("records"):

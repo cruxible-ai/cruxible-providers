@@ -111,21 +111,16 @@ tampering signal would put one on a track record every time somebody mistyped a
 path, and folding tampering into the declines would hide the only event here
 worth an alarm.
 
-## The stdout hazard
+## The stdout hazard, and where it is handled
 
-The child harness writes its result envelope to file descriptor 1, and a single
-line of engine chatter ahead of it turns a successful run into
-`provider_protocol_violation`. splink prints timing lines by default. So every
-engine call in this package runs inside `stdio.stdout_to_stderr`, which
-redirects at the descriptor level — `contextlib.redirect_stdout` would not see
-DuckDB or BLAS, which write through the C runtime. Diverted output goes to
-stderr, which the executor already captures and redacts.
-
-This is a workaround for a runtime seam and is filed as one: the child harness
-could take the responsibility for every provider by writing its envelope through
-a private duplicate of fd 1. Until it does, each plane package binding a chatty
-engine has to remember, and forgetting produces a corrupted envelope rather than
-a warning.
+A single line of engine chatter ahead of the result envelope turns a successful
+run into `provider_protocol_violation`, and splink prints timing lines by
+default. This package used to redirect file descriptor 1 around every engine
+call itself. It no longer does: the child harness now reserves stdout for the
+envelope before any provider code is imported and points fd 1 at stderr for the
+whole run, so engine chatter lands in stderr — which the executor captures,
+redacts, and measures against the output budget — without any plane package
+remembering to arrange it.
 
 ## Refusals
 

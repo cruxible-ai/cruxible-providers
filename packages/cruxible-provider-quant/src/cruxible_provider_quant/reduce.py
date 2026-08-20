@@ -35,7 +35,6 @@ from typing import Any
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .refusals import DeclineReason, decline
-from .stdio import stdout_to_stderr
 
 __all__ = ["AGGREGATIONS", "Reduce"]
 
@@ -63,8 +62,7 @@ class Reduce:
         if not isinstance(rows, Sequence) or not rows:
             return decline(DeclineReason.INVALID_PARAMETER, "rows must be a non-empty array")
 
-        with stdout_to_stderr():
-            frame = pl.DataFrame(list(rows))
+        frame = pl.DataFrame(list(rows))
         columns = set(frame.columns)
 
         window = payload.get("window")
@@ -94,14 +92,13 @@ class Reduce:
                 return built
             expressions.append(built)
 
-        with stdout_to_stderr():
-            if group_by:
-                reduced = frame.group_by(group_by).agg(expressions).sort(group_by)
-                kind = "grouped_aggregate"
-            else:
-                reduced = frame.select(expressions)
-                kind = "scalar_aggregate"
-            rendered = reduced.to_dicts()
+        if group_by:
+            reduced = frame.group_by(group_by).agg(expressions).sort(group_by)
+            kind = "grouped_aggregate"
+        else:
+            reduced = frame.select(expressions)
+            kind = "scalar_aggregate"
+        rendered = reduced.to_dicts()
 
         return ProviderResult.ok(
             {
@@ -172,11 +169,10 @@ class Reduce:
             )
         alias = str(window.get("alias") or f"{function}_{column}_{size}")
 
-        with stdout_to_stderr():
-            ordered = frame.sort(str(order_by))
-            rolling = getattr(ordered[str(column)], f"rolling_{function}")(window_size=size)
-            reduced = ordered.with_columns(rolling.alias(alias))
-            rendered = reduced.to_dicts()
+        ordered = frame.sort(str(order_by))
+        rolling = getattr(ordered[str(column)], f"rolling_{function}")(window_size=size)
+        reduced = ordered.with_columns(rolling.alias(alias))
+        rendered = reduced.to_dicts()
 
         return ProviderResult.ok(
             {

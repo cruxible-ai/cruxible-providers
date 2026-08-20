@@ -75,7 +75,6 @@ from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .refusals import DeclineReason, decline
-from .stdio import stdout_to_stderr
 
 __all__ = ["MODES", "SCORE_KINDS", "TIE_BREAK", "Rank"]
 
@@ -319,13 +318,12 @@ class Rank:
         import numpy as np
         import sklearn
 
-        with stdout_to_stderr():
-            model = pickle.loads(blob)
-            matrix = np.asarray(rows, dtype=np.float64)
-            if score_kind == "decision_function":
-                raw_scores = np.asarray(model.decision_function(matrix), dtype=np.float64)
-            else:
-                raw_scores = np.asarray(model.predict_proba(matrix), dtype=np.float64)[:, 1]
+        model = pickle.loads(blob)
+        matrix = np.asarray(rows, dtype=np.float64)
+        if score_kind == "decision_function":
+            raw_scores = np.asarray(model.decision_function(matrix), dtype=np.float64)
+        else:
+            raw_scores = np.asarray(model.predict_proba(matrix), dtype=np.float64)[:, 1]
 
         return (
             str(score_kind),

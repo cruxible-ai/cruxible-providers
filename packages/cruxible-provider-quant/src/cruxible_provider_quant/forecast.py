@@ -43,7 +43,6 @@ from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunCo
 
 from .refusals import DeclineReason, decline
 from .series import Series, parse_series
-from .stdio import stdout_to_stderr
 
 __all__ = ["DEFAULT_INTERVAL_LEVELS", "MODELS", "Forecast"]
 
@@ -168,14 +167,13 @@ class Forecast:
         from statsforecast.models import AutoARIMA, AutoETS
 
         values = np.asarray(series.values, dtype=np.float64)
-        with stdout_to_stderr():
-            model: Any = (
-                AutoARIMA(season_length=season_length)
-                if model_name == "auto_arima"
-                else AutoETS(season_length=season_length)
-            )
-            model.fit(values)
-            predicted = model.predict(h=horizon, level=levels)
+        model: Any = (
+            AutoARIMA(season_length=season_length)
+            if model_name == "auto_arima"
+            else AutoETS(season_length=season_length)
+        )
+        model.fit(values)
+        predicted = model.predict(h=horizon, level=levels)
 
         point = [float(value) for value in np.asarray(predicted["mean"], dtype=np.float64)]
         intervals = [

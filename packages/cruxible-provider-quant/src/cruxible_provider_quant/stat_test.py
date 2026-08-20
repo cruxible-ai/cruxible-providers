@@ -41,7 +41,6 @@ from typing import Any
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .refusals import DeclineReason, decline
-from .stdio import stdout_to_stderr
 
 __all__ = ["TESTS", "StatTest", "StatTestSpec"]
 
@@ -199,10 +198,9 @@ class StatTest:
         arrays = [np.asarray(group, dtype=np.float64) for group in groups]
         engine: dict[str, Any] = {"name": "scipy.stats", "version": str(scipy.__version__)}
 
-        with stdout_to_stderr():
-            statistic, p_value, dof, effect_value = self._execute(
-                name, arrays, alternative, engine, np, stats
-            )
+        statistic, p_value, dof, effect_value = self._execute(
+            name, arrays, alternative, engine, np, stats
+        )
 
         if statistic is None or p_value is None:
             return decline(
