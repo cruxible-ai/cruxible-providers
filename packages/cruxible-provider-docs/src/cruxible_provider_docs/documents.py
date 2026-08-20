@@ -10,6 +10,8 @@ needs in order to know which they are looking at.
 from __future__ import annotations
 
 import hashlib
+import posixpath
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -18,7 +20,56 @@ from cruxible_provider_runtime.errors import RefusalCode, refuse
 
 from .recordings import Recording, inline_document, load_document, load_recordings
 
-__all__ = ["ResolvedSource", "resolve_source"]
+__all__ = ["DEFAULT_SUFFIX", "ResolvedSource", "document_suffix", "resolve_source"]
+
+_SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,12}$")
+
+DEFAULT_SUFFIX = ".bin"
+"""What a filename with no usable extension contributes to a temporary name."""
+
+
+def _validate_filename(filename: str) -> str:
+    """Refuse a declared filename that is anything other than a plain name.
+
+    The filename is caller-supplied metadata, and an OCR engine needs the bytes
+    on disk before it can read them, so the name reaches a path join.
+    ``Path(directory) / name`` discards the directory entirely when ``name`` is
+    absolute and walks out of it when ``name`` contains ``..`` — which on the
+    local backend, a dependency-isolation mechanism and not a security boundary,
+    means a caller choosing where the operator's own process writes a file.
+
+    A document's name has no legitimate reason to carry a separator, so this
+    refuses one rather than sanitising it. A sanitiser answers a different
+    request than the one that was made, and does it quietly.
+    """
+
+    if filename in {".", ".."} or filename.startswith("."):
+        raise refuse(
+            RefusalCode.PROVIDER_DECLINED,
+            "a document filename must be a plain name, not a relative path",
+            filename=filename,
+        )
+    if posixpath.isabs(filename) or "/" in filename or "\\" in filename or "\x00" in filename:
+        raise refuse(
+            RefusalCode.PROVIDER_DECLINED,
+            "a document filename must carry no path separator and no absolute path",
+            filename=filename,
+        )
+    return filename
+
+
+def document_suffix(filename: str) -> str:
+    """The only part of a caller's filename a temporary file may inherit.
+
+    An engine that dispatches on extension needs the extension; it does not need
+    the caller's name for the file. So the temporary name is generated
+    internally and this supplies a suffix that has been checked to be one —
+    exactly one dot, alphanumeric, short — falling back to a fixed suffix rather
+    than passing through anything that failed the check.
+    """
+
+    suffix = posixpath.splitext(filename)[1]
+    return suffix if _SAFE_SUFFIX.match(suffix) else DEFAULT_SUFFIX
 
 
 @dataclass(frozen=True)
@@ -130,7 +181,7 @@ def resolve_source(payload: Mapping[str, Any], *, interface_id: str) -> Resolved
         raise refuse(RefusalCode.PROVIDER_DECLINED, "an inline source needs a filename")
     return ResolvedSource(
         data=data,
-        filename=filename,
+        filename=_validate_filename(filename),
         media_type=media_type if isinstance(media_type, str) else "",
         origin="inline",
         recording=None,

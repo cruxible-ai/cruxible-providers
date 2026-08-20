@@ -28,6 +28,8 @@ from typing import Any, Protocol
 
 from cruxible_provider_runtime.errors import RefusalCode, refuse
 
+from .documents import document_suffix
+
 __all__ = [
     "DoclingMarkdownEngine",
     "MarkdownEngine",
@@ -203,7 +205,12 @@ class PaddleOcrEngine:
 
         engine = self._engine_for(language or self._language)
         with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / (filename or "page.png")
+            # The name is this module's; only the extension comes from the run
+            # input, and only after `document_suffix` has established that what
+            # it was given is an extension. PaddleOCR dispatches on the
+            # extension, which is the whole of what the caller's filename is
+            # worth here.
+            target = Path(directory) / f"page{document_suffix(filename)}"
             target.write_bytes(data)
             # `.ocr()` is deprecated in PaddleOCR 3.x and forwards to predict()
             # with an incompatible keyword; predict() is the supported call.
