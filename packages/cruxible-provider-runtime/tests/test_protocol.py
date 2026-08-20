@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
+from decimal import Decimal
 
 import pytest
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
@@ -198,3 +200,70 @@ def test_finite_numbers_are_untouched() -> None:
         output={"a": 0.0, "b": -1.5, "c": [1, 2, 3], "d": True, "e": None, "f": "nan"},
     )
     assert envelope.status == "ok"
+
+
+UNCARRIABLE = [
+    pytest.param({float("nan"), 1.0}, "set", id="set-hides-a-nan-as-null"),
+    pytest.param(Decimal("NaN"), "Decimal", id="decimal-nan-reads-as-a-string"),
+    pytest.param(Decimal("1.5"), "Decimal", id="decimal-finite-is-still-not-json"),
+    pytest.param(datetime(2026, 8, 20), "datetime", id="datetime"),
+]
+
+
+@pytest.mark.parametrize(("value", "type_name"), UNCARRIABLE)
+def test_a_value_canonical_json_cannot_encode_refuses(value: object, type_name: str) -> None:
+    """Closed over the JSON types, because every open reading loses something.
+
+    A set holding a NaN serialises to ``null`` and the NaN is simply gone. A
+    ``Decimal('NaN')`` serialises to the string ``"NaN"`` and reads as data. Both
+    slipped through a walk that only knew how to look for floats.
+    """
+
+    with pytest.raises(RefusalError) as exc:
+        ResultEnvelope(protocol_version="1.0", run_id="r", status="ok", output={"statistic": value})
+    assert exc.value.code is RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert exc.value.refusal.detail["paths"] == [f"statistic ({type_name})"]
+
+
+def test_a_numpy_scalar_refuses_here_rather_than_raising_from_the_serialiser() -> None:
+    """The failure mode this closes is one with no refusal attached at all.
+
+    ``numpy.float32`` is not a Python float, so the finiteness walk never looked
+    at it and pydantic raised a serialisation error later — past every typed
+    path this module owns, and reported as a crash. ``float64`` *is* a float
+    subclass and keeps going through the finiteness check, which is why it is
+    asserted alongside.
+    """
+
+    numpy = pytest.importorskip("numpy")
+
+    with pytest.raises(RefusalError) as exc:
+        ResultEnvelope(
+            protocol_version="1.0",
+            run_id="r",
+            status="ok",
+            output={"statistic": numpy.float32(1.5)},
+        )
+    assert exc.value.code is RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+
+    with pytest.raises(RefusalError) as inner:
+        ResultEnvelope(
+            protocol_version="1.0",
+            run_id="r",
+            status="ok",
+            output={"statistic": numpy.float64("nan")},
+        )
+    assert inner.value.code is RefusalCode.NON_FINITE_OUTPUT
+
+
+def test_a_non_finite_number_is_reported_before_an_unsupported_type() -> None:
+    """The more actionable fault wins when a payload carries both."""
+
+    with pytest.raises(RefusalError) as exc:
+        ResultEnvelope(
+            protocol_version="1.0",
+            run_id="r",
+            status="ok",
+            output={"statistic": float("nan"), "when": datetime(2026, 8, 20)},
+        )
+    assert exc.value.code is RefusalCode.NON_FINITE_OUTPUT

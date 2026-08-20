@@ -53,40 +53,69 @@ __all__ = [
 _MAX_REPORTED_PATHS = 10
 
 
-def _non_finite_paths(value: Any, path: str) -> Iterator[str]:
-    """Every path inside ``value`` holding a NaN or an infinity."""
+def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
+    """Yield ``(kind, path)`` for everything inside ``value`` an envelope cannot carry.
 
-    if isinstance(value, bool):
+    Two kinds, because they are two faults rather than one. ``non_finite`` is a
+    number with no JSON spelling. ``unsupported`` is a value this walk will not
+    descend into and will not vouch for — and it has to be a fault rather than a
+    shrug, because a walk that silently skips what it does not recognise is a
+    walk whose "no NaN here" means "no NaN in the parts I understood". Each of
+    the three ways that failed is a different kind of quiet: a ``set`` holding a
+    NaN serialises to ``null`` and loses it, a ``Decimal('NaN')`` serialises to
+    the *string* ``"NaN"`` and reads as data, and a ``numpy.float32`` reaches the
+    serialiser and raises there, past every typed refusal this module owns.
+    """
+
+    if value is None or isinstance(value, (bool, int, str)):
         return
     if isinstance(value, float):
         if not math.isfinite(value):
-            yield path or "<root>"
+            yield ("non_finite", path or "<root>")
         return
     if isinstance(value, Mapping):
         for key, item in value.items():
-            yield from _non_finite_paths(item, f"{path}.{key}" if path else str(key))
+            yield from _walk(item, f"{path}.{key}" if path else str(key))
         return
     if isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
-            yield from _non_finite_paths(item, f"{path}[{index}]")
+            yield from _walk(item, f"{path}[{index}]")
+        return
+    yield ("unsupported", f"{path or '<root>'} ({type(value).__name__})")
 
 
 def reject_non_finite(value: Any, *, where: str) -> None:
-    """Refuse a payload carrying a non-finite float anywhere inside it.
+    """Refuse a payload an envelope cannot carry, from anywhere inside it.
 
     The walk is recursive because the shallow version of this check is the one
     that passes: a NaN is almost never at the top of an output, it is the third
     element of an interval inside a list of forecasts.
+
+    It is also **closed** over the JSON types rather than open over them. An
+    output is on its way to canonical JSON, so a value outside ``None``,
+    ``bool``, ``int``, ``float``, ``str`` and the two containers is not one with
+    a subtler encoding — it is one whose encoding this layer would be guessing
+    at, and every available guess is worse than the refusal.
     """
 
-    found = sorted(set(_non_finite_paths(value, "")))
-    if found:
+    findings = sorted(set(_walk(value, "")))
+    non_finite = [path for kind, path in findings if kind == "non_finite"]
+    if non_finite:
         raise refuse(
             RefusalCode.NON_FINITE_OUTPUT,
             f"{where} carries a non-finite number, which canonical JSON cannot represent",
             where=where,
-            paths=found[:_MAX_REPORTED_PATHS],
-            count=len(found),
+            paths=non_finite[:_MAX_REPORTED_PATHS],
+            count=len(non_finite),
+        )
+    unsupported = [path for kind, path in findings if kind == "unsupported"]
+    if unsupported:
+        raise refuse(
+            RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+            f"{where} carries a value canonical JSON has no encoding for",
+            where=where,
+            paths=unsupported[:_MAX_REPORTED_PATHS],
+            count=len(unsupported),
         )
 
 
@@ -251,7 +280,10 @@ class ResultEnvelope(BaseModel):
         # A typed refusal rather than a ValueError, and therefore not wrapped
         # into a validation error: this is the runtime declining under a named
         # rule, and it must arrive at both ends -- the child cannot build such an
-        # envelope, and the executor will not accept one built elsewhere.
+        # envelope, and the executor will not accept one built elsewhere. Nothing
+        # gets past it into the serialiser either: the walk is closed over the
+        # JSON types, so a value it does not recognise refuses here rather than
+        # raising from model_dump_json with no refusal attached.
         reject_non_finite(self.output, where="provider output")
         reject_non_finite(self.trace.metrics, where="provider trace metrics")
         reject_non_finite(self.trace.events, where="provider trace events")
