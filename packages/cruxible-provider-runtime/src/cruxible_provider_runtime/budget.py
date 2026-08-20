@@ -10,14 +10,14 @@ as declined ones.
 Two caps are enforced here, wall clock and output size. The output cap is an
 **aggregate** over stdout and stderr together, not a cap on each: the harness
 already redirects a provider's chatter onto stderr, so a per-stream cap would
-mean a provider's noise buys it a second envelope-sized allowance. Cost is
-different in kind: a local process supervisor cannot price a call, because the
-price is a fact about an account and a rate card, not about a process. Cost
-enforcement
-therefore belongs to the metering substrate — but the *refusal* still has to
-belong to this taxonomy, or the substrate would invent its own vocabulary for
-the same event. :func:`enforce_cost_budget` is that seam: the substrate reports
-what a run consumed and this module renders the typed refusal.
+mean a provider's noise buys it a second envelope-sized allowance.
+
+Cost is different in kind. A local process supervisor cannot price a call,
+because the price is a fact about an account and a rate card rather than about a
+process, so enforcement belongs to the metering substrate — but the *refusal*
+still has to belong to this taxonomy, or the substrate would invent its own
+vocabulary for the same event. :func:`enforce_cost_budget` is that seam: the
+substrate reports what a run consumed and this module renders the typed refusal.
 """
 
 from __future__ import annotations

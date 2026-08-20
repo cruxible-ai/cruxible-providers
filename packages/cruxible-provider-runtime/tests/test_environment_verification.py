@@ -122,6 +122,62 @@ def test_a_tree_carrying_the_root_distribution_verifies(
     verify_environment(root, _resolved(linux_env), root=ROOT_PIN)
 
 
+@pytest.mark.parametrize(
+    ("pinned", "installed"),
+    [
+        pytest.param("1.0", "1.0.0", id="omitted-patch"),
+        pytest.param("1.0.0", "1.0", id="omitted-patch-other-way"),
+        pytest.param("1.0.0-alpha1", "1.0.0a1", id="normalised-prerelease"),
+        pytest.param("1.0.0+local", "1.0.0+local", id="local-segment"),
+    ],
+)
+def test_two_spellings_of_one_version_are_one_version(
+    tmp_path: Path, linux_env: MarkerEnvironment, pinned: str, installed: str
+) -> None:
+    """A manifest is written by a person; a ``.dist-info`` is written by a backend.
+
+    They normalise differently, and reporting divergence over the spelling is
+    the expensive kind of false alarm: the answer to it is to stop believing the
+    check.
+    """
+
+    root = _stage(tmp_path / "env", {"leaf_pure": "1.3.0", "sample_provider": installed})
+    verify_environment(
+        root, _resolved(linux_env), root=ROOT_PIN.model_copy(update={"version": pinned})
+    )
+
+
+def test_a_version_that_cannot_be_parsed_is_compared_exactly(
+    tmp_path: Path, linux_env: MarkerEnvironment
+) -> None:
+    """Fail closed: a version nobody can parse is not one this can vouch for."""
+
+    root = _stage(tmp_path / "env", {"leaf_pure": "1.3.0", "sample_provider": "nonsense"})
+    with pytest.raises(RefusalError) as exc:
+        verify_environment(
+            root, _resolved(linux_env), root=ROOT_PIN.model_copy(update={"version": "0.4.2"})
+        )
+    assert exc.value.code is RefusalCode.ENVIRONMENT_DIVERGENCE
+
+    matching = _stage(tmp_path / "same", {"leaf_pure": "1.3.0", "sample_provider": "nonsense"})
+    verify_environment(
+        matching,
+        _resolved(linux_env),
+        root=ROOT_PIN.model_copy(update={"version": "nonsense"}),
+    )
+
+
+def test_a_genuinely_different_version_still_refuses(
+    tmp_path: Path, linux_env: MarkerEnvironment
+) -> None:
+    """The check must not have become one that accepts everything."""
+
+    root = _stage(tmp_path / "env", {"leaf_pure": "1.3.0", "sample_provider": "0.4.3"})
+    with pytest.raises(RefusalError) as exc:
+        verify_environment(root, _resolved(linux_env), root=ROOT_PIN)
+    assert exc.value.code is RefusalCode.ENVIRONMENT_DIVERGENCE
+
+
 def test_local_sources_are_exempt(tmp_path: Path, linux_env: MarkerEnvironment) -> None:
     """A dev-only path source has no pinned version to compare against."""
 

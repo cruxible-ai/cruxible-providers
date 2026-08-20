@@ -64,6 +64,15 @@ is script output over that body, not a body anyone sent, so it is reported under
 redirects across origins and settles on a 404 a script repaints is a failed
 retrieval, and it is reported as one.
 
+**Two things about `retrieved` changed shape, and a contract author needs both.**
+`byte_count` and `body_sha256` now describe the **wire bytes**; a rendered run
+used to report them over the assembled DOM, so a contract comparing digests
+across renders is comparing a different artifact than it was. And on a rendered
+run `status_code`, `byte_count` and `body_sha256` are **nullable**: a navigation
+that yields no main-frame response — a same-document navigation, a download —
+leaves nothing true to say about the wire, and `null` says so where a hopeful
+`200` used to.
+
 Neither adapter mints a Capture. They return a typed payload plus trace; the
 executor carries both to the CaptureContract, which decides the grade. A provider
 that graded its own output would be certifying itself.

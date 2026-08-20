@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 
 from .artifact import DistributionPin, ImageProvenance, ProviderArtifactPayload, artifact_digest
 from .budget import ProcessOutcome, minimal_env, run_with_budget
@@ -123,6 +124,29 @@ def find_site_packages(env_path: Path) -> Path:
     return candidates[0]
 
 
+def _same_version(installed: str, expected: str) -> bool:
+    """Whether two version strings name the same release under PEP 440.
+
+    The two sides come from different places and normalise differently: a
+    manifest is written by a person and may say ``1.0``, while the ``.dist-info``
+    a build backend produced says ``1.0.0``. Those are one version, and refusing
+    the environment over the spelling would report divergence where there is
+    none — which is the expensive kind of false alarm, because the answer to it
+    is to stop believing the check.
+
+    An unparseable version on either side falls back to an exact comparison
+    rather than being waved through: a version nobody can parse is not a version
+    this can vouch for.
+    """
+
+    if installed == expected:
+        return True
+    try:
+        return Version(installed) == Version(expected)
+    except InvalidVersion:
+        return False
+
+
 def verify_environment(
     env_path: Path, resolved: ResolvedSet, *, root: DistributionPin | None = None
 ) -> None:
@@ -158,7 +182,7 @@ def verify_environment(
     mismatched = sorted(
         name
         for name, version in expected.items()
-        if name in installed and installed[name] != version
+        if name in installed and not _same_version(installed[name], version)
     )
     if missing or mismatched:
         raise refuse(
