@@ -14,8 +14,11 @@ dependencies = [
   # The plane packages at their BASE install. No extra is named here, and that
   # is the point: the default lane installs no browser, no tensor stack, and no
   # OCR runtime, and the tests that need one are marked `engine` and opted into.
+  # The quant engines are the deliberate exception: classical baselines ARE the
+  # implementation and run for real in the default lane.
   "cruxible-provider-web",
   "cruxible-provider-docs",
+  "cruxible-provider-quant",
 ]
 
 [dependency-groups]
@@ -34,6 +37,7 @@ cruxible-provider-runtime = { path = "packages/cruxible-provider-runtime", edita
 cruxible-provider-noop = { path = "packages/cruxible-provider-noop", editable = true }
 cruxible-provider-web = { path = "packages/cruxible-provider-web", editable = true }
 cruxible-provider-docs = { path = "packages/cruxible-provider-docs", editable = true }
+cruxible-provider-quant = { path = "packages/cruxible-provider-quant", editable = true }
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -43,7 +47,11 @@ testpaths = [
   "packages/cruxible-provider-noop/tests",
   "packages/cruxible-provider-web/tests",
   "packages/cruxible-provider-docs/tests",
+  "packages/cruxible-provider-quant/tests",
 ]
+# importlib mode: several packages name their test package `tests`, which the
+# default prepend import mode resolves to one module name and then rejects as a
+# mismatch; importlib derives a unique name per file.
 # `-m "not engine"` is in the default options rather than left to whoever runs
 # the suite. An engine test needs a browser, a tensor stack, or an OCR runtime
 # that the base install deliberately does not carry, so the default run must
@@ -77,16 +85,37 @@ strict = true
 warn_unreachable = true
 pretty = true
 
-# The heavy engines ship no type information, and the base install does not
-# carry them at all, so every engine import is unresolvable to a type checker
-# running in the default environment. That is a property of the heavy-engine
-# split rather than a gap in this code: the engine adapters are the only place
-# these names appear, each import sits inside the method that needs it, and each
-# failure to import is already a typed refusal.
+# The engines ship no type information. For the heavy web/docs engines the base
+# install does not carry them at all, so every engine import is unresolvable to
+# a type checker in the default environment — a property of the heavy-engine
+# split, not a gap in this code. For the quant engines, silencing the import is
+# narrower than it looks: every value crossing back out of an engine is re-typed
+# at the boundary in the implementation that called it — `float(...)`,
+# `int(...)`, an explicit list comprehension — so `Any` never travels past the
+# module that produced it, and the packages' own sources stay strict.
 [[tool.mypy.overrides]]
 module = [
   "docling.*",
   "paddleocr.*",
+  "pandas.*",
   "playwright.*",
+  "polars.*",
+  "ruptures.*",
+  "scipy.*",
+  "sklearn.*",
+  "splink.*",
+  "statsforecast.*",
+  "statsmodels.*",
 ]
 ignore_missing_imports = true
+
+# NumPy does ship stubs, and they are written against a newer language level
+# than the `python_version` this project checks at: NumPy 2.5's `__init__.pyi`
+# uses PEP 695 `type` statements, which mypy rejects under 3.11. Skipping the
+# follow means NumPy arrives as `Any` rather than as a parse error. The
+# alternative — raising `python_version` — would stop checking the oldest
+# interpreter this repository supports, which is the one most likely to break.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

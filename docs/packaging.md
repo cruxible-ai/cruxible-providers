@@ -210,6 +210,19 @@ deliberate, separate act.
 | `src/<module>/recordings/`, `fixtures/` | Recorded exchanges or engine responses, and the per-bucket conformance fixtures that replay them |
 | `tests/` | The conformance suite, which every plane package inherits. No `__init__.py` |
 
+### Test packages carry no `__init__.py`
+
+Every package's suite lives in `tests/`, and that directory must **not** contain
+an `__init__.py`. With one, pytest derives the module name by walking up while
+`__init__.py` exists, so every package's suite would be called `tests` and the
+second one imported collides with the first (`ImportPathMismatchError`). Without
+one, and with `--import-mode=importlib` set in the root `addopts`, pytest derives
+a name from the path — `packages.cruxible-provider-quant.tests.conftest` — which
+is unique per package by construction.
+
+Relative imports inside a suite (`from .conftest import ...`) keep working: pytest
+inserts the parent modules for the derived name.
+
 ## Releasing
 
 The distribution sha256 that enters the implementation digest is the hash of the

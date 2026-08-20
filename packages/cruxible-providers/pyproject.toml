@@ -38,13 +38,15 @@ dependencies = []
 #   pip install "cruxible-provider-web[browser]"   <- the engine, from the plane
 web = ["cruxible-provider-web"]
 docs = ["cruxible-provider-docs"]
-
-# TODO(rp-2 merge): `quant = ["cruxible-provider-quant"]` and an `all` extra
-# unioning every plane. The quantitative plane lands on a separate branch; adding
-# its name here before the distribution exists would produce an umbrella that
-# cannot resolve, so both are wired at merge rather than anticipated. `all` is
-# deliberately not defined with a partial membership in the meantime: an `all`
-# that means "all but one" is worse than no `all` at all.
+quant = ["cruxible-provider-quant"]
+# `all` is the union of every plane, and only ever the full union — wired the
+# moment the last plane landed, never earlier: an `all` that means "all but
+# one" is worse than no `all` at all.
+all = [
+  "cruxible-provider-web",
+  "cruxible-provider-docs",
+  "cruxible-provider-quant",
+]
 
 [dependency-groups]
 dev = [
@@ -62,6 +64,7 @@ dev = [
 [tool.uv.sources]
 cruxible-provider-web = { path = "../cruxible-provider-web", editable = true }
 cruxible-provider-docs = { path = "../cruxible-provider-docs", editable = true }
+cruxible-provider-quant = { path = "../cruxible-provider-quant", editable = true }
 
 [tool.cruxible]
 # Exempt from the one-package-one-digest-change gate, and it has to be: this

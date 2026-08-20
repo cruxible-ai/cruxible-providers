@@ -24,6 +24,8 @@ packages/cruxible-provider-noop/      the reference provider: the smallest
 packages/cruxible-provider-web/       the web plane: web.fetch, search.web
 packages/cruxible-provider-docs/       the document plane: doc.to_markdown, ocr.extract
 packages/cruxible-providers/          the umbrella meta-package: zero code, plane extras
+packages/cruxible-provider-quant/     the quantitative plane: classical
+                                      baselines on the seven quant interfaces
 packages/_template/                   copy this to start a new plane package
 vocab/interfaces/                     the launch bucket vocabularies, as draft data
 vocab/stub/                           the stub interface's vocabulary

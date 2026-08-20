@@ -24,6 +24,7 @@ def test_there_are_real_packages() -> None:
     assert [path.name for path in REAL_PACKAGES] == [
         "cruxible-provider-docs",
         "cruxible-provider-noop",
+        "cruxible-provider-quant",
         "cruxible-provider-runtime",
         "cruxible-provider-web",
         "cruxible-providers",
@@ -123,17 +124,20 @@ def test_an_exempt_package_ships_no_code(package: Path) -> None:
     )
 
 
-def test_the_umbrella_offers_one_extra_per_plane() -> None:
+def test_the_umbrella_offers_one_extra_per_plane_plus_all() -> None:
     """Specific to this umbrella, unlike the property test above.
 
-    `quant` and `all` are wired at merge; naming a distribution that does not
-    exist yet would produce an umbrella that cannot resolve.
+    One extra per plane, plus `all` -- which must be exactly the full union of
+    the plane extras: an `all` that means "all but one" is worse than no `all`.
     """
 
     document = tomllib.loads(
         (PACKAGES / "cruxible-providers" / "pyproject.toml").read_text(encoding="utf-8")
     )
-    assert set(document["project"]["optional-dependencies"]) == {"web", "docs"}
+    extras = document["project"]["optional-dependencies"]
+    assert set(extras) == {"web", "docs", "quant", "all"}
+    plane_union = {dep for name, deps in extras.items() if name != "all" for dep in deps}
+    assert set(extras["all"]) == plane_union
 
 
 def test_no_test_directory_is_an_importable_package() -> None:
