@@ -7,9 +7,13 @@ error — the distinction matters because errors are attributed to the
 implementation's track record as failed answers, while refusals are attributed
 as declined ones.
 
-Two caps are enforced here, wall clock and output size. Cost is different in
-kind: a local process supervisor cannot price a call, because the price is a
-fact about an account and a rate card, not about a process. Cost enforcement
+Two caps are enforced here, wall clock and output size. The output cap is an
+**aggregate** over stdout and stderr together, not a cap on each: the harness
+already redirects a provider's chatter onto stderr, so a per-stream cap would
+mean a provider's noise buys it a second envelope-sized allowance. Cost is
+different in kind: a local process supervisor cannot price a call, because the
+price is a fact about an account and a rate card, not about a process. Cost
+enforcement
 therefore belongs to the metering substrate — but the *refusal* still has to
 belong to this taxonomy, or the substrate would invent its own vocabulary for
 the same event. :func:`enforce_cost_budget` is that seam: the substrate reports
@@ -159,6 +163,11 @@ def run_with_budget(
     deadline = started + budgets.wall_clock_seconds
     open_streams = 2
     breach: tuple[RefusalCode, str] | None = None
+    # One cap over both streams. Per-stream accounting lets a provider spend the
+    # budget twice — the executor would accept 24k of stdout plus 24k of stderr
+    # under a 32k cap — and the budget exists to bound what the executor has to
+    # hold and persist, which does not care which descriptor a byte arrived on.
+    written = 0
 
     try:
         while open_streams and breach is None:
@@ -178,12 +187,13 @@ def run_with_budget(
                     selector.unregister(stream)
                     open_streams -= 1
                     continue
-                buffer = buffers[fileno]
-                buffer.extend(chunk)
-                if len(buffer) > budgets.output_bytes:
+                buffers[fileno].extend(chunk)
+                written += len(chunk)
+                if written > budgets.output_bytes:
                     breach = (
                         RefusalCode.BUDGET_OUTPUT_SIZE,
-                        f"provider exceeded its {budgets.output_bytes}-byte output budget",
+                        f"provider exceeded its {budgets.output_bytes}-byte output budget "
+                        "across stdout and stderr together",
                     )
                     break
         if breach is None and process.poll() is None:

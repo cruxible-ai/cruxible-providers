@@ -52,6 +52,31 @@ def test_output_size_breach_is_a_refusal() -> None:
     assert exc.value.code is RefusalCode.BUDGET_OUTPUT_SIZE
 
 
+def test_output_budget_is_aggregate_across_both_streams() -> None:
+    """Neither stream alone breaches the cap; together they do, and that counts.
+
+    A per-stream cap is a cap a provider can spend twice, and the harness hands
+    every provider a populated stderr by construction.
+    """
+
+    with pytest.raises(RefusalError) as exc:
+        run_with_budget(
+            [
+                sys.executable,
+                "-c",
+                "import sys, time\n"
+                "sys.stdout.write('o' * 24000)\n"
+                "sys.stdout.flush()\n"
+                "sys.stderr.write('e' * 24000)\n"
+                "sys.stderr.flush()\n"
+                "time.sleep(10)\n",
+            ],
+            stdin_bytes=b"",
+            budgets=Budgets(wall_clock_seconds=20.0, output_bytes=32_768),
+        )
+    assert exc.value.code is RefusalCode.BUDGET_OUTPUT_SIZE
+
+
 def test_child_environment_is_built_from_scratch() -> None:
     """The ambient environment is never inherited: a credential cannot ride in."""
 
