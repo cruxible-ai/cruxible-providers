@@ -124,11 +124,13 @@ Things this repository does **not** claim:
   observed, in both the executor process and the provider child. It does not
   demonstrate **containment**; that exists in the cloud backend's default-deny
   network policy alone.
-- `UvSyncBuilder`, the production local builder, is marked **experimental**: it
-  needs a network and a `uv` on the path, so no test here executes it end to
-  end. Only its argument construction and its post-build verification are
-  covered. What is not left to trust is the result — a materialized tree is
-  checked against its resolution before the cache will seal it.
+- `UvSyncBuilder`, the production local builder, needs a `uv` on the path, and a
+  test that has one drives it end to end against a PEP 503 index under `file://`
+  built from wheels the test itself produces — no network. What it cannot cover
+  is the runtime living in the sealed environment, because the runtime is
+  unpublished: the sealed interpreter there resolves and calls the pinned
+  entrypoint the way the child harness does rather than through it, and the
+  harness is covered end to end by the reference provider's suite.
 
 ## Getting started
 
