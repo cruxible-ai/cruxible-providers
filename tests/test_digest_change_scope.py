@@ -35,7 +35,13 @@ def test_every_package_digests_for_every_marker_environment() -> None:
 
 
 def test_a_digest_is_computed_per_package_not_per_repository() -> None:
-    """Each package resolves from its own lock, so each has its own answer."""
+    """Each package resolves from its own lock, so each has its own answer.
+
+    The umbrella is absent, and deliberately: it declares itself exempt because
+    its entire content is other packages, so its closure moves whenever any
+    plane's does and the gate would report two changed packages for every
+    one-package change.
+    """
 
     digests = compute(REPO_ROOT)
     assert set(digests) == {

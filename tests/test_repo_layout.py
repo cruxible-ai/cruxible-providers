@@ -26,6 +26,7 @@ def test_there_are_real_packages() -> None:
         "cruxible-provider-noop",
         "cruxible-provider-runtime",
         "cruxible-provider-web",
+        "cruxible-providers",
     ]
 
 
@@ -51,9 +52,49 @@ def test_every_package_declares_apache_2_0(package: Path) -> None:
 
 
 @pytest.mark.parametrize("package", REAL_PACKAGES, ids=lambda p: p.name)
-def test_every_package_ships_a_typing_marker(package: Path) -> None:
-    markers = list(package.rglob("py.typed"))
-    assert markers, f"{package.name} ships no py.typed"
+def test_every_package_that_ships_code_ships_a_typing_marker(package: Path) -> None:
+    if not (package / "src").is_dir():
+        # The umbrella. A typing marker for a distribution with nothing to type
+        # would be a claim about an empty set.
+        assert _is_umbrella(package), f"{package.name} has no src/ and is not the umbrella"
+        return
+    assert list(package.rglob("py.typed")), f"{package.name} ships no py.typed"
+
+
+def _is_umbrella(package: Path) -> bool:
+    document = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))
+    return document.get("tool", {}).get("cruxible", {}).get("role") == "umbrella"
+
+
+UMBRELLA = PACKAGES / "cruxible-providers"
+
+
+def test_the_umbrella_ships_no_code() -> None:
+    """Zero code is the whole reason it can exist beside the per-plane identity unit.
+
+    A distribution with code would enter an implementation digest, and an
+    umbrella that entered every provider's digest would re-digest the fleet on
+    every release — the exact failure the per-plane split exists to prevent.
+    """
+
+    assert _is_umbrella(UMBRELLA)
+    assert not list(UMBRELLA.rglob("*.py"))
+    assert not (UMBRELLA / "src").exists()
+    document = tomllib.loads((UMBRELLA / "pyproject.toml").read_text(encoding="utf-8"))
+    assert document["project"]["dependencies"] == []
+    assert set(document["project"]["optional-dependencies"]) == {"web", "docs"}
+
+
+def test_the_umbrella_is_the_only_package_exempt_from_the_digest_scope_gate() -> None:
+    """An exemption that spread would quietly disable the gate."""
+
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT))
+    from scripts.dependency_closure_digests import is_exempt
+
+    exempt = [package.name for package in REAL_PACKAGES if is_exempt(package)]
+    assert exempt == ["cruxible-providers"]
 
 
 def test_no_test_directory_is_an_importable_package() -> None:

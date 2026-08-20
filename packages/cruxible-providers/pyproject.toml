@@ -1,0 +1,82 @@
+# The umbrella meta-package: a pure dependency shell, zero code.
+#
+# It exists for install ergonomics and for developers only. End users never
+# install a provider at all -- providers are fetched on bind -- so nothing here
+# is ever part of an implementation digest, a materialization pin, or a track
+# record. That is also why the identity unit stays the per-plane distribution: a
+# single distribution with plane extras would put ONE distribution sha256 under
+# EVERY provider's implementation digest, and every release would re-digest every
+# provider in the fleet.
+[project]
+name = "cruxible-providers"
+version = "0.1.0"
+description = "Umbrella meta-package for the Cruxible provider planes. Dependencies only, no code."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Cruxible maintainers" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+# No runtime dependencies. Installing the umbrella bare installs nothing, which
+# is the honest default for a package that is a menu rather than a meal.
+dependencies = []
+
+[project.optional-dependencies]
+# One extra per plane. Each pulls the plane distribution at its BASE install:
+# the per-engine extras stay the plane package's business, because which engine a
+# deployment needs is a property of the implementation it binds, not of the
+# umbrella somebody installed.
+#
+#   pip install "cruxible-providers[web]"
+#   pip install "cruxible-provider-web[browser]"   <- the engine, from the plane
+web = ["cruxible-provider-web"]
+docs = ["cruxible-provider-docs"]
+
+# TODO(rp-2 merge): `quant = ["cruxible-provider-quant"]` and an `all` extra
+# unioning every plane. The quantitative plane lands on a separate branch; adding
+# its name here before the distribution exists would produce an umbrella that
+# cannot resolve, so both are wired at merge rather than anticipated. `all` is
+# deliberately not defined with a partial membership in the meantime: an `all`
+# that means "all but one" is worse than no `all` at all.
+
+[dependency-groups]
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.6",
+]
+
+# Development sources only. A PUBLISHED umbrella resolves its extras from the
+# registry by distribution name -- `cruxible-provider-web`, `cruxible-provider-docs`
+# -- and carries no [tool.uv.sources] table at all. These path entries exist so
+# that the monorepo can install its own umbrella before the plane packages are
+# published; they are stripped at release, and an accepted Provider artifact
+# could not be produced from them in any case, since a path source has no
+# distribution sha256.
+[tool.uv.sources]
+cruxible-provider-web = { path = "../cruxible-provider-web", editable = true }
+cruxible-provider-docs = { path = "../cruxible-provider-docs", editable = true }
+
+[tool.cruxible]
+# Exempt from the one-package-one-digest-change gate, and it has to be: this
+# package's whole content is other packages, so its dependency closure moves
+# whenever ANY plane's does. The gate exists to stop a bump in one provider from
+# re-pinning another provider's environment; the umbrella pins no environment,
+# carries no implementation digest, and appears in no track record, so its
+# closure moving is information about the planes rather than about it.
+digest_scope = "exempt"
+role = "umbrella"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# There is no package to select. A metadata-only wheel is the entire artifact.
+bypass-selection = true
