@@ -102,6 +102,30 @@ class NoopEcho:
             events=[{"note": "leaking to trace", "credential": material}],
         )
 
+    def _mode_chatty(self, context: ProviderRunContext, text: str) -> ProviderResult:
+        """Print to stdout the way a real engine does, and still return cleanly.
+
+        Not a hypothetical: record-linkage libraries announce their blocking
+        time, document converters report their pipeline, browser drivers log on
+        the way down. One stray line on the descriptor carrying the envelope
+        makes the result unparseable, and the executor can only report that as a
+        protocol violation by a provider that did nothing wrong. The harness
+        therefore reserves the real stdout before any provider code is imported;
+        this mode is what proves it did.
+        """
+
+        del text
+        import os
+
+        print("Blocking time: 0.42s")
+        sys.stdout.write("engine: warming up\n")
+        sys.stdout.flush()
+        # Straight at the descriptor, not through sys.stdout: a library writing
+        # from C code does exactly this, and a guard that only replaced the
+        # Python-level object would miss it.
+        os.write(1, b"native library says hello\n")
+        return ProviderResult.ok({"echo": "chatty", "input_bucket": context.input_bucket})
+
     def _mode_egress(self, context: ProviderRunContext, text: str) -> ProviderResult:
         """Contact an endpoint the manifest does not declare — without a network.
 
@@ -162,6 +186,7 @@ class NoopEcho:
         "refuse": _mode_refuse,
         "error": _mode_error,
         "credential": _mode_credential,
+        "chatty": _mode_chatty,
         "leak": _mode_leak,
         "egress": _mode_egress,
         "context_repr": _mode_context_repr,

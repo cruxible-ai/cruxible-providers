@@ -69,6 +69,10 @@ class InvocationOutcome:
             "input_bucket": self.input_bucket,
             "status": self.envelope.status,
             "endpoints_contacted": list(self.egress.observed),
+            # Always present. An empty list means the declaration was a concrete
+            # allowlist that held; a non-empty one means there was no list to
+            # hold, and the recording is the whole of the guarantee.
+            "dynamic_endpoint_forms": list(self.egress.dynamic_forms),
             "duration_seconds": round(self.duration_seconds, 4),
         }
 

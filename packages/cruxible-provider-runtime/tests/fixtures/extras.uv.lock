@@ -1,0 +1,85 @@
+# A synthetic lock exercising extras, and nothing else.
+#
+# Synthetic for the same reason the digest golden is: a fixture taken over a real
+# dependency set moves whenever a dependency is bumped, and a fixture that moves
+# is a fixture nobody reads. This one carries exactly the four cases the
+# extras-aware resolver has to get right:
+#
+#   * a root extra that pulls a package the base install does not have;
+#   * a DEPENDENCY-LEVEL extra ({ name = "engine-core", extra = ["accel"] }),
+#     which the launch document-plane lock uses three times and which the first
+#     cut of the resolver dropped on the floor;
+#   * a second, independent root extra, so that two extras sets over one lock can
+#     be compared;
+#   * a root extra naming an extra of a package that declares none, which must
+#     refuse rather than resolve to the base set.
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "sample-provider"
+version = "0.4.2"
+source = { editable = "." }
+dependencies = [
+    { name = "leaf-base" },
+]
+
+[package.optional-dependencies]
+engine = [
+    { name = "heavy-engine" },
+]
+vision = [
+    { name = "vision-kit" },
+]
+unresolvable = [
+    { name = "leaf-base", extra = ["nope"] },
+]
+
+[[package]]
+name = "leaf-base"
+version = "1.0.0"
+source = { registry = "https://pypi.example/simple" }
+wheels = [
+    { url = "https://pypi.example/files/leaf_base-1.0.0-py3-none-any.whl", hash = "sha256:1010101010101010101010101010101010101010101010101010101010101010" },
+]
+
+[[package]]
+name = "heavy-engine"
+version = "3.1.0"
+source = { registry = "https://pypi.example/simple" }
+dependencies = [
+    { name = "engine-core", extra = ["accel"] },
+]
+wheels = [
+    { url = "https://pypi.example/files/heavy_engine-3.1.0-py3-none-any.whl", hash = "sha256:2020202020202020202020202020202020202020202020202020202020202020" },
+]
+
+[[package]]
+name = "engine-core"
+version = "3.1.0"
+source = { registry = "https://pypi.example/simple" }
+wheels = [
+    { url = "https://pypi.example/files/engine_core-3.1.0-py3-none-any.whl", hash = "sha256:3030303030303030303030303030303030303030303030303030303030303030" },
+]
+
+[package.optional-dependencies]
+accel = [
+    { name = "accel-kernel" },
+]
+
+[[package]]
+name = "accel-kernel"
+version = "0.7.0"
+source = { registry = "https://pypi.example/simple" }
+wheels = [
+    { url = "https://pypi.example/files/accel_kernel-0.7.0-cp311-cp311-manylinux_2_17_x86_64.whl", hash = "sha256:4040404040404040404040404040404040404040404040404040404040404040" },
+]
+
+[[package]]
+name = "vision-kit"
+version = "2.4.0"
+source = { registry = "https://pypi.example/simple" }
+wheels = [
+    { url = "https://pypi.example/files/vision_kit-2.4.0-py3-none-any.whl", hash = "sha256:5050505050505050505050505050505050505050505050505050505050505050" },
+]

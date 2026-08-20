@@ -18,11 +18,26 @@ from pathlib import Path
 from cruxible_provider_runtime.errors import RefusalCode
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEST_DIRS = [
-    REPO_ROOT / "tests",
-    REPO_ROOT / "packages" / "cruxible-provider-runtime" / "tests",
-    REPO_ROOT / "packages" / "cruxible-provider-noop" / "tests",
-]
+
+
+def _test_dirs() -> list[Path]:
+    """Every test directory in the repository, discovered rather than listed.
+
+    A hard-coded list is a list that goes stale the first time a package is
+    added, and it goes stale in the direction that matters: a refusal code
+    exercised only by the new package's suite would read as unexercised.
+    """
+
+    directories = [REPO_ROOT / "tests"]
+    directories += sorted(
+        path / "tests"
+        for path in (REPO_ROOT / "packages").iterdir()
+        if (path / "tests").is_dir() and not path.name.startswith("_")
+    )
+    return directories
+
+
+TEST_DIRS = _test_dirs()
 
 
 def _test_sources() -> str:

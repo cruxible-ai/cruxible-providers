@@ -14,6 +14,14 @@ the base revision against the working tree, and fails if more than one package's
 digests moved. A change that genuinely needs to move two packages should be two
 commits.
 
+**Moved**, not "differs from the base". A package that did not exist at the base
+has not moved: nothing was pinned to it, no artifact recorded its environment,
+and no track record can be split by it appearing. Counting additions would make
+the gate fail every batch that lands two packages — which is a statement about
+the batch's size, not about a bump escaping its package — so additions and
+removals are reported and not counted, and the count is over packages present in
+both revisions whose closure changed.
+
 An unresolvable base is a **failure**, not a pass. A gate that waves changes
 through whenever it cannot do its job is a gate that reports green in exactly
 the situation nobody checked — a shallow clone, a renamed branch, a rewritten
@@ -89,15 +97,24 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         base = compute(target / "tree", environments)
 
-    changed = sorted(name for name in set(head) | set(base) if head.get(name) != base.get(name))
+    added = sorted(set(head) - set(base))
+    removed = sorted(set(base) - set(head))
+    changed = sorted(name for name in set(head) & set(base) if head[name] != base[name])
     for name in sorted(set(head) | set(base)):
-        state = "CHANGED" if name in changed else "unchanged"
+        if name in added:
+            state = "added"
+        elif name in removed:
+            state = "removed"
+        elif name in changed:
+            state = "CHANGED"
+        else:
+            state = "unchanged"
         print(f"{state:>9}  {name}")
 
     if len(changed) > 1:
         print(
             "\nFAIL: a single change moved the dependency closure of "
-            f"{len(changed)} packages: {changed}.\n"
+            f"{len(changed)} existing packages: {changed}.\n"
             "Per-package locks exist so that a dependency bump re-pins exactly one "
             "package. Split this into one commit per package."
         )

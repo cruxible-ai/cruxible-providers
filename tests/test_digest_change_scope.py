@@ -192,3 +192,39 @@ def test_the_editable_edge_itself_enters_the_closure(synthetic_repo: Path) -> No
     local = [entry for entry in resolved.distributions if entry.is_local_source]
     assert [entry.name for entry in local] == ["cruxible-provider-alpha"]
     assert local[0].artifact_id == "editable:../cruxible-provider-alpha"
+
+
+def test_adding_a_package_is_not_a_move(synthetic_repo: Path) -> None:
+    """A package that did not exist at the base cannot have been re-pinned.
+
+    Counting an addition would make the gate fail every batch that lands two
+    packages — a statement about the batch's size rather than about a dependency
+    bump escaping its package, which is the only thing the gate is for.
+    """
+
+    for name in ("gamma", "delta"):
+        package = synthetic_repo / "packages" / f"cruxible-provider-{name}"
+        package.mkdir(parents=True)
+        (package / "pyproject.toml").write_text(
+            f'[project]\nname = "cruxible-provider-{name}"\nversion = "0.1.0"\n',
+            encoding="utf-8",
+        )
+        (package / "uv.lock").write_text(_lock(name, "1.0.0"), encoding="utf-8")
+    assert check_main(["--repo", str(synthetic_repo), "--base", "HEAD"]) == 0
+
+
+def test_adding_a_package_does_not_license_moving_two_existing_ones(
+    synthetic_repo: Path,
+) -> None:
+    """The exemption is for additions only, and does not widen the count."""
+
+    for name in ("alpha", "beta"):
+        package = synthetic_repo / "packages" / f"cruxible-provider-{name}"
+        (package / "uv.lock").write_text(_lock(name, "2.0.0"), encoding="utf-8")
+    gamma = synthetic_repo / "packages" / "cruxible-provider-gamma"
+    gamma.mkdir(parents=True)
+    (gamma / "pyproject.toml").write_text(
+        '[project]\nname = "cruxible-provider-gamma"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    (gamma / "uv.lock").write_text(_lock("gamma", "1.0.0"), encoding="utf-8")
+    assert check_main(["--repo", str(synthetic_repo), "--base", "HEAD"]) == 1

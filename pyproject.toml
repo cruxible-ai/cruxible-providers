@@ -35,9 +35,15 @@ testpaths = [
   "packages/cruxible-provider-runtime/tests",
   "packages/cruxible-provider-noop/tests",
 ]
-addopts = "-ra --strict-markers"
+# `-m "not engine"` is in the default options rather than left to whoever runs
+# the suite. An engine test needs a browser, a tensor stack, or an OCR runtime
+# that the base install deliberately does not carry, so the default run must
+# exclude them by construction -- a lane that is opt-out is a lane somebody runs
+# by accident on a laptop with no engines and reads as broken.
+addopts = "-ra --strict-markers --import-mode=importlib -m 'not engine'"
 markers = [
   "egress_conformance: runs with outbound sockets blocked; asserts declared == observed",
+  "engine: needs a real heavy engine from a per-engine extra; excluded from the default run",
 ]
 
 [tool.ruff]
@@ -61,3 +67,17 @@ python_version = "3.11"
 strict = true
 warn_unreachable = true
 pretty = true
+
+# The heavy engines ship no type information, and the base install does not
+# carry them at all, so every engine import is unresolvable to a type checker
+# running in the default environment. That is a property of the heavy-engine
+# split rather than a gap in this code: the engine adapters are the only place
+# these names appear, each import sits inside the method that needs it, and each
+# failure to import is already a typed refusal.
+[[tool.mypy.overrides]]
+module = [
+  "docling.*",
+  "paddleocr.*",
+  "playwright.*",
+]
+ignore_missing_imports = true

@@ -39,6 +39,8 @@ from urllib.parse import urlsplit
 from .errors import RefusalCode, refuse
 
 __all__ = [
+    "DYNAMIC_ENDPOINT_FORMS",
+    "DYNAMIC_TARGET_FROM_RUN_INPUT",
     "SITECUSTOMIZE_GUARD",
     "EgressComparison",
     "EgressRecorder",
@@ -46,10 +48,53 @@ __all__ = [
     "enforce_egress",
     "no_network",
     "normalize_endpoint",
+    "partition_declared",
     "write_child_guard",
 ]
 
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ftp": 21}
+
+DYNAMIC_TARGET_FROM_RUN_INPUT = "dynamic:target-from-run-input"
+"""EXPERIMENTAL. Declares that the target is decided by the run input.
+
+Some adapters have no fixed endpoint list to declare. ``web.fetch`` is the
+canonical case: the whole point of the interface is to retrieve a resource the
+*caller* names, and an allowlist enumerated at acceptance time could only ever
+be wrong. Refusing the case outright would delete the interface; declaring
+``[]`` and then contacting things would be a lie the conformance lane catches.
+
+So the declaration says what is true: the endpoint set is dynamic, and what
+governs it is the recording rather than the list. Under this form the runtime
+does **not** compare observed against a list — there is none — but it still
+records every endpoint actually contacted, and the receipt says the declaration
+was dynamic so that nobody reads an empty ``unused`` set as an allowlist that
+held.
+
+This is a **pre-decided disposition, and an open vocabulary item**: the spelling
+is a reserved string in ``declared_endpoints`` rather than a separate manifest
+field, so the field stays homogeneous (``tuple[str, ...]``) for the run context,
+the comparison, and the cloud allowlist reader. It is deliberately the ONLY
+dynamic form; anything else under the ``dynamic:`` prefix refuses at manifest
+load. Its cloud-backend consequence is unresolved and belongs to whoever ratifies
+the vocabulary: a default-deny policy cannot be built from this declaration, so a
+dynamically-targeted adapter needs either a per-run allowlist derived from the
+run input or an egress proxy that records without allowlisting.
+"""
+
+DYNAMIC_ENDPOINT_FORMS = frozenset({DYNAMIC_TARGET_FROM_RUN_INPUT})
+
+
+def partition_declared(declared: Iterable[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Split a declaration into (concrete endpoints, dynamic forms)."""
+
+    endpoints: list[str] = []
+    dynamic: list[str] = []
+    for entry in declared:
+        if entry in DYNAMIC_ENDPOINT_FORMS:
+            dynamic.append(entry)
+        else:
+            endpoints.append(normalize_endpoint(entry))
+    return tuple(sorted(set(endpoints))), tuple(sorted(set(dynamic)))
 
 
 def normalize_endpoint(value: str) -> str:
@@ -100,6 +145,14 @@ class EgressComparison:
     observed: tuple[str, ...]
     undeclared: tuple[str, ...]
     unused: tuple[str, ...]
+    dynamic_forms: tuple[str, ...] = ()
+    """Dynamic declaration forms in force for this comparison.
+
+    Always rendered, both ways. An empty tuple means the declaration was a
+    concrete list and ``undeclared`` is a real finding; a non-empty one means
+    ``undeclared`` is empty *because nothing was compared*, which a reader must
+    not mistake for an allowlist that held.
+    """
 
     @property
     def conformant(self) -> bool:
@@ -107,15 +160,23 @@ class EgressComparison:
 
 
 def compare_egress(declared: Iterable[str], observed: Iterable[str]) -> EgressComparison:
-    """Compare a declaration against what was observed."""
+    """Compare a declaration against what was observed.
 
-    declared_set = {normalize_endpoint(value) for value in declared}
+    A dynamic form in the declaration suspends the comparison rather than
+    widening it: there is no list to be outside of, so every observed endpoint
+    is admitted and the form is carried on the comparison so that the receipt
+    says so.
+    """
+
+    declared_set, dynamic = partition_declared(declared)
     observed_set = {normalize_endpoint(value) for value in observed}
+    undeclared = () if dynamic else tuple(sorted(observed_set - set(declared_set)))
     return EgressComparison(
-        declared=tuple(sorted(declared_set)),
+        declared=declared_set,
         observed=tuple(sorted(observed_set)),
-        undeclared=tuple(sorted(observed_set - declared_set)),
-        unused=tuple(sorted(declared_set - observed_set)),
+        undeclared=undeclared,
+        unused=tuple(sorted(set(declared_set) - observed_set)),
+        dynamic_forms=dynamic,
     )
 
 

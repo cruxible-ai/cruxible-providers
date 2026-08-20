@@ -54,6 +54,52 @@ def test_every_package_ships_a_typing_marker(package: Path) -> None:
     assert markers, f"{package.name} ships no py.typed"
 
 
+def test_no_test_directory_is_an_importable_package() -> None:
+    """Two packages named ``tests`` collide the moment both are collected.
+
+    The failure is not subtle and it is not local: pytest imports the second
+    ``tests/conftest.py`` under the first one's module name and refuses to
+    register it, so adding a plane package breaks an unrelated package's suite.
+    """
+
+    offenders = [
+        str(path.relative_to(REPO_ROOT))
+        for package in REAL_PACKAGES
+        for path in [package / "tests" / "__init__.py"]
+        if path.exists()
+    ]
+    assert not offenders, f"test directories must not be importable packages: {offenders}"
+
+
+def test_the_suite_imports_test_modules_by_path() -> None:
+    """The other half of the same rule.
+
+    Without ``__init__.py`` a test module's importable name is its bare basename
+    under the default import mode, so two ``test_full_loop.py`` files in
+    different packages would collide instead. ``importlib`` mode derives a unique
+    module name from the path, which is what lets every package name its test
+    modules whatever suits it and still keep ``from .conftest import`` working.
+    """
+
+    document = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "--import-mode=importlib" in document["tool"]["pytest"]["ini_options"]["addopts"]
+
+
+def test_the_default_run_excludes_the_engine_lane() -> None:
+    """Opt-in by construction, not by whoever remembers the flag.
+
+    An engine test needs a browser, a tensor stack, or an OCR runtime that the
+    base install deliberately does not carry. A lane that is opt-*out* is a lane
+    somebody runs by accident on a machine with no engines, where it reads as a
+    broken repository rather than as an absent extra.
+    """
+
+    document = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    options = document["tool"]["pytest"]["ini_options"]
+    assert "not engine" in options["addopts"]
+    assert any(marker.startswith("engine:") for marker in options["markers"])
+
+
 def test_the_root_is_not_a_uv_workspace() -> None:
     """A workspace root would suppress the member locks that carry identity."""
 

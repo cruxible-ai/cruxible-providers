@@ -16,6 +16,7 @@ schemas and a conformance harness against a stub registry. See
 from __future__ import annotations
 
 from .artifact import ProviderArtifactPayload, artifact_digest, load_provider_artifact
+from .backends import MaterializationRequest, UvSyncBuilder, verify_environment
 from .binding import Binding, BindRequest, bind
 from .buckets import BucketDimension, BucketSelector, BucketVocabulary
 from .budget import ProcessOutcome, enforce_cost_budget, run_with_budget
@@ -33,7 +34,14 @@ from .digests import (
     implementation_digest,
     materialization_digest,
 )
-from .egress import EgressRecorder, compare_egress, enforce_egress, write_child_guard
+from .egress import (
+    DYNAMIC_ENDPOINT_FORMS,
+    DYNAMIC_TARGET_FROM_RUN_INPUT,
+    EgressRecorder,
+    compare_egress,
+    enforce_egress,
+    write_child_guard,
+)
 from .errors import ProviderErrorPayload, Refusal, RefusalCode, RefusalError
 from .execute import InvocationOutcome, invoke
 from .index import ArtifactFetcher, IndexConfig
@@ -41,11 +49,19 @@ from .manifest import ProviderManifest, load_manifest, manifest_digest
 from .protocol import PROTOCOL_VERSION, Budgets, ResultEnvelope, RunContext
 from .provider_api import Provider, ProviderResult, ProviderRunContext, ProviderStatus
 from .registry import InterfaceRegistration, StubRegistry
-from .resolution import MarkerEnvironment, ResolvedSet, load_uv_lock, resolve
+from .resolution import (
+    MarkerEnvironment,
+    ResolvedSet,
+    environment_pin_key,
+    load_uv_lock,
+    resolve,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
+    "DYNAMIC_ENDPOINT_FORMS",
+    "DYNAMIC_TARGET_FROM_RUN_INPUT",
     "IMPLEMENTATION_DOMAIN_TAG",
     "MATERIALIZATION_DOMAIN_TAG",
     "PROTOCOL_VERSION",
@@ -87,6 +103,7 @@ __all__ = [
     "domain_digest",
     "enforce_cost_budget",
     "enforce_egress",
+    "environment_pin_key",
     "implementation_digest",
     "invoke",
     "load_manifest",

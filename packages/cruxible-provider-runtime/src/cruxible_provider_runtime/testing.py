@@ -24,13 +24,60 @@ from .canonical import canonical_json
 from .errors import RefusalCode, refuse
 from .index import TransportResponse
 from .protocol import Budgets
-from .resolution import ResolvedSet
+from .resolution import MarkerEnvironment, ResolvedSet
 
 __all__ = [
+    "ENGINE_MARKER_ENVIRONMENT",
     "FakeContainerDriver",
     "FakeIndexTransport",
     "InjectedEnvironmentBuilder",
 ]
+
+_GLIBC_PLATFORMS = (
+    "manylinux1_x86_64",
+    "manylinux2010_x86_64",
+    "manylinux2014_x86_64",
+    *(f"manylinux_2_{minor}_x86_64" for minor in (5, 12, 17, 18, 24, 25, 26, 27, 28)),
+)
+
+ENGINE_MARKER_ENVIRONMENT = MarkerEnvironment(
+    id="linux-cp311-engines",
+    markers={
+        "implementation_name": "cpython",
+        "os_name": "posix",
+        "platform_machine": "x86_64",
+        "python_full_version": "3.11.9",
+        "python_version": "3.11",
+        "sys_platform": "linux",
+    },
+    tags=(
+        *(
+            f"{python}-{abi}-{platform}"
+            for python, abi in (("cp311", "cp311"), ("cp311", "abi3"), ("py3", "none"))
+            for platform in _GLIBC_PLATFORMS
+        ),
+        "py3-none-any",
+    ),
+)
+"""A marker environment broad enough to pin an environment containing an engine.
+
+Shared by every plane package that puts a heavy engine behind an extra, because
+the launch environments in ``ci/marker-environments.json`` cannot pin one: they
+list three tags each, and a real binary closure reaches for a dozen glibc
+platform tags across its packages — a browser driver ships
+``py3-none-manylinux1_x86_64``, a tensor library ships
+``cp311-cp311-manylinux_2_28_x86_64``, an accelerator runtime ships
+``py3-none-manylinux_2_18_x86_64``.
+
+The list is long because tag matching here is **exact string membership**, and
+the platform-tag scheme it is matching is not a set of names but an ordering: a
+``manylinux_2_17`` wheel is installable on a ``manylinux_2_28`` host, and PEP 600
+says so. Teaching the resolver that ordering is a change to what a materialization
+digest *means*, so it is not made here; enumerating the tags is the honest
+alternative, and this constant is the enumeration plus a note saying why it
+exists. The narrowness of the launch environment list is recorded as a finding
+for whoever owns the tag vocabulary.
+"""
 
 
 @dataclass

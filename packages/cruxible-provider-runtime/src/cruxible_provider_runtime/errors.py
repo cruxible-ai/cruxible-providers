@@ -47,6 +47,7 @@ class RefusalCode(StrEnum):
     LOCK_AMBIGUOUS_FORK = "lock_ambiguous_fork"
     NO_COMPATIBLE_ARTIFACT = "no_compatible_artifact"
     UNRESOLVABLE_SOURCE = "unresolvable_source"
+    UNKNOWN_EXTRA = "unknown_extra"
     INDEX_NOT_PINNED = "index_not_pinned"
     INDEX_REDIRECT = "index_redirect"
     ARTIFACT_HASH_MISMATCH = "artifact_hash_mismatch"

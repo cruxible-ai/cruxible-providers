@@ -89,18 +89,24 @@ class ContainerBackendPin(BaseModel):
 
 
 class LocalEnvBackendPin(BaseModel):
-    """The local backend's environment pins, one per supported marker environment.
+    """The local backend's environment pins, one per supported environment.
 
     ``lock_sha256`` is tamper detection over the committed lock bytes and is
     explicitly *not* an identity: identity is the per-environment
     materialization digest, recomputed from the lock at bind time.
+
+    The key is an **environment pin key** — a marker environment id plus the
+    extras selected for it (``linux-cp311``, ``linux-cp311+docling``). One lock
+    produces one environment per extras set, because that is what a per-engine
+    extra *is*, and two implementations in one package may need different ones.
+    See ``resolution.environment_pin_key``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     lock_sha256: str
     materialization_digests: dict[str, str] = Field(
-        description="marker environment id -> materialization digest",
+        description="environment pin key (marker environment + extras) -> materialization digest",
     )
 
     _validate_lock = field_validator("lock_sha256")(_digest_field)
@@ -110,9 +116,9 @@ class LocalEnvBackendPin(BaseModel):
     def _digests(cls, value: dict[str, str]) -> dict[str, str]:
         if not value:
             raise ValueError("a local_env pin must cover at least one marker environment")
-        for env_id, digest in value.items():
+        for pin_key, digest in value.items():
             if not SHA256_RE.match(digest):
-                raise ValueError(f"materialization digest for {env_id!r} must be sha256:<hex>")
+                raise ValueError(f"materialization digest for {pin_key!r} must be sha256:<hex>")
         return value
 
 

@@ -44,13 +44,34 @@ def load_environments(repo: Path) -> list[MarkerEnvironment]:
     return [MarkerEnvironment.model_validate(entry) for entry in document["environments"]]
 
 
+def is_exempt(package_dir: Path) -> bool:
+    """Whether a package declares itself out of the digest-scope gate."""
+
+    document = tomllib.loads((package_dir / "pyproject.toml").read_text(encoding="utf-8"))
+    return document.get("tool", {}).get("cruxible", {}).get("digest_scope") == "exempt"
+
+
 def package_dirs(repo: Path) -> list[Path]:
-    """Every real package: a directory with both a pyproject and its own lock."""
+    """Every package the scope gate measures.
+
+    A directory with both a pyproject and its own lock, minus any that declares
+    ``[tool.cruxible] digest_scope = "exempt"``. One kind of package may declare
+    that, and it is the umbrella: its entire content is other packages, so its
+    closure moves whenever any plane's does. The gate exists to stop a bump in one
+    *provider* re-pinning another provider's environment; the umbrella pins no
+    environment, carries no implementation digest, and appears in no track record,
+    so its closure moving is information about the planes rather than about it.
+
+    The exemption is a written field rather than a name the script recognises,
+    because a hard-coded name is an exemption nobody can see from the package.
+    """
 
     return sorted(
         path
         for path in (repo / "packages").iterdir()
-        if (path / "pyproject.toml").is_file() and (path / "uv.lock").is_file()
+        if (path / "pyproject.toml").is_file()
+        and (path / "uv.lock").is_file()
+        and not is_exempt(path)
     )
 
 

@@ -43,7 +43,13 @@ from .errors import RefusalCode, refuse
 from .manifest import BackendKind, ImplementationManifest, load_manifest, manifest_digest
 from .protocol import PROTOCOL_VERSION, ProtocolVersion
 from .registry import StubRegistry
-from .resolution import MarkerEnvironment, ResolvedSet, load_uv_lock, resolve
+from .resolution import (
+    MarkerEnvironment,
+    ResolvedSet,
+    environment_pin_key,
+    load_uv_lock,
+    resolve,
+)
 
 __all__ = ["BindRequest", "Binding", "bind"]
 
@@ -78,15 +84,23 @@ class Binding:
     protocol_version: ProtocolVersion
     backend_kind: BackendKind
     artifact: ProviderArtifactPayload
+    extras: tuple[str, ...] = ()
+    """The extras this implementation's manifest requires, sorted.
+
+    Part of the snapshot because an environment built with an engine and one
+    built without it are different environments, and a reader looking at two
+    materialization digests deserves to be told why they differ.
+    """
+
     env_path: Path | None = None
     image_digest: str | None = None
     resolved: ResolvedSet | None = None
     dev_sources_permitted: bool = False
 
-    def snapshot(self) -> dict[str, str | bool]:
+    def snapshot(self) -> dict[str, str | bool | list[str]]:
         """The binding snapshot a LineDeployment records."""
 
-        snapshot: dict[str, str | bool] = {
+        snapshot: dict[str, str | bool | list[str]] = {
             "provider_id": self.provider_id,
             "interface_id": self.interface_id,
             "interface_digest": self.interface_digest,
@@ -94,6 +108,9 @@ class Binding:
             "materialization_digest": self.materialization_digest,
             "protocol_version": self.protocol_version.render(),
             "backend_kind": self.backend_kind,
+            # Always present, empty list included: the environment a binding
+            # names is the environment for these extras and no others.
+            "extras": sorted(self.extras),
             # Always present, both ways. Emitting only the true case makes the
             # key absent-means-false, and a consumer that has never heard of it
             # then reads a dev-source pin as a production pin -- the exact
@@ -205,6 +222,12 @@ def _bind_local(
             provider_id=request.provider_id,
         )
     env = request.marker_environment
+    # The extras come from the manifest, never from the bind request. A request
+    # that could name its own extras could materialize an environment the
+    # accepted artifact never pinned, and the implementation would run against
+    # engines nobody approved.
+    extras = implementation.requires_extras
+    pin_key = environment_pin_key(env.id, extras)
     lock = load_uv_lock(request.lock_path)
     if lock.lock_sha256 != payload.local_env.lock_sha256:
         raise refuse(
@@ -218,16 +241,19 @@ def _bind_local(
         lock,
         payload.distribution.name,
         env,
+        extras=extras,
         allow_editable_dev_sources=request.allow_editable_dev_sources,
     )
     computed = materialization_digest(resolved, distribution_sha256=payload.distribution.sha256)
-    pinned = payload.local_env.materialization_digests.get(env.id)
+    pinned = payload.local_env.materialization_digests.get(pin_key)
     if pinned is None:
         raise refuse(
             RefusalCode.LOCK_MISMATCH,
-            f"accepted artifact pins no materialization for marker environment {env.id!r}",
+            f"accepted artifact pins no materialization for environment {pin_key!r}",
             provider_id=request.provider_id,
             marker_environment=env.id,
+            extras=list(extras),
+            environment_pin_key=pin_key,
             pinned_environments=sorted(payload.local_env.materialization_digests),
         )
     if computed != pinned:
@@ -236,6 +262,7 @@ def _bind_local(
             "lock resolves to a different materialization than the accepted artifact pins",
             provider_id=request.provider_id,
             marker_environment=env.id,
+            environment_pin_key=pin_key,
             pinned=pinned,
             computed=computed,
         )
@@ -262,6 +289,7 @@ def _bind_local(
         protocol_version=PROTOCOL_VERSION,
         backend_kind="local_env",
         artifact=payload,
+        extras=extras,
         env_path=env_path,
         resolved=resolved,
         dev_sources_permitted=request.allow_editable_dev_sources,
@@ -299,5 +327,9 @@ def _bind_container(
         protocol_version=PROTOCOL_VERSION,
         backend_kind="container",
         artifact=payload,
+        # The image already contains whatever the extras pulled in; the field
+        # records what the implementation asked for, so the two backends'
+        # snapshots stay comparable.
+        extras=implementation.requires_extras,
         image_digest=payload.container.image_digest,
     )

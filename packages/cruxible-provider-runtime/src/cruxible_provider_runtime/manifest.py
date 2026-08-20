@@ -26,7 +26,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .canonical import SHA256_RE, domain_digest
-from .errors import RefusalCode, refuse
+from .egress import DYNAMIC_ENDPOINT_FORMS, normalize_endpoint
+from .errors import RefusalCode, RefusalError, refuse
 
 __all__ = [
     "ENTRYPOINT_GROUP",
@@ -83,10 +84,61 @@ class ImplementationManifest(BaseModel):
     )
     declared_endpoints: tuple[str, ...] = ()
     capture_contract_families: tuple[str, ...] = ()
+    requires_extras: tuple[str, ...] = ()
+    """The package extras this implementation's environment must carry.
+
+    Heavy engines — a browser, a document-conversion stack, an OCR runtime —
+    live behind per-engine extras so that the base distribution stays light and
+    the default conformance lane installs no engine at all. An implementation
+    that needs one says so here, and the extras it names are what the resolver
+    is asked for when the environment is materialized. Two implementations of
+    two interfaces in one package may therefore require different extras and
+    bind to different environments from the same lock.
+    """
+
     deterministic: bool
     side_effects: bool
 
     _validate_interface_digest = field_validator("interface_digest")(_validate_digest)
+
+    @field_validator("requires_extras")
+    @classmethod
+    def _extras_are_named_once(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError(f"duplicate extras: {value}")
+        for extra in value:
+            if not extra or extra.strip() != extra:
+                raise ValueError(f"invalid extra name: {extra!r}")
+        return value
+
+    @field_validator("declared_endpoints")
+    @classmethod
+    def _endpoints_are_endpoints_or_known_dynamic_forms(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Fail closed on an endpoint declaration nothing can interpret.
+
+        Two spellings are legal: a concrete ``scheme://host[:port]``, and one of
+        the EXPERIMENTAL dynamic forms for an adapter whose target is decided by
+        the run input. An unrecognised ``dynamic:`` form is refused rather than
+        treated as a hostname — reading ``dynamic:whatever-comes-next`` as a
+        host named ``dynamic`` would turn a declaration nobody understands into
+        a declaration that quietly matches nothing.
+        """
+
+        for entry in value:
+            if entry in DYNAMIC_ENDPOINT_FORMS:
+                continue
+            if entry.startswith("dynamic:"):
+                raise ValueError(
+                    f"unknown dynamic endpoint form {entry!r}; known forms are "
+                    f"{sorted(DYNAMIC_ENDPOINT_FORMS)}"
+                )
+            try:
+                normalize_endpoint(entry)
+            except RefusalError as exc:
+                raise ValueError(f"declared endpoint {entry!r} is not an endpoint") from exc
+        return value
 
     @field_validator("entrypoint")
     @classmethod

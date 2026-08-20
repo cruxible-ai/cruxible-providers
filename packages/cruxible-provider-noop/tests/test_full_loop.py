@@ -429,3 +429,41 @@ def test_without_the_lane_guard_a_socket_fails_for_a_different_reason(
     assert outcome.status == "error"
     assert outcome.envelope.error is not None
     assert "egress-conformance lane" not in outcome.envelope.error.message
+
+
+@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
+def test_a_chatty_provider_does_not_corrupt_the_result_envelope(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """Standard output is reserved for the envelope, and reserved from the start.
+
+    Real engines print. A record-linkage library announces its blocking time, a
+    document converter reports its pipeline, a browser driver logs on the way
+    down — none of it under this repository's control, and any one line of it
+    would make the envelope unparseable and be reported as a protocol violation
+    by a provider that did nothing wrong.
+
+    The provider here prints three ways, including straight at file descriptor 1
+    the way a C extension does, and the envelope still arrives intact. The noise
+    is not swallowed either: it lands in stderr, where trace material belongs and
+    where the executor's output-size budget still measures it.
+    """
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "chatty"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "ok"
+    assert outcome.envelope.output == {
+        "echo": "chatty",
+        "input_bucket": "payload_size=tiny;charset=ascii",
+    }
+    assert "Blocking time" in outcome.stderr
+    assert "native library says hello" in outcome.stderr

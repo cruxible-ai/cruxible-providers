@@ -194,3 +194,57 @@ def test_an_absent_interface_is_a_different_refusal_from_an_ambiguous_one() -> N
     with pytest.raises(RefusalError) as exc:
         manifest.implementation("sample.absent")
     assert exc.value.code is RefusalCode.UNDECLARED_INTERFACE
+
+
+def test_a_manifest_may_require_per_engine_extras() -> None:
+    """Heavy engines live behind extras; the implementation names the ones it needs."""
+
+    document = copy.deepcopy(MANIFEST)
+    document["implementations"][0]["requires_extras"] = ["docling"]
+    manifest = load_manifest_document(document)
+    assert manifest.implementation("sample.echo").requires_extras == ("docling",)
+
+
+def test_an_implementation_requires_no_extras_by_default() -> None:
+    assert load_manifest_document(MANIFEST).implementation("sample.echo").requires_extras == ()
+
+
+def test_a_repeated_extra_refuses() -> None:
+    document = copy.deepcopy(MANIFEST)
+    document["implementations"][0]["requires_extras"] = ["docling", "docling"]
+    with pytest.raises(RefusalError) as exc:
+        load_manifest_document(document)
+    assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
+
+
+def test_the_dynamic_endpoint_form_is_a_legal_declaration() -> None:
+    """EXPERIMENTAL, and deliberately the only one."""
+
+    document = copy.deepcopy(MANIFEST)
+    document["implementations"][0]["declared_endpoints"] = ["dynamic:target-from-run-input"]
+    manifest = load_manifest_document(document)
+    assert manifest.implementation("sample.echo").declared_endpoints == (
+        "dynamic:target-from-run-input",
+    )
+
+
+def test_an_unknown_dynamic_endpoint_form_refuses() -> None:
+    """A declaration nobody can interpret must not be read as a hostname.
+
+    Without this, ``dynamic:whatever-comes-next`` normalises to a host called
+    ``dynamic`` and becomes an allowlist entry that quietly matches nothing.
+    """
+
+    document = copy.deepcopy(MANIFEST)
+    document["implementations"][0]["declared_endpoints"] = ["dynamic:whatever-comes-next"]
+    with pytest.raises(RefusalError) as exc:
+        load_manifest_document(document)
+    assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
+
+
+def test_a_declared_endpoint_that_is_not_an_endpoint_refuses() -> None:
+    document = copy.deepcopy(MANIFEST)
+    document["implementations"][0]["declared_endpoints"] = ["https:///no-host"]
+    with pytest.raises(RefusalError) as exc:
+        load_manifest_document(document)
+    assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
