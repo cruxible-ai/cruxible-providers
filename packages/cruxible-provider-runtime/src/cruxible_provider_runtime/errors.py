@@ -71,6 +71,7 @@ class RefusalCode(StrEnum):
     SECRET_LEAK = "secret_leak"
     PROVIDER_DECLINED = "provider_declined"
     UNRESOLVED_SECRET_REF = "unresolved_secret_ref"
+    SECRET_BUNDLE_TOO_LARGE = "secret_bundle_too_large"
 
     # --- container ---------------------------------------------------------
     IMAGE_PROVENANCE_MISMATCH = "image_provenance_mismatch"

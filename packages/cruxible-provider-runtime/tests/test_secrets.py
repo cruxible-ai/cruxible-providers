@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 
 import pytest
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.secrets import (
+    MAX_SECRET_BUNDLE_BYTES,
     REDACTION_PLACEHOLDER,
     Redactor,
     assert_no_secret_leak,
@@ -26,6 +28,45 @@ def test_channel_round_trip() -> None:
 def test_empty_channel_yields_no_secrets() -> None:
     with open_secret_channel({}) as fd:
         assert read_secrets(os.dup(fd)) == {}
+
+
+def _open_channel_off_thread(secrets: dict[str, str], *, timeout: float = 15.0) -> list[object]:
+    """Open a channel on a worker thread and report what happened, or that nothing did.
+
+    The pre-fix channel wrote the whole bundle into the pipe before yielding, so
+    an undeliverable bundle parked the caller forever. Asserting "this returned
+    at all" needs a thread; asserting it from the thread that would be parked
+    does not work.
+    """
+
+    outcome: list[object] = []
+
+    def attempt() -> None:
+        try:
+            with open_secret_channel(secrets) as fd:
+                outcome.append(read_secrets(os.dup(fd)))
+        except RefusalError as exc:
+            outcome.append(exc.code)
+
+    worker = threading.Thread(target=attempt, daemon=True)
+    worker.start()
+    worker.join(timeout=timeout)
+    assert not worker.is_alive(), "opening the secret channel blocked on an undrained pipe"
+    return outcome
+
+
+def test_an_oversized_bundle_refuses_rather_than_blocking() -> None:
+    """No unbounded write before a reader exists — and no reader exists yet."""
+
+    oversized = {"provider.api_key": "x" * (MAX_SECRET_BUNDLE_BYTES * 4)}
+    assert _open_channel_off_thread(oversized) == [RefusalCode.SECRET_BUNDLE_TOO_LARGE]
+
+
+def test_a_bundle_larger_than_the_pipe_buffer_still_delivers() -> None:
+    """Delivery is a bounded writer thread, so pipe capacity is not the limit."""
+
+    bundle = {"provider.api_key": "k" * (MAX_SECRET_BUNDLE_BYTES - 64)}
+    assert _open_channel_off_thread(bundle) == [bundle]
 
 
 def test_malformed_channel_payload_refuses() -> None:

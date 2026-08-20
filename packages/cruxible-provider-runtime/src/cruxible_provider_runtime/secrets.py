@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
@@ -26,6 +27,7 @@ from typing import Any
 from .errors import RefusalCode, refuse
 
 __all__ = [
+    "MAX_SECRET_BUNDLE_BYTES",
     "REDACTION_PLACEHOLDER",
     "Redactor",
     "SecretBundle",
@@ -36,33 +38,76 @@ __all__ = [
 
 REDACTION_PLACEHOLDER = "[redacted]"
 
+MAX_SECRET_BUNDLE_BYTES = 65_536
+"""The largest credential bundle the channel will carry.
+
+Credentials are small. A caller asking to deliver megabytes of "credential" is
+doing something the contract does not describe, and the honest answer is a typed
+refusal rather than a channel that grows to fit whatever it is handed.
+"""
+
 SecretBundle = Mapping[str, str]
 """ref -> credential material."""
+
+
+def _write_bundle(write_fd: int, payload: bytes) -> None:
+    """Deliver the whole bundle, then close the write end.
+
+    Runs off the calling thread. ``os.write`` on a blocking pipe returns short
+    when the kernel buffer fills, so the loop is the delivery guarantee, not a
+    formality — and running it on its own thread is what keeps a bundle larger
+    than the pipe buffer from parking the executor before the reader exists.
+    """
+
+    try:
+        offset = 0
+        while offset < len(payload):
+            offset += os.write(write_fd, payload[offset:])
+    except OSError:
+        # The reader went away before the bundle was delivered. The provider side
+        # reports the refs it did not receive; there is nothing to say here that
+        # would not be a duplicate of that.
+        pass
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(write_fd)
 
 
 @contextmanager
 def open_secret_channel(secrets: SecretBundle) -> Iterator[int]:
     """Yield a read descriptor carrying ``secrets``, for the child to inherit.
 
-    The material is written into the pipe and the write end closed before the
-    child is spawned, so the payload is bounded by the pipe buffer. That bound
-    is deliberate: credentials are small, and a provider needing megabytes of
-    "credential" is doing something the contract does not describe.
+    The descriptor is handed back immediately and the material is delivered by a
+    writer thread, because the child that drains the pipe is spawned *after* this
+    yields. Writing the payload inline first — the original shape — deadlocks the
+    executor whenever the bundle exceeds the pipe buffer, and it deadlocks it
+    outside the wall-clock supervisor, which only watches a child that by then
+    does not exist.
     """
 
     payload = json.dumps(dict(secrets), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if len(payload) > MAX_SECRET_BUNDLE_BYTES:
+        raise refuse(
+            RefusalCode.SECRET_BUNDLE_TOO_LARGE,
+            f"credential bundle is {len(payload)} bytes, over the "
+            f"{MAX_SECRET_BUNDLE_BYTES}-byte channel limit",
+            size_bytes=len(payload),
+            limit_bytes=MAX_SECRET_BUNDLE_BYTES,
+            refs=sorted(secrets),
+        )
     read_fd, write_fd = os.pipe()
+    os.set_inheritable(read_fd, True)
+    writer = threading.Thread(target=_write_bundle, args=(write_fd, payload), daemon=True)
+    writer.start()
     try:
-        os.set_inheritable(read_fd, True)
-        os.write(write_fd, payload)
-        os.close(write_fd)
-        write_fd = -1
         yield read_fd
     finally:
-        if write_fd != -1:
-            os.close(write_fd)
+        # The read end closes first on purpose: a writer still holding an
+        # undrained bundle then fails with EPIPE and exits, where joining it
+        # first would wait for a reader that is never coming.
         with contextlib.suppress(OSError):
             os.close(read_fd)
+        writer.join(timeout=5)
 
 
 def read_secrets(fd: int) -> dict[str, str]:
