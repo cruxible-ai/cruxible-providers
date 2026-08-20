@@ -29,7 +29,7 @@ from typing import Protocol, runtime_checkable
 
 from packaging.utils import canonicalize_name
 
-from .artifact import ImageProvenance, ProviderArtifactPayload, artifact_digest
+from .artifact import DistributionPin, ImageProvenance, ProviderArtifactPayload, artifact_digest
 from .budget import ProcessOutcome, minimal_env, run_with_budget
 from .cache import MaterializationCache
 from .canonical import canonical_json
@@ -62,6 +62,11 @@ class MaterializationRequest:
     constructor. A builder holding its own idea of which project to sync can
     materialize a tree that has nothing to do with the lock the bind verified,
     and then seal it under that lock's digest.
+
+    ``distribution`` is the accepted artifact's root pin. It travels with the
+    request for the same reason: the sha256 that feeds the implementation digest
+    is a fact the *bind* established, and a builder that fetched the root from
+    anywhere else would be installing something the digest does not describe.
     """
 
     target: Path
@@ -69,6 +74,7 @@ class MaterializationRequest:
     fetcher: ArtifactFetcher
     project_dir: Path | None = None
     lock_path: Path | None = None
+    distribution: DistributionPin | None = None
 
 
 @runtime_checkable
@@ -117,19 +123,27 @@ def find_site_packages(env_path: Path) -> Path:
     return candidates[0]
 
 
-def verify_environment(env_path: Path, resolved: ResolvedSet) -> None:
+def verify_environment(
+    env_path: Path, resolved: ResolvedSet, *, root: DistributionPin | None = None
+) -> None:
     """Refuse unless the materialized tree matches the resolution it claims.
 
     Compares the installed ``(name, version)`` set against the resolution's
-    registry entries. Local sources admitted under the dev-only escape hatch are
-    exempt, because they have no pinned version to compare against.
+    registry entries, plus the root distribution when one was pinned. The root
+    is checked separately because it is not a resolved entry: the resolution
+    covers the closure, and the accepted artifact pins the root. A tree missing
+    it is a dependency-only environment sealed under a digest that names a
+    provider, which is precisely the failure this argument exists to catch.
+    Local sources admitted under the dev-only escape hatch are exempt, because
+    they have no pinned version to compare against.
 
     Known limit, stated rather than papered over: ``.dist-info`` records a name
     and a version, not the sha256 of the artifact the file came from. This check
     therefore catches "this tree is not that resolution" at name-and-version
     granularity. The artifact-hash guarantee comes from the installer being
-    given hash-pinned requirements — see :class:`UvSyncBuilder` — and this is the
-    independent check that the installer did what it was told.
+    given hash-pinned requirements and from the root being hash-verified before
+    it is installed — see :class:`UvSyncBuilder` — and this is the independent
+    check that the installer did what it was told.
     """
 
     installed = installed_distributions(find_site_packages(env_path))
@@ -138,6 +152,8 @@ def verify_environment(env_path: Path, resolved: ResolvedSet) -> None:
         for entry in resolved.distributions
         if not entry.is_local_source
     }
+    if root is not None:
+        expected[canonicalize_name(root.name)] = root.version
     missing = sorted(name for name in expected if name not in installed)
     mismatched = sorted(
         name
@@ -158,28 +174,35 @@ def verify_environment(env_path: Path, resolved: ResolvedSet) -> None:
 
 
 class UvSyncBuilder:
-    """The production local builder: export hash-pinned requirements, then sync.
+    """The production local builder: dependencies by sync, the root by artifact.
 
-    Three deliberate choices, each closing a hole the first cut of this class
-    had:
+    An environment is two things and they arrive by two paths, deliberately:
 
-    * the project and lock come from the :class:`MaterializationRequest`, so the
-      tree that gets sealed is built from the lock the bind actually verified;
-    * the install goes through ``uv export`` into hash-pinned requirements and
+    * **the closure** comes from ``uv export`` into hash-pinned requirements and
       ``uv pip sync --require-hashes``, so **every entry's** artifact hash is
       asserted by the installer. ``uv sync --locked`` alone asserts that the lock
-      is current, which is a different claim;
-    * indexes are pinned as explicit command-line flags rather than the legacy
-      ``UV_INDEX_URL``/``UV_EXTRA_INDEX_URL`` environment variables, which a
-      project's own ``[[tool.uv.index]]`` table overrides. ``--no-config`` keeps
-      ambient configuration out.
+      is current, which is a different claim. The export selects exactly the
+      extras the resolution selected — an environment built without the engine
+      an implementation declared would still verify against a closure that never
+      contained it;
+    * **the root** is fetched through the :class:`~.index.ArtifactFetcher`, from
+      the pinned index and at the sha256 the accepted artifact pins, and
+      installed from those exact bytes. That sha256 is what the *implementation
+      digest* covers, so installing the root any other way would seal a tree
+      under a digest describing an artifact the tree never contained. The export
+      passes ``--no-emit-project`` because of this, not despite it: the root is
+      not the sync's business.
 
-    **EXPERIMENTAL — residual.** This class needs a network and a ``uv`` on the
-    path, so no test in this repository executes it end to end; only its argument
-    construction and its post-build verification are covered. Until an RP-1 lane
-    exercises a real sync against a local index, treat the end-to-end behaviour
-    of this builder as unproven. What is *not* left to trust is the result: the
-    tree is verified against the resolution before it can seal.
+    Two smaller choices, each closing a hole the first cut of this class had:
+    the project and lock come from the :class:`MaterializationRequest`, so the
+    tree that gets sealed is built from the lock the bind actually verified; and
+    indexes are pinned as explicit command-line flags rather than the legacy
+    ``UV_INDEX_URL``/``UV_EXTRA_INDEX_URL`` environment variables, which a
+    project's own ``[[tool.uv.index]]`` table overrides. ``--no-config`` keeps
+    ambient configuration out.
+
+    Nothing seals unchecked: the finished tree is verified against the resolution
+    *and* against the root pin before the cache seals it.
     """
 
     def __init__(self, uv_executable: str = "uv") -> None:
@@ -188,8 +211,10 @@ class UvSyncBuilder:
     # -- argument construction (pure, and therefore testable) ---------------
 
     @staticmethod
-    def export_argv(uv: str, project_dir: Path, requirements: Path) -> list[str]:
-        return [
+    def export_argv(
+        uv: str, project_dir: Path, requirements: Path, extras: Sequence[str] = ()
+    ) -> list[str]:
+        argv = [
             uv,
             "export",
             "--locked",
@@ -198,11 +223,11 @@ class UvSyncBuilder:
             "--no-config",
             "--directory",
             str(project_dir),
-            "--format",
-            "requirements-txt",
-            "--output-file",
-            str(requirements),
         ]
+        for extra in sorted(set(extras)):
+            argv += ["--extra", extra]
+        argv += ["--format", "requirements-txt", "--output-file", str(requirements)]
+        return argv
 
     @staticmethod
     def sync_argv(
@@ -224,6 +249,29 @@ class UvSyncBuilder:
         argv.append(str(requirements))
         return argv
 
+    @staticmethod
+    def install_root_argv(uv: str, interpreter: Path, artifact: Path) -> list[str]:
+        """Install the fetched root artifact and nothing else.
+
+        ``--no-deps`` because the closure is already installed and pinned;
+        ``--no-index`` because this install must not be able to reach a registry
+        at all — the bytes on disk have already been hash-checked against the
+        accepted pin, and anything an index could contribute here would be
+        unpinned by construction.
+        """
+
+        return [
+            uv,
+            "pip",
+            "install",
+            "--no-deps",
+            "--no-index",
+            "--no-config",
+            "--python",
+            str(interpreter),
+            str(artifact),
+        ]
+
     # -- the build ---------------------------------------------------------
 
     def build(self, request: MaterializationRequest) -> None:
@@ -238,6 +286,13 @@ class UvSyncBuilder:
                 RefusalCode.LOCK_MISMATCH,
                 "a uv-synced environment needs the project and lock the bind verified",
             )
+        if request.distribution is None:
+            raise refuse(
+                RefusalCode.UNRESOLVABLE_SOURCE,
+                "a uv-synced environment needs the root distribution the accepted "
+                "artifact pinned; there is no other way to install the provider itself",
+                root=request.resolved.root_name,
+            )
         executable = shutil.which(self._uv)
         if executable is None:
             raise refuse(
@@ -246,14 +301,25 @@ class UvSyncBuilder:
             )
 
         target = request.target
+        pin = request.distribution
         shutil.copyfile(request.lock_path, target / "uv.lock")
         (target / "resolution.json").write_bytes(canonical_json(request.resolved.triples()))
         requirements = target / "requirements.txt"
         budgets = Budgets(wall_clock_seconds=900.0, output_bytes=4_000_000)
         env = minimal_env({"UV_NO_CONFIG": "1"})
 
+        # Fetched before anything is built. The fetcher refuses an unpinned
+        # index, a redirect, and a hash mismatch, so reaching the next line means
+        # the bytes on disk are the ones the accepted artifact names — and the
+        # sealed tree keeps them, so what was installed stays inspectable.
+        artifact = target / "artifact" / pin.filename
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_bytes(request.fetcher.fetch_url(pin.url, pin.sha256, pin.name))
+
         exported = run_with_budget(
-            self.export_argv(executable, request.project_dir, requirements),
+            self.export_argv(
+                executable, request.project_dir, requirements, request.resolved.extras
+            ),
             stdin_bytes=b"",
             budgets=budgets,
             env=env,
@@ -299,15 +365,34 @@ class UvSyncBuilder:
                 stderr=synced.stderr.decode("utf-8", "replace")[-2000:],
             )
 
+        installed = run_with_budget(
+            self.install_root_argv(executable, self.interpreter(target), artifact),
+            stdin_bytes=b"",
+            budgets=budgets,
+            env=env,
+        )
+        if installed.returncode != 0:
+            raise refuse(
+                RefusalCode.ENVIRONMENT_DIVERGENCE,
+                f"the pinned root distribution {pin.name!r} could not be installed",
+                returncode=installed.returncode,
+                artifact=pin.filename,
+                stderr=installed.stderr.decode("utf-8", "replace")[-2000:],
+            )
+
         # Nothing seals unchecked.
-        verify_environment(target, request.resolved)
+        verify_environment(target, request.resolved, root=pin)
 
     def interpreter(self, env_path: Path) -> Path:
         return env_path / ".venv" / "bin" / "python"
 
     def child_env(self, env_path: Path) -> Mapping[str, str]:
-        # The runtime and the provider are ordinary installed dependencies of a
-        # synced environment, so nothing needs to be injected on the path.
+        # Nothing is injected on the path, and that is now a claim rather than an
+        # oversight: the provider distribution is installed into this
+        # environment's own site-packages from the pinned artifact, and the
+        # runtime arrives as its ordinary dependency. An environment that needed
+        # a source path injected here would be one where the provider was never
+        # installed.
         del env_path
         return minimal_env()
 
@@ -358,6 +443,7 @@ class LocalEnvBackend:
         *,
         project_dir: Path | None = None,
         lock_path: Path | None = None,
+        distribution: DistributionPin | None = None,
     ) -> Path:
         def _build(target: Path) -> None:
             self._builder.build(
@@ -367,6 +453,7 @@ class LocalEnvBackend:
                     fetcher=self._fetcher,
                     project_dir=project_dir,
                     lock_path=lock_path,
+                    distribution=distribution,
                 )
             )
 

@@ -339,6 +339,7 @@ def _bind_local(
         resolved,
         project_dir=request.lock_path.parent,
         lock_path=request.lock_path,
+        distribution=payload.distribution,
     )
     del registry  # the registry's work is done before materialization
     return Binding(

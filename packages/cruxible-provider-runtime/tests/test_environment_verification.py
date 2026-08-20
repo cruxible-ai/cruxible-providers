@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from cruxible_provider_runtime.artifact import DistributionPin
 from cruxible_provider_runtime.backends import (
     MaterializationRequest,
     UvSyncBuilder,
@@ -31,6 +32,15 @@ from cruxible_provider_runtime.resolution import (
 from cruxible_provider_runtime.testing import FakeIndexTransport, InjectedEnvironmentBuilder
 
 INDEX = IndexConfig(index_urls=("https://index.example/simple",))
+
+ROOT_PIN = DistributionPin(
+    name="sample-provider",
+    version="0.4.2",
+    filename="sample_provider-0.4.2-py3-none-any.whl",
+    sha256="sha256:" + "4d" * 32,
+    index_url="https://index.example/simple",
+    url="https://index.example/simple/sample_provider-0.4.2-py3-none-any.whl",
+)
 
 
 def _resolved(env: MarkerEnvironment) -> ResolvedSet:
@@ -86,6 +96,30 @@ def test_a_missing_distribution_refuses(tmp_path: Path, linux_env: MarkerEnviron
         verify_environment(root, _resolved(linux_env))
     assert exc.value.code is RefusalCode.ENVIRONMENT_DIVERGENCE
     assert exc.value.refusal.detail["missing"] == ["leaf-pure"]
+
+
+def test_a_tree_without_the_root_distribution_refuses(
+    tmp_path: Path, linux_env: MarkerEnvironment
+) -> None:
+    """A dependency-only tree is not a provider environment.
+
+    The root is not a resolved entry -- the closure covers the dependencies and
+    the accepted artifact pins the provider -- so a check that consults only the
+    resolution passes on a tree the provider was never installed into.
+    """
+
+    root = _stage(tmp_path / "env", {"leaf_pure": "1.3.0"})
+    with pytest.raises(RefusalError) as exc:
+        verify_environment(root, _resolved(linux_env), root=ROOT_PIN)
+    assert exc.value.code is RefusalCode.ENVIRONMENT_DIVERGENCE
+    assert exc.value.refusal.detail["missing"] == ["sample-provider"]
+
+
+def test_a_tree_carrying_the_root_distribution_verifies(
+    tmp_path: Path, linux_env: MarkerEnvironment
+) -> None:
+    root = _stage(tmp_path / "env", {"leaf_pure": "1.3.0", "sample_provider": "0.4.2"})
+    verify_environment(root, _resolved(linux_env), root=ROOT_PIN)
 
 
 def test_local_sources_are_exempt(tmp_path: Path, linux_env: MarkerEnvironment) -> None:
@@ -202,7 +236,29 @@ def test_export_argv_asks_for_a_locked_hash_pinned_export() -> None:
     assert "--locked" in argv
     assert "--no-dev" in argv
     assert "--no-config" in argv
+    assert "--extra" not in argv
     assert argv[argv.index("--format") + 1] == "requirements-txt"
+
+
+def test_export_argv_names_every_selected_extra() -> None:
+    """An environment built for an extra has to contain the extra's packages."""
+
+    argv = UvSyncBuilder.export_argv("uv", Path("/p"), Path("/p/req.txt"), ("paddleocr", "docling"))
+    named = [argv[index + 1] for index, part in enumerate(argv) if part == "--extra"]
+    assert named == ["docling", "paddleocr"]
+
+
+def test_install_root_argv_installs_the_artifact_and_reaches_no_index() -> None:
+    """The bytes were hash-checked already; an index could only add unpinned ones."""
+
+    argv = UvSyncBuilder.install_root_argv(
+        "uv", Path("/env/bin/python"), Path("/env/artifact/provider-1.0-py3-none-any.whl")
+    )
+    assert argv[:3] == ["uv", "pip", "install"]
+    assert "--no-deps" in argv
+    assert "--no-index" in argv
+    assert "--no-config" in argv
+    assert argv[-1] == "/env/artifact/provider-1.0-py3-none-any.whl"
 
 
 def test_sync_argv_requires_hashes_and_pins_every_index() -> None:

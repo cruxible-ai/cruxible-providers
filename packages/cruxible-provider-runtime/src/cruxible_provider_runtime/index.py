@@ -41,6 +41,20 @@ def _effective_port(parts: SplitResult) -> int | None:
     return _DEFAULT_PORTS.get(parts.scheme.lower())
 
 
+def _effective_host(parts: SplitResult) -> str:
+    """The host a URL addresses, with ``file:``'s two spellings of "here" merged.
+
+    ``file:///path`` and ``file://localhost/path`` name the same location, and a
+    ``file:`` URL has no host at all in the ordinary case. Comparing raw
+    hostnames would make a pinned local index cover nothing.
+    """
+
+    host = (parts.hostname or "").lower()
+    if parts.scheme.lower() == "file" and host == "localhost":
+        return ""
+    return host
+
+
 class IndexConfig(BaseModel):
     """Pinned index URLs plus the two network postures."""
 
@@ -70,14 +84,16 @@ class IndexConfig(BaseModel):
         """
 
         candidate = urlsplit(url)
-        if not candidate.scheme or not candidate.hostname:
+        if not candidate.scheme:
+            return False
+        if candidate.scheme.lower() != "file" and not candidate.hostname:
             return False
         candidate_segments = [part for part in candidate.path.split("/") if part]
         for index_url in self.index_urls:
             pinned = urlsplit(index_url)
             if candidate.scheme.lower() != pinned.scheme.lower():
                 continue
-            if (candidate.hostname or "").lower() != (pinned.hostname or "").lower():
+            if _effective_host(candidate) != _effective_host(pinned):
                 continue
             if _effective_port(candidate) != _effective_port(pinned):
                 continue

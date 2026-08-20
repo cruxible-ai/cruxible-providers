@@ -124,3 +124,24 @@ def test_coverage_is_an_origin_comparison_not_a_string_prefix(url: str, covered:
     """String prefixes get case, default ports, and path segments wrong."""
 
     assert IndexConfig(index_urls=(INDEX,)).covers(url) is covered
+
+
+@pytest.mark.parametrize(
+    ("url", "covered"),
+    [
+        ("file:///srv/index/simple/provider/provider-1.0-py3-none-any.whl", True),
+        ("file://localhost/srv/index/simple/provider-1.0-py3-none-any.whl", True),
+        ("file:///srv/index/other/provider-1.0-py3-none-any.whl", False),
+        ("https://index.example/simple/provider-1.0-py3-none-any.whl", False),
+    ],
+)
+def test_a_pinned_local_index_covers_the_artifacts_under_it(url: str, covered: bool) -> None:
+    """A ``file:`` index is a supported posture, so it has to be able to cover.
+
+    A ``file:`` URL has no host in its ordinary spelling and ``localhost`` in its
+    other one. Comparing raw hostnames made a pinned local index cover nothing,
+    which turned every artifact under it into ``index_not_pinned`` -- a config
+    the validator accepts and the fetcher could never use.
+    """
+
+    assert IndexConfig(index_urls=("file:///srv/index/simple",)).covers(url) is covered
