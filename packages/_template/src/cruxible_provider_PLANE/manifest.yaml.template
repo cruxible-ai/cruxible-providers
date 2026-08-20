@@ -23,6 +23,12 @@ implementations:
     interface_digest: "sha256:REPLACE_WITH_THE_REGISTERED_INTERFACE_DIGEST"
     entrypoint: "cruxible_provider_PLANE.provider:Implementation"
     backends: [local_env, container]
+    # The per-engine extras this implementation's environment must carry. An
+    # implementation binds ONE environment, so this is the union of what its
+    # claimed buckets need -- and splitting a cheap bucket away from an expensive
+    # one would mean two implementations of one interface, which is terminal
+    # (ambiguous_implementation). Leave empty when the plane needs no engine.
+    requires_extras: []
     # Claim only buckets you have a passing conformance fixture for: a claimed
     # bucket without one refuses at registration. Use dim=* to claim a whole
     # face of the cube.
@@ -34,6 +40,19 @@ implementations:
     # The cloud backend enforces this as an allowlist; both backends record what
     # was actually contacted, and a contacted endpoint outside this list is a
     # conformance violation on the implementation's track record.
+    #
+    # An adapter whose target IS the run input -- a fetcher, say -- cannot
+    # enumerate anything honestly, and declares the EXPERIMENTAL dynamic form
+    # instead:
+    #
+    #   declared_endpoints:
+    #     - "dynamic:target-from-run-input"
+    #
+    # Under it nothing is compared against a list, because there is none; what
+    # governs is the recording, and the receipt says the declaration was dynamic
+    # so an empty "undeclared" set is not misread as an allowlist that held. It
+    # is the only dynamic form, and anything else under the `dynamic:` prefix
+    # refuses at manifest load.
     declared_endpoints: []
     capture_contract_families:
       - PLANE.operation.capture.v1

@@ -12,10 +12,84 @@ would put **one** sha256 under **every** provider's implementation digest, and
 every release would re-digest every provider — vaporising track record earned
 across the whole fleet on each publish.
 
-An umbrella meta-package (`cruxible-providers`, a pure dependency shell with
-plane extras) is planned for install ergonomics once the first plane packages
-exist. It ships no code, so it enters no implementation digest. End users never
-install providers at all — providers are fetched on bind.
+The umbrella meta-package `cruxible-providers` — a pure dependency shell with one
+extra per plane — exists for install ergonomics now that the first plane packages
+do. It ships no code, so it enters no implementation digest. End users never
+install providers at all: providers are fetched on bind, and the umbrella serves
+developers.
+
+Because its entire content is other packages, the umbrella declares itself exempt
+from the one-package-one-digest-change gate (`[tool.cruxible] digest_scope =
+"exempt"`). Its closure moves whenever any plane's does, so measuring it would
+report two changed packages for every one-package change; and it pins no
+environment, carries no implementation digest, and appears on no track record, so
+there is nothing the gate would be protecting. The exemption is a written field
+rather than a name the script recognises, and a repository test asserts it is the
+only one.
+
+## Per-engine extras, and the environment pin key
+
+A heavy engine — a browser, a document-conversion stack, an OCR runtime — never
+enters a base install. It sits behind an extra, and the implementation that needs
+it declares that extra in its manifest (`requires_extras`).
+
+The extras are a **resolution input**, not a note. `resolve()` walks the root's
+`optional-dependencies` for exactly the extras named and follows dependency-level
+extras (`{ name = "x", extra = ["y"] }`) transitively — the launch document plane
+reaches its engine through three of those, and dropping them would produce an
+environment pin that did not cover the environment. Selecting an extra therefore
+changes the resolved set, and the resolved set is what the materialization
+preimage hashes. Nothing about extras is added to the preimage separately: their
+effect is the packages they pull in, and a second statement of the same fact is a
+second thing that can be wrong.
+
+One lock consequently produces one environment per extras set, and an accepted
+artifact pins each under an **environment pin key**:
+
+```
+linux-cp311                     the base environment
+linux-cp311+browser             the same lock, resolved with a browser
+linux-cp311+docling+paddleocr   sorted, so the key is a set rather than an order
+```
+
+The no-extras spelling is the bare environment id, so every pin written before
+extras existed still reads correctly; the two spellings cannot collide because an
+extra name is never empty. Bind derives the extras from the **manifest**, never
+from the bind request: a request that could name its own extras could materialize
+an environment the accepted artifact never pinned. An artifact that pins one
+implementation's environment and not another's refuses the second
+(`lock_mismatch`, naming the key) rather than falling back to a neighbour's.
+
+An extra the lock's root does not declare refuses with `unknown_extra` rather
+than resolving to the base set. Resolving to the base set would be the fail-open
+reading: the environment would come out one engine short and every digest over it
+would still verify.
+
+### A limit worth knowing about
+
+The launch marker environments in `ci/marker-environments.json` list three wheel
+tags each, and **cannot pin an environment containing a heavy engine**: a real
+binary closure reaches for a dozen glibc platform tags across its packages
+(`py3-none-manylinux1_x86_64`, `cp311-cp311-manylinux_2_28_x86_64`,
+`py3-none-manylinux_2_18_x86_64`, …). Tag matching here is exact string
+membership, while the platform-tag scheme it matches is an ordering — a
+`manylinux_2_17` wheel is installable on a `manylinux_2_28` host, and PEP 600
+says so. Teaching the resolver that ordering would change what a materialization
+digest *means*, so RP-1 did not: the plane packages' conformance suites use
+`cruxible_provider_runtime.testing.ENGINE_MARKER_ENVIRONMENT`, which enumerates
+the tags instead, and the narrowness of the launch list is recorded as a finding
+for whoever owns the tag vocabulary.
+
+## Test directories are not packages
+
+A package's `tests/` directory carries **no `__init__.py`**, and the suite runs
+under `--import-mode=importlib`. The reason is mechanical: with `__init__.py`,
+every package's test directory is an importable package named `tests`, and the
+second one collected is imported under the first one's module name and refused —
+so adding a plane package breaks an unrelated package's suite. Under importlib
+mode the module name is derived from the path, `from .conftest import` keeps
+working, and test modules may be named whatever suits their package.
+`tests/test_repo_layout.py` asserts both halves.
 
 ## One lock per package
 
@@ -104,7 +178,9 @@ deliberate, separate act.
 | `LICENSE`, `NOTICE` | Apache-2.0, per package |
 | `container/Dockerfile` | The container backend's build, when the package declares that backend |
 | `container/provenance.md` | The four provenance fields the executor checks |
-| `tests/` | The conformance suite, which every plane package inherits |
+| `src/<module>/vocab/*.yaml` | The bucket vocabularies the package classifies against, copied from `vocab/interfaces/`; a repository test asserts the copies do not fork |
+| `src/<module>/recordings/`, `fixtures/` | Recorded exchanges or engine responses, and the per-bucket conformance fixtures that replay them |
+| `tests/` | The conformance suite, which every plane package inherits. No `__init__.py` |
 
 ## Releasing
 

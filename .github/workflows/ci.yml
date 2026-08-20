@@ -29,7 +29,27 @@ jobs:
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --python ${{ matrix.python-version }}
       - name: Run the conformance suite
+        # Base deps only, and no engine: `uv sync` installs no per-engine extra
+        # and the default options exclude the `engine` marker. A default lane
+        # that downloaded a browser and a tensor stack would have given up the
+        # whole point of the heavy-engine split.
         run: uv run --python ${{ matrix.python-version }} pytest -q
+
+  engine-collect:
+    name: engine lane collects without engines
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync
+      - name: Assert the engine lane is wired up and importable with no engine present
+        # Collection, not execution. This is what keeps the opt-in lane from
+        # rotting unnoticed: an engine test that stopped importing, or a marker
+        # that stopped being registered, fails here on every push, at the cost of
+        # collecting a few tests rather than of installing three engines.
+        run: uv run pytest -q -m engine --collect-only
 
   lint:
     name: ruff
@@ -49,7 +69,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [cruxible-provider-runtime, cruxible-provider-noop]
+        package:
+          - cruxible-provider-runtime
+          - cruxible-provider-noop
+          - cruxible-provider-web
+          - cruxible-provider-docs
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -156,3 +180,46 @@ jobs:
         with:
           name: sbom
           path: sbom/
+
+  engines:
+    name: real engines (opt-in)
+    # NOT part of the default lane, and deliberately manual. Every job here
+    # installs a per-engine extra and, on first use, downloads a browser build or
+    # a model; that is minutes and gigabytes per run, against tests whose whole
+    # subject is whether a recorded engine response still describes what the
+    # engine does. That question is worth asking on a schedule and before a
+    # release, not on every push.
+    #
+    # A recording that has drifted fails HERE and nowhere else, so a red run in
+    # this lane means the fixtures are describing an engine that no longer
+    # behaves that way -- regenerate the recording and read the diff, rather than
+    # relaxing the assertion.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: cruxible-provider-web
+            extra: browser
+          - package: cruxible-provider-docs
+            extra: docling
+          - package: cruxible-provider-docs
+            extra: paddleocr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install the plane package with its engine extra
+        run: |
+          uv venv .engine-venv
+          uv pip install --python .engine-venv \
+            "packages/${{ matrix.package }}[${{ matrix.extra }}]" \
+            packages/cruxible-provider-runtime \
+            pytest
+      - name: Fetch the browser build, when the extra is a browser
+        if: matrix.extra == 'browser'
+        run: .engine-venv/bin/python -m playwright install --with-deps chromium
+      - name: Run the engine lane for this package
+        run: .engine-venv/bin/python -m pytest -m engine packages/${{ matrix.package }}/tests -q

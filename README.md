@@ -21,6 +21,9 @@ RP-0 contract these packages implement.
 packages/cruxible-provider-runtime/   the support library every provider uses
 packages/cruxible-provider-noop/      the reference provider: the smallest
                                       package that exercises every rule
+packages/cruxible-provider-web/       the web plane: web.fetch, search.web
+packages/cruxible-provider-docs/       the document plane: doc.to_markdown, ocr.extract
+packages/cruxible-providers/          the umbrella meta-package: zero code, plane extras
 packages/_template/                   copy this to start a new plane package
 vocab/interfaces/                     the launch bucket vocabularies, as draft data
 vocab/stub/                           the stub interface's vocabulary
@@ -52,6 +55,38 @@ cache is keyed on nothing else.
 **`protocol_version`** — the transport envelope version. It is recorded in
 receipts and binding snapshots and appears in neither preimage, because an
 executor upgrade must not split track records.
+
+## Heavy engines live behind per-engine extras
+
+A browser, a document-conversion stack, an OCR runtime: each is gigabytes, and
+none of them belongs in an install somebody does by accident. So a plane
+package's **base** distribution carries the adapter logic, the schemas, the
+bucket classifiers, and the recorded fixtures, while each engine sits behind an
+extra that the implementation needing it declares in its manifest
+(`requires_extras`).
+
+That declaration is not documentation: it is a **resolution input**. Selecting an
+extra changes the resolved set, which changes the materialization digest, which
+means one lock produces one environment per extras set. An accepted artifact
+pins each separately, under an environment pin key that names both:
+
+```
+linux-cp311                 the base environment
+linux-cp311+browser         the same lock, resolved with a browser in it
+linux-cp311+docling
+```
+
+Two implementations of two interfaces in one package may therefore bind two
+different environments — `doc.to_markdown` binds one with a conversion engine,
+`ocr.extract` one with an OCR runtime — and an artifact that pins only one of
+them refuses the other rather than falling back.
+
+The consequence for testing is the point of the whole arrangement: `uv run
+pytest` installs no engine and downloads nothing. Real-engine tests exist, are
+marked `engine`, are excluded from the default run by construction, and have
+their own opt-in CI lane. What they are *for* is keeping the recorded engine
+responses honest: they run the real engine over the same shipped bytes and assert
+it still produces what the recording claims.
 
 ## Fail closed, everywhere
 
@@ -87,15 +122,19 @@ Things this repository does **not** claim:
 
 ```sh
 uv sync                       # the root harness: a development convenience only
-uv run pytest -q              # the whole conformance suite
+uv run pytest -q              # the whole conformance suite, no engines
+uv run pytest -q -m engine    # the opt-in lane; needs the per-engine extras
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy packages/cruxible-provider-runtime/src
 uv run python scripts/dependency_closure_digests.py
 ```
 
-No test in this repository requires a network or a container engine. If one
-does, it is a bug in the test.
+No test in the default suite requires a network, a container engine, or a heavy
+engine. If one does, it is a bug in the test. The `engine`-marked lane needs the
+engines by definition, is excluded from the default run, and skips with a reason
+rather than failing when an engine is absent — so even `pytest -m engine`
+collects cleanly on a machine that has none.
 
 ## Adding a plane package
 

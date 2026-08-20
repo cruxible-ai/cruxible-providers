@@ -14,13 +14,17 @@ umbrella `cruxible-providers[PLANE]` exists for developers.
 
 1.  Add the dependency to `pyproject.toml` and run `uv lock` **in this
     directory**. This package's lock is its identity source; there is no shared
-    root lock.
+    root lock. A heavy engine goes under `[project.optional-dependencies]`, not
+    into the base dependencies.
 2.  Declare the entry point under `[project.entry-points."cruxible.providers"]`.
 3.  Add the implementation block to `src/cruxible_provider_PLANE/manifest.yaml`,
     including the exact registered interface digest, the buckets you claim, and
     a conformance fixture for each claimed bucket.
 4.  Implement the callable in `provider.py`.
-5.  Write the conformance suite (see `tests/test_conformance.py`).
+5.  Write the conformance suite (see `tests/test_conformance.py`). The test
+    directory carries **no `__init__.py`** -- two packages both exporting a
+    `tests` package collide at collection -- and real-engine tests are marked
+    `engine`, which the default run excludes.
 6.  Confirm `uv run python scripts/check_single_package_digest_change.py` still
     reports at most one changed package.
 
@@ -34,3 +38,11 @@ umbrella `cruxible-providers[PLANE]` exists for developers.
 - Emit an `observed` grade. Providers produce readings; grades are governed by
   the CaptureContract.
 - Read a credential from argv or the environment.
+- Put a heavy engine in the base install, or import one at module scope. Import
+  it inside the method that needs it and turn a missing import into a typed
+  `environment_divergence` refusal: an environment lacking the engine its
+  implementation declared has diverged from the resolution it was meant to be,
+  which is not a failed answer.
+- Print to standard output on purpose. The harness reserves it for the result
+  envelope and hands the provider stderr, so stray output is harmless -- but
+  trace material belongs in the result's events, where something can read it.

@@ -27,7 +27,17 @@ The obligations, in the order the contract states them:
 10. credential material appears in no argv, no environment block, no cache file,
     no digest preimage, and no trace — including when the provider tries;
 11. success, typed refusal, and error paths all work on BOTH backend kinds;
-12. one per-bucket fixture per claimed bucket, each of which actually passes.
+12. one per-bucket fixture per claimed bucket, each of which actually passes;
+13. every extra the manifest requires exists in the distribution, and an
+    artifact that pins some other implementation's environment refuses
+    (lock_mismatch, naming the environment pin key) rather than binding it;
+14. a run that needs an engine the environment does not carry refuses
+    (environment_divergence) rather than raising ImportError across the process
+    boundary.
 
-No test may require a network or a container engine.
+No test in the default lane may require a network, a container engine, or a
+heavy engine. Tests that drive a real engine are marked `engine`, are excluded
+from the default run, and skip with a reason when the engine is absent -- so the
+lane still COLLECTS on a machine that has none, which is what keeps it from
+rotting unnoticed.
 """

@@ -27,8 +27,18 @@ classifiers = [
 dependencies = [
   "cruxible-provider-runtime",
   # Plane dependencies go here. Every one of them enters this package's
-  # materialization digest and nothing else's.
+  # materialization digest and nothing else's. Keep this list LIGHT: it is what
+  # the default conformance lane installs, and it must not contain an engine.
 ]
+
+# Per-engine extras. A heavy engine -- a browser, a tensor stack, an OCR runtime
+# -- lives here rather than above, and the implementation that needs it names the
+# extra in its manifest's `requires_extras`. That declaration is a resolution
+# input: it changes the resolved set, so it changes the materialization digest,
+# so this one lock produces one environment per extras set and the accepted
+# artifact pins each under its own key (linux-cp311, linux-cp311+engine).
+[project.optional-dependencies]
+# engine = ["the-heavy-thing>=1.0"]
 
 # One entry per implementation, keyed by interface id.
 [project.entry-points."cruxible.providers"]
