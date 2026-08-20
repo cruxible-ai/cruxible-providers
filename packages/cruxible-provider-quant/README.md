@@ -141,14 +141,19 @@ breaches, `undeclared_egress` — come from the runtime taxonomy unchanged, and 
 does `artifact_hash_mismatch`, which the taxonomy already defines for the one
 event on this plane that is about integrity rather than capability.
 
-The conditions only a quantitative implementation can detect (a series too short
+The conditions only a quantitative implementation can detect — a series too short
 for the declared seasonal model, a test name that is not a test, a model
-reference that is the wrong shape) have no code yet. They are declared as a
-closed set in `refusals.py` and carried in the `reason` detail of
-`provider_declined`, because this batch may not extend a taxonomy another batch
-owns. Each member maps one-to-one onto a future `RefusalCode`, each has a raise
-site, and `tests/test_refusals.py` fails if any member is not exercised by a
-named test.
+reference of the wrong shape — are codes in that same taxonomy. They were a
+second enum here for one release, carried inside the `reason` detail of
+`provider_declined` because the runtime package was owned by a concurrent batch.
+They have since been lifted, so the code a caller reads *is* the reason.
+
+`refusals.py` is now the closed subset a provider on this plane may reach for,
+`QUANT_DECLINES`, plus a constructor that refuses to build anything outside it:
+most of the taxonomy belongs to the executor, and an implementation reporting
+`cache_integrity` would be making a judgement it is not positioned to make.
+`tests/test_refusals.py` fails if any member of that subset is not exercised by
+a named test.
 
 The line between the two is capability versus integrity. "I do not do that" is a
 decline; "this is not the artifact that was approved" is not, and it must stay

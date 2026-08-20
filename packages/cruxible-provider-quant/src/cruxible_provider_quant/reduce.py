@@ -32,10 +32,11 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .outputs import ok_if_finite
-from .refusals import DeclineReason, decline
+from .refusals import decline
 
 __all__ = ["AGGREGATIONS", "Reduce"]
 
@@ -61,7 +62,7 @@ class Reduce:
         payload = context.input
         rows = payload.get("rows")
         if not isinstance(rows, Sequence) or not rows:
-            return decline(DeclineReason.INVALID_PARAMETER, "rows must be a non-empty array")
+            return decline(RefusalCode.INVALID_PARAMETER, "rows must be a non-empty array")
 
         frame = pl.DataFrame(list(rows))
         columns = set(frame.columns)
@@ -74,7 +75,7 @@ class Reduce:
         missing = [name for name in group_by if name not in columns]
         if missing:
             return decline(
-                DeclineReason.UNKNOWN_COLUMN,
+                RefusalCode.UNKNOWN_COLUMN,
                 f"group_by names columns the relation does not carry: {missing}",
                 columns=sorted(columns),
                 missing=missing,
@@ -83,7 +84,7 @@ class Reduce:
         aggregations = payload.get("aggregations")
         if not isinstance(aggregations, Sequence) or not aggregations:
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 "a reduction without a window must name at least one aggregation",
             )
         expressions: list[Any] = []
@@ -124,18 +125,18 @@ class Reduce:
 
     def _aggregation(self, pl: Any, spec: Any, columns: set[str]) -> Any | ProviderResult:
         if not isinstance(spec, Mapping):
-            return decline(DeclineReason.INVALID_PARAMETER, "each aggregation must be an object")
+            return decline(RefusalCode.INVALID_PARAMETER, "each aggregation must be an object")
         column = spec.get("column")
         function = spec.get("function")
         if not isinstance(column, str) or column not in columns:
             return decline(
-                DeclineReason.UNKNOWN_COLUMN,
+                RefusalCode.UNKNOWN_COLUMN,
                 f"aggregation names column {column!r}, which the relation does not carry",
                 columns=sorted(columns),
             )
         if function not in AGGREGATIONS:
             return decline(
-                DeclineReason.UNSUPPORTED_AGGREGATION,
+                RefusalCode.UNSUPPORTED_AGGREGATION,
                 f"aggregation function {function!r} is not supported",
                 supported=list(AGGREGATIONS),
             )
@@ -152,19 +153,19 @@ class Reduce:
         for name, value in (("column", column), ("order_by", order_by)):
             if not isinstance(value, str) or value not in columns:
                 return decline(
-                    DeclineReason.UNKNOWN_COLUMN,
+                    RefusalCode.UNKNOWN_COLUMN,
                     f"window.{name} names {value!r}, which the relation does not carry",
                     columns=sorted(columns),
                 )
         if function not in WINDOW_FUNCTIONS:
             return decline(
-                DeclineReason.UNSUPPORTED_AGGREGATION,
+                RefusalCode.UNSUPPORTED_AGGREGATION,
                 f"window function {function!r} is not supported",
                 supported=list(WINDOW_FUNCTIONS),
             )
         if isinstance(size, bool) or not isinstance(size, int) or size < 1:
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 "window.size must be an integer of at least 1",
                 size=size,
             )

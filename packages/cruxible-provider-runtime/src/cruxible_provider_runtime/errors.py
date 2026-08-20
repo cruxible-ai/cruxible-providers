@@ -75,6 +75,29 @@ class RefusalCode(StrEnum):
     SECRET_BUNDLE_TOO_LARGE = "secret_bundle_too_large"
     NON_FINITE_OUTPUT = "non_finite_output"
 
+    # --- provider declines --------------------------------------------------
+    # Conditions only an implementation is positioned to detect: the declared
+    # method cannot be run on what was supplied, or the request names something
+    # the implementation does not do. They are a provider's judgement rather
+    # than the executor's, which is what ``provider_declined`` above says in
+    # general -- but they live in this one closed set all the same. A plane
+    # package carrying its own vocabulary inside a detail payload is a second
+    # taxonomy, and a second taxonomy is somewhere for the first one to drift
+    # away from without anything noticing.
+    INSUFFICIENT_SERIES_LENGTH = "insufficient_series_length"
+    NON_FINITE_INPUT = "non_finite_input"
+    NON_FINITE_RESULT = "non_finite_result"
+    DEGENERATE_SCALE = "degenerate_scale"
+    MISMATCHED_LENGTHS = "mismatched_lengths"
+    UNKNOWN_METHOD = "unknown_method"
+    UNKNOWN_TEST_NAME = "unknown_test_name"
+    DECLARED_FAMILY_MISMATCH = "declared_family_mismatch"
+    UNSUPPORTED_AGGREGATION = "unsupported_aggregation"
+    UNKNOWN_COLUMN = "unknown_column"
+    MALFORMED_MODEL_REF = "malformed_model_ref"
+    UNDECLARED_MATCH_PARAMETERS = "undeclared_match_parameters"
+    INVALID_PARAMETER = "invalid_parameter"
+
     # --- container ---------------------------------------------------------
     IMAGE_PROVENANCE_MISMATCH = "image_provenance_mismatch"
 

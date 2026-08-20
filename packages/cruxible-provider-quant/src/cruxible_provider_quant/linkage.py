@@ -35,10 +35,11 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .outputs import ok_if_finite
-from .refusals import DeclineReason, decline
+from .refusals import decline
 
 __all__ = ["DEFAULT_THRESHOLD", "RecordLinkage"]
 
@@ -56,21 +57,21 @@ class RecordLinkage:
 
         records = payload.get("records")
         if not isinstance(records, Sequence) or isinstance(records, str | bytes) or not records:
-            return decline(DeclineReason.INVALID_PARAMETER, "records must be a non-empty array")
+            return decline(RefusalCode.INVALID_PARAMETER, "records must be a non-empty array")
         if not all(isinstance(record, Mapping) for record in records):
-            return decline(DeclineReason.INVALID_PARAMETER, "each record must be an object")
+            return decline(RefusalCode.INVALID_PARAMETER, "each record must be an object")
 
         identifier_field = payload.get("unique_id_field", "unique_id")
         if not isinstance(identifier_field, str) or not identifier_field:
             return decline(
-                DeclineReason.INVALID_PARAMETER, "unique_id_field must be a non-empty string"
+                RefusalCode.INVALID_PARAMETER, "unique_id_field must be a non-empty string"
             )
         missing_id = [
             index for index, record in enumerate(records) if identifier_field not in record
         ]
         if missing_id:
             return decline(
-                DeclineReason.UNKNOWN_COLUMN,
+                RefusalCode.UNKNOWN_COLUMN,
                 f"records carry no {identifier_field!r} field",
                 unique_id_field=identifier_field,
                 positions=missing_id[:5],
@@ -79,7 +80,7 @@ class RecordLinkage:
         prior = payload.get("prior_match_probability")
         if isinstance(prior, bool) or not isinstance(prior, int | float) or not 0.0 < prior < 1.0:
             return decline(
-                DeclineReason.UNDECLARED_MATCH_PARAMETERS,
+                RefusalCode.UNDECLARED_MATCH_PARAMETERS,
                 "prior_match_probability must be declared, strictly between 0 and 1; the "
                 "engine's default prior is a parameter nobody chose",
                 prior_match_probability=prior,
@@ -96,7 +97,7 @@ class RecordLinkage:
         unknown_blocking = [field for field in blocking_fields if field not in columns]
         if unknown_blocking:
             return decline(
-                DeclineReason.UNKNOWN_COLUMN,
+                RefusalCode.UNKNOWN_COLUMN,
                 f"blocking_fields name columns the records do not carry: {unknown_blocking}",
                 columns=sorted(str(name) for name in columns),
             )
@@ -108,7 +109,7 @@ class RecordLinkage:
             or not 0.0 <= threshold <= 1.0
         ):
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 "threshold_match_probability must be a number in [0, 1]",
                 threshold_match_probability=threshold,
             )
@@ -130,16 +131,16 @@ class RecordLinkage:
     ) -> list[tuple[str, float, float]] | ProviderResult:
         raw = payload.get("comparisons")
         if not isinstance(raw, Sequence) or isinstance(raw, str | bytes) or not raw:
-            return decline(DeclineReason.INVALID_PARAMETER, "comparisons must be a non-empty array")
+            return decline(RefusalCode.INVALID_PARAMETER, "comparisons must be a non-empty array")
         columns = {name for record in records for name in record}
         parsed: list[tuple[str, float, float]] = []
         for comparison in raw:
             if not isinstance(comparison, Mapping):
-                return decline(DeclineReason.INVALID_PARAMETER, "each comparison must be an object")
+                return decline(RefusalCode.INVALID_PARAMETER, "each comparison must be an object")
             field = comparison.get("field")
             if not isinstance(field, str) or field not in columns:
                 return decline(
-                    DeclineReason.UNKNOWN_COLUMN,
+                    RefusalCode.UNKNOWN_COLUMN,
                     f"comparison names field {field!r}, which the records do not carry",
                     columns=sorted(str(name) for name in columns),
                 )
@@ -153,7 +154,7 @@ class RecordLinkage:
                     or not math.isfinite(float(value))
                 ):
                     return decline(
-                        DeclineReason.UNDECLARED_MATCH_PARAMETERS,
+                        RefusalCode.UNDECLARED_MATCH_PARAMETERS,
                         f"comparison on {field!r} must declare {key} strictly between 0 "
                         "and 1; this implementation never estimates them",
                         field=field,

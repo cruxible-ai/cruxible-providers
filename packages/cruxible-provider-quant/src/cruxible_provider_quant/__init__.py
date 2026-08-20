@@ -38,7 +38,7 @@ from .interfaces import (
     recompute_interface_digest,
     registration,
 )
-from .refusals import DeclineReason, decline
+from .refusals import QUANT_DECLINES, decline
 
 __version__ = "0.1.0"
 
@@ -54,7 +54,7 @@ __all__ = [
     "INTERFACE_PREIMAGES",
     "MANIFEST_PATH",
     "PACKAGE_ROOT",
-    "DeclineReason",
+    "QUANT_DECLINES",
     "__version__",
     "decline",
     "recompute_interface_digest",

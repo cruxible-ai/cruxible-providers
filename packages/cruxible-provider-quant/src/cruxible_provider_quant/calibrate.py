@@ -32,10 +32,11 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .outputs import ok_if_finite
-from .refusals import DeclineReason, decline
+from .refusals import decline
 
 __all__ = ["DEFAULT_BIN_COUNT", "Calibrate"]
 
@@ -53,14 +54,14 @@ class Calibrate:
         payload = context.input
         records = payload.get("predictions")
         if not isinstance(records, Sequence) or not records:
-            return decline(DeclineReason.INVALID_PARAMETER, "predictions must be a non-empty array")
+            return decline(RefusalCode.INVALID_PARAMETER, "predictions must be a non-empty array")
 
         predictions: list[float] = []
         outcomes: list[float] = []
         for record in records:
             if not isinstance(record, Mapping):
                 return decline(
-                    DeclineReason.INVALID_PARAMETER, "each prediction record must be an object"
+                    RefusalCode.INVALID_PARAMETER, "each prediction record must be an object"
                 )
             prediction = record.get("prediction")
             outcome = record.get("outcome")
@@ -68,21 +69,19 @@ class Calibrate:
                 outcome = int(outcome)
             if not isinstance(prediction, int | float) or isinstance(prediction, bool):
                 return decline(
-                    DeclineReason.INVALID_PARAMETER,
+                    RefusalCode.INVALID_PARAMETER,
                     "a binary calibration reading needs a numeric probability per record",
                 )
             if not isinstance(outcome, int | float):
-                return decline(
-                    DeclineReason.INVALID_PARAMETER, "each record needs a numeric outcome"
-                )
+                return decline(RefusalCode.INVALID_PARAMETER, "each record needs a numeric outcome")
             if not math.isfinite(float(prediction)) or not math.isfinite(float(outcome)):
                 return decline(
-                    DeclineReason.NON_FINITE_INPUT,
+                    RefusalCode.NON_FINITE_INPUT,
                     "predictions and outcomes must be finite",
                 )
             if not 0.0 <= float(prediction) <= 1.0:
                 return decline(
-                    DeclineReason.INVALID_PARAMETER,
+                    RefusalCode.INVALID_PARAMETER,
                     "a probability outside [0, 1] is not a probability",
                     prediction=float(prediction),
                 )
@@ -91,7 +90,7 @@ class Calibrate:
 
         if len(predictions) != len(outcomes):  # pragma: no cover - built in lockstep above
             return decline(
-                DeclineReason.MISMATCHED_LENGTHS,
+                RefusalCode.MISMATCHED_LENGTHS,
                 "predictions and outcomes must be the same length",
             )
 
@@ -165,18 +164,18 @@ class Calibrate:
                 or len(declared) < 2
             ):
                 return decline(
-                    DeclineReason.INVALID_PARAMETER, "bin_edges must list at least two edges"
+                    RefusalCode.INVALID_PARAMETER, "bin_edges must list at least two edges"
                 )
             edges = []
             for edge in declared:
                 if isinstance(edge, bool) or not isinstance(edge, int | float):
-                    return decline(DeclineReason.INVALID_PARAMETER, "bin edges must be numbers")
+                    return decline(RefusalCode.INVALID_PARAMETER, "bin edges must be numbers")
                 if not math.isfinite(float(edge)):
-                    return decline(DeclineReason.NON_FINITE_INPUT, "bin edges must be finite")
+                    return decline(RefusalCode.NON_FINITE_INPUT, "bin edges must be finite")
                 edges.append(float(edge))
             if edges != sorted(edges) or len(set(edges)) != len(edges):
                 return decline(
-                    DeclineReason.INVALID_PARAMETER,
+                    RefusalCode.INVALID_PARAMETER,
                     "bin edges must be strictly increasing",
                     bin_edges=edges,
                 )
@@ -190,7 +189,7 @@ class Calibrate:
             # missing.
             if edges[0] > 0.0 or edges[-1] < 1.0:
                 return decline(
-                    DeclineReason.INVALID_PARAMETER,
+                    RefusalCode.INVALID_PARAMETER,
                     "bin edges must cover [0, 1]; a prediction outside the declared edges "
                     "has no bin and must not be reported inside one",
                     bin_edges=edges,
@@ -199,7 +198,7 @@ class Calibrate:
         count = payload.get("bin_count", DEFAULT_BIN_COUNT)
         if isinstance(count, bool) or not isinstance(count, int) or count < 1:
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 "bin_count must be an integer of at least 1",
                 bin_count=count,
             )

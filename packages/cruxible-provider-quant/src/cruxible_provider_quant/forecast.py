@@ -39,10 +39,11 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
+from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .outputs import ok_if_finite
-from .refusals import DeclineReason, decline
+from .refusals import decline
 from .series import Series, parse_series
 
 __all__ = ["DEFAULT_INTERVAL_LEVELS", "MODELS", "Forecast"]
@@ -63,24 +64,24 @@ class Forecast:
         series = parse_series(payload)
         if series is None:
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 "series must be a non-empty, strictly time-ordered array of "
                 "{timestamp, value} records",
             )
         if series.missing_indices:
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 "this baseline forecasts a gapless series; imputation is a modelling "
                 "act and belongs to the caller or to an implementation that declares it",
                 missing=list(series.missing_indices),
             )
         if any(not math.isfinite(value) for value in series.values):
-            return decline(DeclineReason.NON_FINITE_INPUT, "every series value must be finite")
+            return decline(RefusalCode.NON_FINITE_INPUT, "every series value must be finite")
 
         model_name = payload.get("model")
         if model_name not in MODELS:
             return decline(
-                DeclineReason.UNKNOWN_METHOD,
+                RefusalCode.UNKNOWN_METHOD,
                 f"model {model_name!r} is not one this implementation fits",
                 supported=list(MODELS),
             )
@@ -92,7 +93,7 @@ class Forecast:
             or not 1 <= horizon <= MAX_HORIZON
         ):
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 f"horizon must be an integer between 1 and {MAX_HORIZON}",
                 horizon=horizon,
             )
@@ -104,7 +105,7 @@ class Forecast:
         required = max(2 * season_length, 10)
         if series.length < required:
             return decline(
-                DeclineReason.INSUFFICIENT_SERIES_LENGTH,
+                RefusalCode.INSUFFICIENT_SERIES_LENGTH,
                 f"a seasonal fit at period {season_length} needs at least {required} "
                 f"observations, and the series carries {series.length}",
                 observations=series.length,
@@ -126,7 +127,7 @@ class Forecast:
         if isinstance(declared, Sequence) and not isinstance(declared, str | bytes):
             if len(declared) != 1:
                 return decline(
-                    DeclineReason.INVALID_PARAMETER,
+                    RefusalCode.INVALID_PARAMETER,
                     "this baseline fits one seasonal period; a multi-period series "
                     "needs an implementation that declares it",
                     season_length=list(declared),
@@ -134,7 +135,7 @@ class Forecast:
             declared = declared[0]
         if isinstance(declared, bool) or not isinstance(declared, int) or declared < 1:
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 "season_length must be an integer of at least 1",
                 season_length=payload.get("season_length"),
             )
@@ -145,7 +146,7 @@ class Forecast:
         declared = payload.get("interval_levels", list(DEFAULT_INTERVAL_LEVELS))
         if not isinstance(declared, Sequence) or isinstance(declared, str | bytes) or not declared:
             return decline(
-                DeclineReason.INVALID_PARAMETER,
+                RefusalCode.INVALID_PARAMETER,
                 "interval_levels must be a non-empty array of levels",
                 interval_levels=declared,
             )
@@ -153,7 +154,7 @@ class Forecast:
         for level in declared:
             if isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= 99:
                 return decline(
-                    DeclineReason.INVALID_PARAMETER,
+                    RefusalCode.INVALID_PARAMETER,
                     "every interval level must be an integer percentage between 1 and 99",
                     interval_levels=list(declared),
                 )
@@ -187,7 +188,7 @@ class Forecast:
         ]
         if not all(math.isfinite(value) for value in point):
             return decline(
-                DeclineReason.NON_FINITE_INPUT,
+                RefusalCode.NON_FINITE_INPUT,
                 "the fitted model produced a non-finite forecast; the series is not one "
                 "this baseline can fit",
                 model=model_name,
