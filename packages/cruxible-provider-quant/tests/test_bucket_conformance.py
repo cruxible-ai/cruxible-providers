@@ -139,3 +139,19 @@ def test_an_unclassifiable_input_refuses() -> None:
     with pytest.raises(RefusalError) as exc:
         run_in_process("ts.forecast", {"series": [], "horizon": 3})
     assert exc.value.code is RefusalCode.UNCLASSIFIED_INPUT
+
+
+def test_a_non_scalar_signal_value_refuses_instead_of_crashing_the_executor() -> None:
+    """Malformed input is the caller's problem; an exception here is everyone's.
+
+    Tie density is read off the signal values, which means hashing them, and a
+    classifier runs in the *executor* process at admission -- before any
+    environment is materialized and outside any provider's error handling. A list
+    under a signal name used to raise ``TypeError: unhashable type`` there, so a
+    malformed request came back as a crash rather than as a typed refusal saying
+    what was wrong with it.
+    """
+
+    with pytest.raises(RefusalError) as exc:
+        run_in_process("score.rank", {"items": [{"id": "a", "signals": {"x": [1]}}]})
+    assert exc.value.code is RefusalCode.UNCLASSIFIED_INPUT

@@ -63,6 +63,17 @@ def _sequence(payload: Mapping[str, Any], key: str) -> Sequence[Any] | None:
     return value
 
 
+def _is_scalar(value: Any) -> bool:
+    """Whether a value is one a classifier may compare and hash.
+
+    Classifiers run in the executor process at admission, before any environment
+    is materialised, so an unhandled type here is an exception in the executor
+    rather than a typed refusal for the caller.
+    """
+
+    return value is None or isinstance(value, bool | int | float | str)
+
+
 # --------------------------------------------------------------------------
 # shared series dimensions
 # --------------------------------------------------------------------------
@@ -370,6 +381,13 @@ def classify_score_rank(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
         assert isinstance(item, Mapping)
         signal = item.get("signals")
         if not isinstance(signal, Mapping) or not signal:
+            return None
+        # Ties are read off the signal values, so the values have to be things
+        # that can be compared and hashed. A list under a signal name used to
+        # reach the tie-density set and raise TypeError inside the executor,
+        # which turns malformed input into a crash rather than a refusal the
+        # caller can act on.
+        if not all(_is_scalar(value) for value in signal.values()):
             return None
         signals.update(str(name) for name in signal)
         vectors.append(tuple(sorted((str(k), v) for k, v in signal.items())))
