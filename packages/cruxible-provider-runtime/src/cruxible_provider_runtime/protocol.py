@@ -15,11 +15,21 @@ Versioning rules:
 The additive region is the explicit ``additive`` mapping. Everything else in the
 envelope is closed, so "additive-only" is a structural property rather than a
 promise to be careful.
+
+**Nothing non-finite leaves a provider as a success.** A NaN or an infinity
+anywhere inside a result envelope refuses, recursively, at this layer. It is a
+protocol rule rather than a numerical one: canonical JSON has no spelling for
+either value, so a NaN in an output is a value no receipt can record and no
+digest can cover, whatever the implementation meant by it. Each plane still owes
+its own domain check — a degenerate sample deserves a decline that says so, not
+a generic one — and this is the floor underneath all of them.
 """
 
 from __future__ import annotations
 
 import json
+import math
+from collections.abc import Iterator, Mapping
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -37,7 +47,47 @@ __all__ = [
     "Trace",
     "parse_result_envelope",
     "parse_run_context",
+    "reject_non_finite",
 ]
+
+_MAX_REPORTED_PATHS = 10
+
+
+def _non_finite_paths(value: Any, path: str) -> Iterator[str]:
+    """Every path inside ``value`` holding a NaN or an infinity."""
+
+    if isinstance(value, bool):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            yield path or "<root>"
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            yield from _non_finite_paths(item, f"{path}.{key}" if path else str(key))
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            yield from _non_finite_paths(item, f"{path}[{index}]")
+
+
+def reject_non_finite(value: Any, *, where: str) -> None:
+    """Refuse a payload carrying a non-finite float anywhere inside it.
+
+    The walk is recursive because the shallow version of this check is the one
+    that passes: a NaN is almost never at the top of an output, it is the third
+    element of an interval inside a list of forecasts.
+    """
+
+    found = sorted(set(_non_finite_paths(value, "")))
+    if found:
+        raise refuse(
+            RefusalCode.NON_FINITE_OUTPUT,
+            f"{where} carries a non-finite number, which canonical JSON cannot represent",
+            where=where,
+            paths=found[:_MAX_REPORTED_PATHS],
+            count=len(found),
+        )
 
 
 class ProtocolVersion(BaseModel):
@@ -198,6 +248,17 @@ class ResultEnvelope(BaseModel):
         if self.status != "ok" and self.output is not None:
             raise ValueError("only an ok result may carry output")
         ProtocolVersion.parse(self.protocol_version)
+        # A typed refusal rather than a ValueError, and therefore not wrapped
+        # into a validation error: this is the runtime declining under a named
+        # rule, and it must arrive at both ends -- the child cannot build such an
+        # envelope, and the executor will not accept one built elsewhere.
+        reject_non_finite(self.output, where="provider output")
+        reject_non_finite(self.trace.metrics, where="provider trace metrics")
+        reject_non_finite(self.trace.events, where="provider trace events")
+        if self.refusal is not None:
+            reject_non_finite(self.refusal.detail, where="refusal detail")
+        if self.error is not None:
+            reject_non_finite(self.error.detail, where="provider error detail")
         return self
 
     def to_json(self) -> bytes:

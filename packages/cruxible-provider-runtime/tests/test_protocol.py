@@ -125,3 +125,76 @@ def test_an_executor_side_refusal_renders_in_the_provider_result_shape() -> None
     assert envelope.refusal.detail["seconds"] == 31
     assert envelope.output is None
     assert envelope.protocol_version == PROTOCOL_VERSION.render()
+
+
+# --------------------------------------------------------------------------
+# nothing non-finite leaves as a success
+# --------------------------------------------------------------------------
+
+NON_FINITE = [
+    pytest.param(float("nan"), id="nan"),
+    pytest.param(float("inf"), id="infinity"),
+    pytest.param(float("-inf"), id="negative-infinity"),
+]
+
+
+@pytest.mark.parametrize("value", NON_FINITE)
+def test_a_non_finite_output_cannot_be_built(value: float) -> None:
+    """The check is at the envelope, so a provider cannot construct one either."""
+
+    with pytest.raises(RefusalError) as exc:
+        ResultEnvelope(protocol_version="1.0", run_id="r", status="ok", output={"statistic": value})
+    assert exc.value.code is RefusalCode.NON_FINITE_OUTPUT
+    assert exc.value.refusal.detail["paths"] == ["statistic"]
+
+
+def test_the_non_finite_walk_is_recursive() -> None:
+    """The shallow version of this check is the one that passes.
+
+    A NaN is almost never at the top of an output. It is the upper bound of the
+    third interval in a list of forecasts, which is where this one finds it.
+    """
+
+    with pytest.raises(RefusalError) as exc:
+        ResultEnvelope(
+            protocol_version="1.0",
+            run_id="r",
+            status="ok",
+            output={"forecast": [{"interval": [1.0, 2.0]}, {"interval": [3.0, float("nan")]}]},
+        )
+    assert exc.value.refusal.detail["paths"] == ["forecast[1].interval[1]"]
+
+
+def test_non_finite_trace_metrics_refuse() -> None:
+    with pytest.raises(RefusalError) as exc:
+        ResultEnvelope(
+            protocol_version="1.0",
+            run_id="r",
+            status="ok",
+            output={"fine": 1.0},
+            trace={"metrics": {"p_value": float("nan")}},  # type: ignore[arg-type]
+        )
+    assert exc.value.code is RefusalCode.NON_FINITE_OUTPUT
+    assert exc.value.refusal.detail["where"] == "provider trace metrics"
+
+
+def test_a_non_finite_json_literal_refuses_on_the_executor_side() -> None:
+    """json.loads accepts the NaN literal; canonical JSON has no spelling for it."""
+
+    with pytest.raises(RefusalError) as exc:
+        parse_result_envelope(
+            b'{"protocol_version":"1.0","run_id":"r","status":"ok","output":{"x":NaN}}'
+        )
+    assert exc.value.code is RefusalCode.NON_FINITE_OUTPUT
+
+
+def test_finite_numbers_are_untouched() -> None:
+    """The detector must not have become one that fires on everything."""
+
+    envelope = ResultEnvelope(
+        protocol_version="1.0",
+        run_id="r",
+        status="ok",
+        output={"a": 0.0, "b": -1.5, "c": [1, 2, 3], "d": True, "e": None, "f": "nan"},
+    )
+    assert envelope.status == "ok"

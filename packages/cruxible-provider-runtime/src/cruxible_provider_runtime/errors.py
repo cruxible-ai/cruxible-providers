@@ -73,6 +73,7 @@ class RefusalCode(StrEnum):
     PROVIDER_DECLINED = "provider_declined"
     UNRESOLVED_SECRET_REF = "unresolved_secret_ref"
     SECRET_BUNDLE_TOO_LARGE = "secret_bundle_too_large"
+    NON_FINITE_OUTPUT = "non_finite_output"
 
     # --- container ---------------------------------------------------------
     IMAGE_PROVENANCE_MISMATCH = "image_provenance_mismatch"
