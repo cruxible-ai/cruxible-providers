@@ -8,9 +8,11 @@ across a pipe, with credential material arriving on an inherited descriptor.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
+import cruxible_provider_runtime.binding as binding_module
 import pytest
 import yaml
 from cruxible_provider_noop.provider import CREDENTIAL_REF
@@ -507,6 +509,130 @@ def test_tampering_with_the_materialized_tree_refuses_a_binding_already_made(
         )
     assert exc.value.code is RefusalCode.CACHE_INTEGRITY
     assert exc.value.refusal.detail["sealed"] == binding.sealed_tree_digest
+
+
+def test_an_untouched_environment_is_not_re_hashed_on_every_invoke(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hashing every file of an environment is seconds, and it is per invocation.
+
+    The full hash stays the authority; what changes is how often it is asked. An
+    environment whose (entry count, newest mtime) reading is the one that was
+    current when the hash last agreed is not re-hashed.
+    """
+
+    calls: list[Path] = []
+    real = binding_module.tree_digest
+
+    def counted(root: Path) -> str:
+        calls.append(root)
+        return real(root)
+
+    monkeypatch.setattr(binding_module, "tree_digest", counted)
+
+    for _ in range(3):
+        outcome = invoke(
+            binding,
+            registry=registry,
+            payload={"text": "hello", "mode": "echo"},
+            budgets=BUDGETS,
+            local_backend=local_backend,
+            container_backend=container_backend,
+        )
+        assert outcome.status == "ok"
+
+    assert len(calls) == 1, "the gate should have skipped the second and third hash"
+
+
+def test_a_touched_environment_is_re_hashed_and_still_refuses(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate misses on a changed tree, so the authority runs and refuses."""
+
+    assert binding.env_path is not None
+    invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "echo"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+
+    calls: list[Path] = []
+    real = binding_module.tree_digest
+    monkeypatch.setattr(
+        binding_module, "tree_digest", lambda root: (calls.append(root), real(root))[1]
+    )
+
+    (binding.env_path / "smuggled.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+
+    with pytest.raises(RefusalError) as exc:
+        invoke(
+            binding,
+            registry=registry,
+            payload={"text": "hello", "mode": "echo"},
+            budgets=BUDGETS,
+            local_backend=local_backend,
+            container_backend=container_backend,
+        )
+    assert exc.value.code is RefusalCode.CACHE_INTEGRITY
+    assert len(calls) == 1, "a changed tree must reach the full hash"
+
+
+def test_the_staleness_gate_is_defeated_by_a_preserved_fingerprint(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """The documented hole, asserted so that closing it cannot happen silently.
+
+    An adversary who edits a file in place and restores its mtime leaves the
+    (entry count, newest mtime) reading identical, and the gate skips the hash
+    that would have caught them. This is written down rather than hoped about:
+    it needs write access to a 0700 cache the operator owns, and a local provider
+    environment is dependency isolation, NOT a security boundary -- somebody who
+    can write there can already run code as the operator without touching the
+    cache. If this test ever starts failing, the gate got stronger and
+    Binding.revalidate's docstring is the thing to update.
+    """
+
+    assert binding.env_path is not None
+    invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "echo"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+
+    victim = next(binding.env_path.rglob("*.dist-info/METADATA"))
+    before = victim.stat()
+    victim.write_text("Name: substituted\nVersion: 0.0.0\n", encoding="utf-8")
+    os.utime(victim, (before.st_atime, before.st_mtime))
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "echo"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "ok"
+
+    # And the authority itself is unfooled: it is only the gate that was.
+    assert binding_module.tree_digest(binding.env_path) != binding.sealed_tree_digest
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)

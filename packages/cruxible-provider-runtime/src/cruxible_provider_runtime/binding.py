@@ -32,7 +32,7 @@ inconvenience to route around.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .artifact import ProviderArtifactPayload, artifact_digest
@@ -70,6 +70,29 @@ class BindRequest:
     set, the resulting binding records it, so a receipt shows that the pin was
     computed under the escape hatch rather than over registry artifacts alone.
     """
+
+
+def _tree_fingerprint(root: Path) -> tuple[int, float]:
+    """A stat-only reading of a tree: how many entries, and the newest mtime.
+
+    Cheap because it opens nothing. It is a staleness signal and never an
+    integrity one — :meth:`Binding.revalidate` uses it only to decide whether to
+    recompute the digest that *is* the integrity check.
+
+    An entry that disappears mid-walk returns a reading that cannot equal any
+    cached one, which forces the full hash. Guessing at what the tree looked like
+    a moment ago would be the fail-open reading.
+    """
+
+    count = 0
+    newest = 0.0
+    for path in root.rglob("*"):
+        count += 1
+        try:
+            newest = max(newest, path.lstat().st_mtime)
+        except OSError:
+            return (-1, -1.0)
+    return (count, newest)
 
 
 @dataclass(frozen=True)
@@ -119,6 +142,16 @@ class Binding:
     resolved: ResolvedSet | None = None
     dev_sources_permitted: bool = False
 
+    tree_watch: dict[str, tuple[int, float]] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    """The last tree fingerprint this binding verified the full hash against.
+
+    Not identity and not part of the snapshot: a scratchpad for
+    :meth:`revalidate`'s staleness gate, and the only mutable thing on an
+    otherwise frozen record.
+    """
+
     def snapshot(self) -> dict[str, str | bool | list[str]]:
         """The binding snapshot a LineDeployment records."""
 
@@ -149,6 +182,29 @@ class Binding:
         to the other two mutable inputs, because a binding held across a
         withdrawal, a manifest edit, or a tampered cache entry would otherwise
         keep executing under an acceptance that no longer exists.
+
+        **The tree hash is gated on a cheap fingerprint, and the gate is
+        defeatable.** Hashing every file of a materialized environment is
+        seconds, not milliseconds — measured at 3.7s over a 19k-entry
+        environment, and a tensor stack is several times that — which is a cost
+        per *invocation*, on a check whose answer is almost always the one it
+        gave a moment ago. So the full hash stays the authority and runs whenever
+        the environment's ``(entry count, newest mtime)`` differs from the
+        reading taken when it last verified; an unchanged reading skips it.
+
+        An adversary who edits a file and restores its mtime defeats that gate.
+        That is a real hole and it is not a new one: it needs write access to a
+        ``0700`` cache the operator owns, and a local provider environment is
+        **dependency isolation, not a security boundary** — a caller who can
+        write there can already run code as the operator without touching the
+        cache at all. Containment is the cloud container backend's, and nothing
+        here is offered in its place. See ``docs/packaging.md`` on local
+        execution.
+
+        A second residual, for the same reason and with the same answer: the tree
+        is checked here and the child is spawned afterwards, so a write that
+        lands in between runs unchecked. Closing that would mean holding the tree
+        immutable across the call, which the local backend does not claim to do.
         """
 
         current = artifact_digest(registry.accepted_provider(self.provider_id))
@@ -170,6 +226,9 @@ class Binding:
                 recomputed=recomputed,
             )
         if self.env_path is not None and self.sealed_tree_digest is not None:
+            fingerprint = _tree_fingerprint(self.env_path)
+            if self.tree_watch.get(str(self.env_path)) == fingerprint:
+                return
             actual = tree_digest(self.env_path)
             if actual != self.sealed_tree_digest:
                 raise refuse(
@@ -180,6 +239,10 @@ class Binding:
                     sealed=self.sealed_tree_digest,
                     actual=actual,
                 )
+            # Recorded only after the authority agreed. A fingerprint cached
+            # before the hash ran would be a gate that skips a check nobody
+            # passed.
+            self.tree_watch[str(self.env_path)] = fingerprint
 
 
 def bind(
