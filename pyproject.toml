@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "cruxible-provider-runtime",
   "cruxible-provider-noop",
+  "cruxible-provider-quant",
 ]
 
 [dependency-groups]
@@ -27,6 +28,7 @@ package = false
 [tool.uv.sources]
 cruxible-provider-runtime = { path = "packages/cruxible-provider-runtime", editable = true }
 cruxible-provider-noop = { path = "packages/cruxible-provider-noop", editable = true }
+cruxible-provider-quant = { path = "packages/cruxible-provider-quant", editable = true }
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -34,8 +36,13 @@ testpaths = [
   "tests",
   "packages/cruxible-provider-runtime/tests",
   "packages/cruxible-provider-noop/tests",
+  "packages/cruxible-provider-quant/tests",
 ]
-addopts = "-ra --strict-markers"
+# Two packages both name their test package `tests`, which the default prepend
+# import mode resolves to one module name and then rejects as a mismatch.
+# importlib mode derives a unique name per file, which is what a monorepo with a
+# test package per distribution needs.
+addopts = "-ra --strict-markers --import-mode=importlib"
 markers = [
   "egress_conformance: runs with outbound sockets blocked; asserts declared == observed",
 ]
@@ -61,3 +68,32 @@ python_version = "3.11"
 strict = true
 warn_unreachable = true
 pretty = true
+
+# The quantitative engines ship no type information. Silencing the import is
+# narrower than it looks: every value crossing back out of an engine is re-typed
+# at the boundary in the implementation that called it — `float(...)`,
+# `int(...)`, an explicit list comprehension — so `Any` never travels past the
+# module that produced it, and the package's own sources stay strict.
+[[tool.mypy.overrides]]
+module = [
+  "pandas.*",
+  "polars.*",
+  "ruptures.*",
+  "scipy.*",
+  "sklearn.*",
+  "splink.*",
+  "statsforecast.*",
+  "statsmodels.*",
+]
+ignore_missing_imports = true
+
+# NumPy does ship stubs, and they are written against a newer language level
+# than the `python_version` this project checks at: NumPy 2.5's `__init__.pyi`
+# uses PEP 695 `type` statements, which mypy rejects under 3.11. Skipping the
+# follow means NumPy arrives as `Any` rather than as a parse error. The
+# alternative — raising `python_version` — would stop checking the oldest
+# interpreter this repository supports, which is the one most likely to break.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

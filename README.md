@@ -21,6 +21,8 @@ RP-0 contract these packages implement.
 packages/cruxible-provider-runtime/   the support library every provider uses
 packages/cruxible-provider-noop/      the reference provider: the smallest
                                       package that exercises every rule
+packages/cruxible-provider-quant/     the quantitative plane: classical
+                                      baselines on the seven quant interfaces
 packages/_template/                   copy this to start a new plane package
 vocab/interfaces/                     the launch bucket vocabularies, as draft data
 vocab/stub/                           the stub interface's vocabulary

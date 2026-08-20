@@ -23,6 +23,7 @@ REAL_PACKAGES = sorted(
 def test_there_are_real_packages() -> None:
     assert [path.name for path in REAL_PACKAGES] == [
         "cruxible-provider-noop",
+        "cruxible-provider-quant",
         "cruxible-provider-runtime",
     ]
 

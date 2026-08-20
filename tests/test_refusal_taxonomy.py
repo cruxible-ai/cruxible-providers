@@ -22,6 +22,7 @@ TEST_DIRS = [
     REPO_ROOT / "tests",
     REPO_ROOT / "packages" / "cruxible-provider-runtime" / "tests",
     REPO_ROOT / "packages" / "cruxible-provider-noop" / "tests",
+    REPO_ROOT / "packages" / "cruxible-provider-quant" / "tests",
 ]
 
 

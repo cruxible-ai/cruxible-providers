@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [cruxible-provider-runtime, cruxible-provider-noop]
+        package: [cruxible-provider-runtime, cruxible-provider-noop, cruxible-provider-quant]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

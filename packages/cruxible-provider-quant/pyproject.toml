@@ -1,0 +1,65 @@
+[project]
+name = "cruxible-provider-quant"
+version = "0.1.0"
+description = "Cruxible provider adapters for the quantitative plane: classical baselines on the slots narrow-ML models later compete for."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Cruxible maintainers" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "cruxible-provider-runtime",
+  # The engines ARE the implementation. Every one of them enters this package's
+  # materialization digest and nothing else's — which is the whole reason the
+  # quantitative plane is its own distribution with its own lock.
+  #
+  # Nothing here reaches a GPU, a network, or an OS-specific path: no torch, no
+  # CUDA, no accelerator runtime. A quantitative baseline that needed a GPU
+  # would not be a baseline.
+  "numpy>=1.26",
+  "pandas>=2.0",
+  "polars>=1.0",
+  "ruptures>=1.1.9",
+  "scikit-learn>=1.4",
+  "scipy>=1.11",
+  "splink>=4.0",
+  "statsforecast>=1.7",
+  "statsmodels>=0.14",
+]
+
+# One entry per implementation, keyed by interface id.
+[project.entry-points."cruxible.providers"]
+"calc.calibrate" = "cruxible_provider_quant.calibrate:Calibrate"
+"calc.reduce" = "cruxible_provider_quant.reduce:Reduce"
+"match.record" = "cruxible_provider_quant.linkage:RecordLinkage"
+"score.rank" = "cruxible_provider_quant.rank:Rank"
+"stat.test" = "cruxible_provider_quant.stat_test:StatTest"
+"ts.anomaly" = "cruxible_provider_quant.anomaly:Anomaly"
+"ts.forecast" = "cruxible_provider_quant.forecast:Forecast"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "types-pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+cruxible-provider-runtime = { path = "../cruxible-provider-runtime", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cruxible_provider_quant"]

@@ -1,0 +1,158 @@
+# Package-side provider manifest for the quantitative plane.
+#
+# This file is a transcription SOURCE, never authority. A provider is bindable
+# only through an accepted providers/<provider-id>.yaml governed artifact whose
+# payload transcribes this document; at bind and invoke the runtime recomputes
+# this manifest's digest and refuses on any divergence.
+#
+# The distribution's own sha256 is deliberately absent: an artifact cannot carry
+# its own hash. It is pinned by the accepted artifact, and it is what the
+# implementation digest consumes.
+#
+# On the bucket claims below. Every selector names buckets these classical
+# baselines actually serve, and the faces left unclaimed are left unclaimed on
+# purpose — they are where a later narrow-ML implementation of the same
+# interface earns its own track record on the same key. The exclusions are
+# recorded in the README with the reason for each.
+schema_version: 1
+provider_id: cruxible-provider-quant
+distribution:
+  name: cruxible-provider-quant
+  version: 0.1.0
+entrypoint_group: cruxible.providers
+supported_protocol_majors: [1]
+implementations:
+  # ---------------------------------------------------------------- calc.reduce
+  - interface_id: calc.reduce
+    interface_digest: "sha256:03b51d8ed139039fe2b3af1b81f0939d5593d43f862e900bae6fb97485227fea"
+    entrypoint: "cruxible_provider_quant.reduce:Reduce"
+    backends: [local_env, container]
+    declared_input_buckets:
+      - "row_count=small;column_count=*;reduction_kind=*;memory_fit=in_memory"
+      - "row_count=medium;column_count=*;reduction_kind=*;memory_fit=in_memory"
+    bucket_conformance:
+      "row_count=small;column_count=*;reduction_kind=*;memory_fit=in_memory": quant-reduce-small
+      "row_count=medium;column_count=*;reduction_kind=*;memory_fit=in_memory": quant-reduce-medium
+    declared_endpoints: []
+    capture_contract_families:
+      - calc.reduce.capture.derived.v1
+    deterministic: true
+    side_effects: false
+
+  # ----------------------------------------------------------------- ts.anomaly
+  - interface_id: ts.anomaly
+    interface_digest: "sha256:184042e57be1faa247e9d1617470f906a2860b840782ed704fe9933f14d490bb"
+    entrypoint: "cruxible_provider_quant.anomaly:Anomaly"
+    backends: [local_env, container]
+    declared_input_buckets:
+      - "frequency=*;series_length=short;series_count=single;domain_class=counts;seasonality=*;gap_profile=regular"
+      - "frequency=*;series_length=short;series_count=single;domain_class=rates;seasonality=*;gap_profile=regular"
+      - "frequency=*;series_length=short;series_count=single;domain_class=continuous_bounded;seasonality=*;gap_profile=regular"
+      - "frequency=*;series_length=short;series_count=single;domain_class=continuous_unbounded;seasonality=*;gap_profile=regular"
+    bucket_conformance:
+      "frequency=*;series_length=short;series_count=single;domain_class=counts;seasonality=*;gap_profile=regular": quant-anomaly-counts
+      "frequency=*;series_length=short;series_count=single;domain_class=rates;seasonality=*;gap_profile=regular": quant-anomaly-rates
+      "frequency=*;series_length=short;series_count=single;domain_class=continuous_bounded;seasonality=*;gap_profile=regular": quant-anomaly-bounded
+      "frequency=*;series_length=short;series_count=single;domain_class=continuous_unbounded;seasonality=*;gap_profile=regular": quant-anomaly-unbounded
+    declared_endpoints: []
+    capture_contract_families:
+      - ts.anomaly.capture.derived.v1
+    deterministic: true
+    side_effects: false
+
+  # ---------------------------------------------------------------- ts.forecast
+  - interface_id: ts.forecast
+    interface_digest: "sha256:61d0700e69c7b8ce81df8b98f2a2d3c3d1b6ceb6e7bd14f62dd3bc4dc9fe5262"
+    entrypoint: "cruxible_provider_quant.forecast:Forecast"
+    backends: [local_env, container]
+    declared_input_buckets:
+      - "frequency=*;series_length=short;series_count=single;domain_class=counts;horizon=*;exogenous=none"
+      - "frequency=*;series_length=short;series_count=single;domain_class=continuous_unbounded;horizon=*;exogenous=none"
+      - "frequency=*;series_length=medium;series_count=single;domain_class=counts;horizon=*;exogenous=none"
+      - "frequency=*;series_length=medium;series_count=single;domain_class=continuous_unbounded;horizon=*;exogenous=none"
+    bucket_conformance:
+      "frequency=*;series_length=short;series_count=single;domain_class=counts;horizon=*;exogenous=none": quant-forecast-short-counts
+      "frequency=*;series_length=short;series_count=single;domain_class=continuous_unbounded;horizon=*;exogenous=none": quant-forecast-short-continuous
+      "frequency=*;series_length=medium;series_count=single;domain_class=counts;horizon=*;exogenous=none": quant-forecast-medium-counts
+      "frequency=*;series_length=medium;series_count=single;domain_class=continuous_unbounded;horizon=*;exogenous=none": quant-forecast-medium-continuous
+    declared_endpoints: []
+    capture_contract_families:
+      - ts.forecast.capture.derived.v1
+    deterministic: true
+    side_effects: false
+
+  # ------------------------------------------------------------------ stat.test
+  - interface_id: stat.test
+    interface_digest: "sha256:4cf098b47cdc911e92ceaa89217b5106a0167b0fe918bc4daf53c33a3d0b2b94"
+    entrypoint: "cruxible_provider_quant.stat_test:StatTest"
+    backends: [local_env, container]
+    declared_input_buckets:
+      - "test_family=location;sample_size=*;design=independent;dimensionality=univariate"
+      - "test_family=location;sample_size=*;design=paired;dimensionality=univariate"
+      - "test_family=proportion;sample_size=*;design=independent;dimensionality=univariate"
+      - "test_family=variance;sample_size=*;design=independent;dimensionality=univariate"
+      - "test_family=association;sample_size=*;design=paired;dimensionality=univariate"
+      - "test_family=distributional;sample_size=*;design=independent;dimensionality=univariate"
+    bucket_conformance:
+      "test_family=location;sample_size=*;design=independent;dimensionality=univariate": quant-stat-location-independent
+      "test_family=location;sample_size=*;design=paired;dimensionality=univariate": quant-stat-location-paired
+      "test_family=proportion;sample_size=*;design=independent;dimensionality=univariate": quant-stat-proportion
+      "test_family=variance;sample_size=*;design=independent;dimensionality=univariate": quant-stat-variance
+      "test_family=association;sample_size=*;design=paired;dimensionality=univariate": quant-stat-association
+      "test_family=distributional;sample_size=*;design=independent;dimensionality=univariate": quant-stat-distributional
+    declared_endpoints: []
+    capture_contract_families:
+      - stat.test.capture.derived.v1
+    deterministic: true
+    side_effects: false
+
+  # ----------------------------------------------------------------- score.rank
+  - interface_id: score.rank
+    interface_digest: "sha256:43f333336abc78d6a365b964c53a485d6f8106c05e4d47ab8f22322caab7e068"
+    entrypoint: "cruxible_provider_quant.rank:Rank"
+    backends: [local_env, container]
+    declared_input_buckets:
+      - "candidate_count=small;signal_count=*;label_availability=*;tie_density=*"
+      - "candidate_count=medium;signal_count=*;label_availability=*;tie_density=*"
+    bucket_conformance:
+      "candidate_count=small;signal_count=*;label_availability=*;tie_density=*": quant-rank-small
+      "candidate_count=medium;signal_count=*;label_availability=*;tie_density=*": quant-rank-medium
+    declared_endpoints: []
+    capture_contract_families:
+      - score.rank.capture.derived.v1
+    deterministic: true
+    side_effects: false
+
+  # --------------------------------------------------------------- match.record
+  - interface_id: match.record
+    interface_digest: "sha256:9330ac3b0eedd4e2bc7df7c88475957c4b2395081d80c80bb6be28eba899dede"
+    entrypoint: "cruxible_provider_quant.linkage:RecordLinkage"
+    backends: [local_env, container]
+    declared_input_buckets:
+      - "pair_space=small;blocking=strong;field_richness=*;label_availability=unlabeled"
+      - "pair_space=small;blocking=weak;field_richness=*;label_availability=unlabeled"
+    bucket_conformance:
+      "pair_space=small;blocking=strong;field_richness=*;label_availability=unlabeled": quant-linkage-strong-blocking
+      "pair_space=small;blocking=weak;field_richness=*;label_availability=unlabeled": quant-linkage-weak-blocking
+    declared_endpoints: []
+    capture_contract_families:
+      - match.record.capture.derived.v1
+    deterministic: true
+    side_effects: false
+
+  # ------------------------------------------------------------- calc.calibrate
+  - interface_id: calc.calibrate
+    interface_digest: "sha256:2569fb7ca8021413b6369a93c334bccd24dbef769e0389b3adf03f04cf40b003"
+    entrypoint: "cruxible_provider_quant.calibrate:Calibrate"
+    backends: [local_env, container]
+    declared_input_buckets:
+      - "outcome_type=binary;sample_size=*;resolution_lag=*;base_rate=balanced"
+      - "outcome_type=binary;sample_size=*;resolution_lag=*;base_rate=moderate_imbalance"
+    bucket_conformance:
+      "outcome_type=binary;sample_size=*;resolution_lag=*;base_rate=balanced": quant-calibrate-balanced
+      "outcome_type=binary;sample_size=*;resolution_lag=*;base_rate=moderate_imbalance": quant-calibrate-imbalanced
+    declared_endpoints: []
+    capture_contract_families:
+      - calc.calibrate.capture.derived.v1
+    deterministic: true
+    side_effects: false

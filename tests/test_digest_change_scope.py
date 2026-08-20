@@ -38,7 +38,11 @@ def test_a_digest_is_computed_per_package_not_per_repository() -> None:
     """Each package resolves from its own lock, so each has its own answer."""
 
     digests = compute(REPO_ROOT)
-    assert set(digests) == {"cruxible-provider-noop", "cruxible-provider-runtime"}
+    assert set(digests) == {
+        "cruxible-provider-noop",
+        "cruxible-provider-quant",
+        "cruxible-provider-runtime",
+    }
 
 
 def _git(repo: Path, *args: str) -> None:
