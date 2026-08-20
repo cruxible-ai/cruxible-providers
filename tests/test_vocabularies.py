@@ -162,6 +162,32 @@ def test_the_published_schema_matches_the_model() -> None:
     assert published == BucketVocabulary.model_json_schema()
 
 
+PACKAGES = REPO_ROOT / "packages"
+SHIPPED_COPIES = sorted(PACKAGES.glob("*/src/*/vocab/*.yaml"))
+
+
+def test_at_least_one_package_ships_a_vocabulary_copy() -> None:
+    """Otherwise the drift test below would pass by having nothing to compare."""
+
+    assert SHIPPED_COPIES
+
+
+@pytest.mark.parametrize("path", SHIPPED_COPIES, ids=lambda p: f"{p.parents[2].name}/{p.stem}")
+def test_a_shipped_vocabulary_copy_matches_the_published_one(path: Path) -> None:
+    """A plane package ships the vocabulary it classifies against, and it must not fork.
+
+    The copy exists because an installed provider classifies without a repository
+    to read: ``vocab/interfaces/`` is repository data and does not travel in a
+    wheel. A duplicate nothing compares is a fork waiting to happen, so this is
+    the comparison — over the parsed vocabulary rather than the bytes, since
+    formatting is not the thing that must agree.
+    """
+
+    published = INTERFACES / path.name
+    assert published.is_file(), f"{path.name} is shipped by a package but is not published here"
+    assert load_bucket_vocabulary(path) == load_bucket_vocabulary(published)
+
+
 def test_the_stub_vocabulary_lives_apart_from_the_launch_set() -> None:
     stub = yaml.safe_load((VOCAB_DIR / "stub" / "noop.echo.yaml").read_text(encoding="utf-8"))
     assert stub["interface_id"] == "noop.echo"

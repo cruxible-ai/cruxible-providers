@@ -1,0 +1,29 @@
+{
+  "id": "web-fetch-static-medium",
+  "note": "The same retrieval under a medium cap, which is a different bucket and therefore a different claim.",
+  "interface_id": "web.fetch",
+  "bucket_selector": "source_kind=static_html;access=*;page_weight=medium",
+  "bucket_id": "source_kind=static_html;access=public;page_weight=medium",
+  "recording_id": "report-static",
+  "input": {
+    "url": "https://fixture.invalid/reports/water-quality",
+    "max_bytes": 1048576
+  },
+  "expect": {
+    "status": "ok",
+    "status_code": 200,
+    "source": "packaged-recording",
+    "derived_kind": "markdown",
+    "derived_engine": "trafilatura",
+    "derived_contains": [
+      "Nitrate",
+      "lower reach"
+    ],
+    "derived_excludes": [
+      "Sign up to volunteer"
+    ],
+    "metadata": {
+      "title": "Annual water quality report"
+    }
+  }
+}

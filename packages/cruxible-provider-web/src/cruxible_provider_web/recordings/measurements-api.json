@@ -1,0 +1,12 @@
+{
+  "id": "measurements-api",
+  "note": "A structured endpoint. Nothing extracts it: main-content heuristics over a JSON array find main content that is not there.",
+  "request_url": "https://fixture.invalid/api/v1/measurements.json",
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\n  \"station\": \"newlyn\",\n  \"unit\": \"metres\",\n  \"readings\": [\n    {\n      \"at\": \"2026-03-11T00:00:00Z\",\n      \"value\": 3.201\n    },\n    {\n      \"at\": \"2026-03-11T01:00:00Z\",\n      \"value\": 3.244\n    },\n    {\n      \"at\": \"2026-03-11T02:00:00Z\",\n      \"value\": 3.198\n    }\n  ]\n}"
+  }
+}

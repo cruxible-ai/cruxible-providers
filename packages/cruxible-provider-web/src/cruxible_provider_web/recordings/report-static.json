@@ -1,0 +1,12 @@
+{
+  "id": "report-static",
+  "note": "A server-rendered report whose substance is partly a table.",
+  "request_url": "https://fixture.invalid/reports/water-quality",
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "text/html; charset=utf-8"
+    },
+    "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Annual water quality report</title>\n<meta name=\"author\" content=\"River Trust\"></head>\n<body>\n  <nav><a href=\"/\">Home</a> | <a href=\"/reports\">Reports</a></nav>\n  <article>\n    <h1>Annual water quality report</h1>\n    <p>Nitrate concentrations fell across the middle catchment for the third year\n    running, while phosphate held roughly flat.</p>\n    <table>\n      <tr><th>Reach</th><th>Nitrate mg/l</th><th>Phosphate mg/l</th></tr>\n      <tr><td>Upper</td><td>4.1</td><td>0.08</td></tr>\n      <tr><td>Middle</td><td>6.7</td><td>0.11</td></tr>\n      <tr><td>Lower</td><td>9.2</td><td>0.19</td></tr>\n    </table>\n    <p>The lower reach remains the outlier and the sampling programme there will be\n    doubled next season.</p>\n  </article>\n  <footer>Sign up to volunteer for river sampling.</footer>\n</body>\n</html>\n"
+  }
+}

@@ -11,6 +11,10 @@ requires-python = ">=3.11"
 dependencies = [
   "cruxible-provider-runtime",
   "cruxible-provider-noop",
+  # The plane packages at their BASE install. No extra is named here, and that
+  # is the point: the default lane installs no browser, no tensor stack, and no
+  # OCR runtime, and the tests that need one are marked `engine` and opted into.
+  "cruxible-provider-web",
 ]
 
 [dependency-groups]
@@ -27,6 +31,7 @@ package = false
 [tool.uv.sources]
 cruxible-provider-runtime = { path = "packages/cruxible-provider-runtime", editable = true }
 cruxible-provider-noop = { path = "packages/cruxible-provider-noop", editable = true }
+cruxible-provider-web = { path = "packages/cruxible-provider-web", editable = true }
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -34,6 +39,7 @@ testpaths = [
   "tests",
   "packages/cruxible-provider-runtime/tests",
   "packages/cruxible-provider-noop/tests",
+  "packages/cruxible-provider-web/tests",
 ]
 # `-m "not engine"` is in the default options rather than left to whoever runs
 # the suite. An engine test needs a browser, a tensor stack, or an OCR runtime

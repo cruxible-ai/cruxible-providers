@@ -1,0 +1,12 @@
+{
+  "id": "article-static",
+  "note": "A conventional server-rendered article page, boilerplate included.",
+  "request_url": "https://fixture.invalid/articles/tide-gauge-recalibration",
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "text/html; charset=utf-8"
+    },
+    "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <title>Recalibrating the Newlyn tide gauge</title>\n  <meta name=\"author\" content=\"Coastal Observatory\">\n  <meta property=\"article:published_time\" content=\"2026-03-11\">\n</head>\n<body>\n  <a class=\"skip\" href=\"#main\">Skip to main content</a>\n  <nav><ul><li><a href=\"/\">Home</a></li><li><a href=\"/archive\">Archive</a></li></ul></nav>\n  <main id=\"main\">\n    <h1>Recalibrating the Newlyn tide gauge</h1>\n    <p>The Newlyn gauge has anchored the British vertical datum since 1915, and its\n    drift is now large enough to matter for the flood models that depend on it.</p>\n    <p>Recalibration ran over three spring tides. The correction is small, a little\n    under four millimetres a year, but it is systematic, and a systematic error in a\n    reference gauge propagates into every derived level in the network.</p>\n    <h2>What changed</h2>\n    <p>The benchmark tie was re-surveyed and the stilling well cleared. Readings from\n    the redundant radar sensor were used to bracket the float record.</p>\n  </main>\n  <aside class=\"promo\">Subscribe to our newsletter for weekly updates.</aside>\n  <footer>Copyright 2026 Coastal Observatory. All rights reserved.</footer>\n</body>\n</html>\n"
+  }
+}

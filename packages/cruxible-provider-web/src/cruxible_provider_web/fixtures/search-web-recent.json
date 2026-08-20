@@ -1,0 +1,25 @@
+{
+  "id": "search-web-recent",
+  "note": "A recency-bounded query. The 1998 result falls outside the bound and is dropped by this adapter, because SearXNG's three-value range vocabulary cannot express the bound the run asked for; the undated result is kept, because silence is not evidence of age.",
+  "interface_id": "search.web",
+  "bucket_selector": "query_form=*;recency=recent;result_depth=shallow",
+  "bucket_id": "query_form=keyword;recency=recent;result_depth=shallow",
+  "recording_id": "searxng-answer",
+  "input": {
+    "query": "tide gauge recalibration",
+    "limit": 10,
+    "max_age_hours": 2160
+  },
+  "coordinates": {
+    "instance_url": "https://fixture.invalid",
+    "as_of": "2026-04-01T00:00:00+00:00"
+  },
+  "expect": {
+    "status": "ok",
+    "source": "packaged-recording",
+    "result_count": 3,
+    "returned": 2,
+    "dropped_by_recency": 1,
+    "time_range": "year"
+  }
+}

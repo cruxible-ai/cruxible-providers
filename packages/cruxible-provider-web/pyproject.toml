@@ -1,0 +1,67 @@
+# The web plane. One distribution, one lock, one identity unit; two
+# implementations, of two different interfaces.
+#
+# The base install is LIGHT. It carries the adapter logic, the schemas, the
+# bucket classifiers, the recorded fixtures, and an HTTP client — everything the
+# default conformance lane needs. The heavy engines live behind per-engine
+# extras, and each implementation's manifest declares which extra it requires.
+# `uv run pytest` therefore downloads no browser and opens no socket.
+[project]
+name = "cruxible-provider-web"
+version = "0.1.0"
+description = "Cruxible provider adapters for the web plane: page retrieval and web search."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Cruxible maintainers" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "cruxible-provider-runtime",
+  # The HTTP client is base, not an extra: it is how both implementations reach
+  # anything at all, and it is how egress gets recorded. An adapter that could
+  # not make a request would have no adapter logic left to test.
+  "httpx>=0.27",
+  # Extraction is base too, and deliberately so. The heavy-engine split exists
+  # to keep a browser, a tensor stack, and an OCR runtime out of the base
+  # install; a pure-Python extractor with an lxml wheel is none of those, and
+  # putting it behind an extra would buy a few megabytes at the price of a
+  # default conformance lane that never runs a real extraction.
+  "trafilatura>=2.0",
+]
+
+[project.optional-dependencies]
+# The one per-engine extra: a browser. Its name is what the `web.fetch`
+# implementation declares in `requires_extras`, and what the resolver is asked
+# for when that implementation's environment is materialized.
+browser = ["playwright>=1.44"]
+
+[project.entry-points."cruxible.providers"]
+"web.fetch" = "cruxible_provider_web.fetch:WebFetch"
+"search.web" = "cruxible_provider_web.search:SearxngSearch"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "types-pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+cruxible-provider-runtime = { path = "../cruxible-provider-runtime", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cruxible_provider_web"]

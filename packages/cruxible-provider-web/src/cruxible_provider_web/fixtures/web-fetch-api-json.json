@@ -1,0 +1,22 @@
+{
+  "id": "web-fetch-api-json",
+  "note": "A structured endpoint carried through verbatim, with no extraction engine involved.",
+  "interface_id": "web.fetch",
+  "bucket_selector": "source_kind=api_json;access=*;page_weight=light",
+  "bucket_id": "source_kind=api_json;access=public;page_weight=light",
+  "recording_id": "measurements-api",
+  "input": {
+    "url": "https://fixture.invalid/api/v1/measurements.json"
+  },
+  "expect": {
+    "status": "ok",
+    "status_code": 200,
+    "source": "packaged-recording",
+    "derived_kind": "verbatim",
+    "derived_engine": null,
+    "derived_contains": [
+      "newlyn",
+      "3.244"
+    ]
+  }
+}

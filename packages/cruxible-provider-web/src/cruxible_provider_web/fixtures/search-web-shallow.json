@@ -1,0 +1,23 @@
+{
+  "id": "search-web-shallow",
+  "note": "A shallow, unbounded query. Every result the instance returned is kept.",
+  "interface_id": "search.web",
+  "bucket_selector": "query_form=*;recency=any_time;result_depth=shallow",
+  "bucket_id": "query_form=keyword;recency=any_time;result_depth=shallow",
+  "recording_id": "searxng-answer",
+  "input": {
+    "query": "tide gauge recalibration",
+    "limit": 10
+  },
+  "coordinates": {
+    "instance_url": "https://fixture.invalid",
+    "as_of": "2026-04-01T00:00:00+00:00"
+  },
+  "expect": {
+    "status": "ok",
+    "source": "packaged-recording",
+    "result_count": 3,
+    "returned": 3,
+    "dropped_by_recency": 0
+  }
+}

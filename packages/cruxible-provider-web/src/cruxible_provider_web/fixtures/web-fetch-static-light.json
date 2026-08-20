@@ -1,0 +1,30 @@
+{
+  "id": "web-fetch-static-light",
+  "note": "A light static page under the default cap, extracted to Markdown.",
+  "interface_id": "web.fetch",
+  "bucket_selector": "source_kind=static_html;access=*;page_weight=light",
+  "bucket_id": "source_kind=static_html;access=public;page_weight=light",
+  "recording_id": "article-static",
+  "input": {
+    "url": "https://fixture.invalid/articles/tide-gauge-recalibration"
+  },
+  "expect": {
+    "status": "ok",
+    "status_code": 200,
+    "source": "packaged-recording",
+    "derived_kind": "markdown",
+    "derived_engine": "trafilatura",
+    "derived_contains": [
+      "Newlyn",
+      "millimetres"
+    ],
+    "derived_excludes": [
+      "Skip to main content",
+      "Subscribe to our newsletter",
+      "All rights reserved"
+    ],
+    "metadata": {
+      "title": "Recalibrating the Newlyn tide gauge"
+    }
+  }
+}

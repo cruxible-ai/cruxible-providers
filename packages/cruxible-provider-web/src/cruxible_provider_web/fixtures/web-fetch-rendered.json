@@ -1,0 +1,27 @@
+{
+  "id": "web-fetch-rendered",
+  "note": "A client-assembled page. The expectation names text that exists only after assembly, so a run that skipped the renderer fails rather than passing quietly.",
+  "interface_id": "web.fetch",
+  "bucket_selector": "source_kind=js_rendered;access=public;page_weight=*",
+  "bucket_id": "source_kind=js_rendered;access=public;page_weight=light",
+  "recording_id": "dashboard-rendered",
+  "input": {
+    "url": "https://fixture.invalid/dashboard",
+    "render": true
+  },
+  "expect": {
+    "status": "ok",
+    "status_code": 200,
+    "source": "packaged-recording",
+    "renderer": "recorded:dashboard-rendered",
+    "derived_kind": "markdown",
+    "derived_engine": "trafilatura",
+    "derived_contains": [
+      "3.214",
+      "Sheerness"
+    ],
+    "derived_excludes": [
+      "requires JavaScript"
+    ]
+  }
+}

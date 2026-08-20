@@ -1,0 +1,22 @@
+cruxible-provider-web
+Copyright 2026 The Cruxible maintainers
+
+This product includes software developed for the Cruxible project.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use these files except in compliance with the License. You may obtain a copy
+of the License in the LICENSE file distributed with each package, or at:
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+This package acquires third-party dependencies. Their licenses are recorded in
+the SBOM the CI license lane produces, and the notable ones are:
+
+    httpx                Copyright the httpx authors. BSD-3-Clause.
+    trafilatura          Copyright the trafilatura authors. Apache-2.0.
+    playwright (extra)   Copyright Microsoft Corporation. Apache-2.0.
+
+The browser binaries Playwright downloads are NOT distributed with this package
+and carry their own licenses (Chromium: BSD-3-Clause and others). They are
+fetched by the operator, into the operator's environment, and this package
+neither vendors nor relicenses them.

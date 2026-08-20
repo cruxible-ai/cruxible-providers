@@ -1,0 +1,39 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration;
+# core owns registration, and the vocabulary is accepted there, not here.
+interface_id: web.fetch
+version: 1
+status: draft
+description: >-
+  Retrieve the content of a single web resource. Buckets separate the cases where
+  a fetcher's competence genuinely differs: whether the content exists in the
+  first response, what it costs to get at, and how much of it there is.
+dimensions:
+  - name: source_kind
+    description: how the content is produced by the origin
+    classes:
+      - id: static_html
+        description: content present in the initial HTML response
+      - id: js_rendered
+        description: content assembled client-side; requires a browser engine
+      - id: api_json
+        description: a structured JSON or XML endpoint rather than a page
+      - id: binary
+        description: a non-text payload such as a PDF, image, or archive
+  - name: access
+    description: what the origin requires before it will serve the resource
+    classes:
+      - id: public
+        description: no credentials and no interactive gate
+      - id: authenticated
+        description: requires a credential delivered by secret-ref
+      - id: rate_limited
+        description: public but throttled; retrieval must pace itself
+  - name: page_weight
+    description: transferred size of the resource
+    classes:
+      - id: light
+        description: at most 256 KiB
+      - id: medium
+        description: more than 256 KiB and at most 2 MiB
+      - id: heavy
+        description: more than 2 MiB

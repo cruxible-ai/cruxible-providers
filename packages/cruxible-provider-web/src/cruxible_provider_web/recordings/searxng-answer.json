@@ -1,0 +1,12 @@
+{
+  "id": "searxng-answer",
+  "note": "One SearXNG instance answer in the json format, carrying a dated result, an undated one, and one old enough to fall outside a recent bound.",
+  "request_url": "https://fixture.invalid/search",
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\n  \"query\": \"tide gauge recalibration\",\n  \"number_of_results\": 3,\n  \"results\": [\n    {\n      \"url\": \"https://fixture.invalid/articles/tide-gauge-recalibration\",\n      \"title\": \"Recalibrating the Newlyn tide gauge\",\n      \"content\": \"The Newlyn gauge has anchored the British vertical datum since 1915.\",\n      \"engine\": \"duckduckgo\",\n      \"score\": 1.0,\n      \"publishedDate\": \"2026-03-11T00:00:00Z\"\n    },\n    {\n      \"url\": \"https://fixture.invalid/reports/water-quality\",\n      \"title\": \"Annual water quality report\",\n      \"content\": \"Nitrate concentrations fell across the middle catchment.\",\n      \"engine\": \"wikipedia\",\n      \"score\": 0.7\n    },\n    {\n      \"url\": \"https://fixture.invalid/archive/1998-datum-note\",\n      \"title\": \"A note on the 1998 datum revision\",\n      \"content\": \"Historical note on the previous revision of the vertical datum.\",\n      \"engine\": \"duckduckgo\",\n      \"score\": 0.4,\n      \"publishedDate\": \"1998-06-02T00:00:00Z\"\n    }\n  ],\n  \"answers\": [],\n  \"suggestions\": [\n    \"newlyn tide gauge history\"\n  ]\n}"
+  }
+}

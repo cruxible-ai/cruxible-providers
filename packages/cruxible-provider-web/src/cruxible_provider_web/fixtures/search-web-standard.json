@@ -1,0 +1,23 @@
+{
+  "id": "search-web-standard",
+  "note": "The standard depth face of the cube, over the same instance answer.",
+  "interface_id": "search.web",
+  "bucket_selector": "query_form=*;recency=any_time;result_depth=standard",
+  "bucket_id": "query_form=natural_language;recency=any_time;result_depth=standard",
+  "recording_id": "searxng-answer",
+  "input": {
+    "query": "how has the Newlyn tide gauge drifted since 1915?",
+    "limit": 25
+  },
+  "coordinates": {
+    "instance_url": "https://fixture.invalid",
+    "as_of": "2026-04-01T00:00:00+00:00"
+  },
+  "expect": {
+    "status": "ok",
+    "source": "packaged-recording",
+    "result_count": 3,
+    "returned": 3,
+    "dropped_by_recency": 0
+  }
+}

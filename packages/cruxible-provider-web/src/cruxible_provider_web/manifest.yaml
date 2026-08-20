@@ -1,0 +1,110 @@
+# Package-side provider manifest for the web plane.
+#
+# This file is a transcription SOURCE, never authority. A provider is bindable
+# only through an accepted providers/<provider-id>.yaml governed artifact whose
+# payload transcribes this document; at bind and invoke the runtime recomputes
+# this manifest's digest and refuses on any divergence.
+#
+# The distribution's own sha256 is deliberately absent: an artifact cannot carry
+# its own hash. It is pinned by the accepted artifact, and it is what the
+# implementation digest consumes.
+schema_version: 1
+provider_id: cruxible-provider-web
+distribution:
+  name: cruxible-provider-web
+  version: 0.1.0
+entrypoint_group: cruxible.providers
+supported_protocol_majors: [1]
+implementations:
+  # Two implementations, two interfaces. One package may implement several
+  # interfaces within its plane; it may implement any one of them at most once,
+  # and a second implementation of the same interface is terminal
+  # (ambiguous_implementation) rather than something to disambiguate here.
+  - interface_id: web.fetch
+    # STUB digest, minted under cruxible.interface.stub.v1 until core registers
+    # this interface. interfaces.py carries the preimage and a drift test.
+    interface_digest: "sha256:8fbe7a7b093f5802a2f55414c70846d873081145e3e8e368ccbc8238d275fd6b"
+    entrypoint: "cruxible_provider_web.fetch:WebFetch"
+    backends: [local_env, container]
+    # The js_rendered bucket needs a browser, and a browser is a heavy engine,
+    # so it lives behind the `browser` extra rather than in the base install.
+    # Declaring it here is what makes the resolver materialize an environment
+    # that has it -- and what makes the environment differ from search.web's.
+    requires_extras: [browser]
+    # Claimed: static pages up to the medium weight class, one rendered face of
+    # the cube, and light structured endpoints. Deliberately UNCLAIMED, so that
+    # an input reaching for them refuses at admission rather than being served
+    # badly: binary payloads (this adapter extracts text, and a PDF is the
+    # document plane's work), heavy pages, and authenticated rendered pages
+    # (a credential handed to a browser context is a different security story
+    # and has no fixture).
+    declared_input_buckets:
+      - "source_kind=static_html;access=*;page_weight=light"
+      - "source_kind=static_html;access=*;page_weight=medium"
+      - "source_kind=js_rendered;access=public;page_weight=*"
+      - "source_kind=api_json;access=*;page_weight=light"
+    bucket_conformance:
+      "source_kind=static_html;access=*;page_weight=light": web-fetch-static-light
+      "source_kind=static_html;access=*;page_weight=medium": web-fetch-static-medium
+      "source_kind=js_rendered;access=public;page_weight=*": web-fetch-rendered
+      "source_kind=api_json;access=*;page_weight=light": web-fetch-api-json
+    # EXPERIMENTAL declaration form. This implementation's target IS the run
+    # input: enumerating endpoints at acceptance time could only ever be wrong,
+    # and declaring [] and then contacting things would be a lie. What governs
+    # instead is the recording -- every request the client issues, redirect hops
+    # included, lands in the run's egress recorder and in the receipt.
+    declared_endpoints:
+      - "dynamic:target-from-run-input"
+    # Two families, because the output is two kinds of material. What came off
+    # the wire is retrieval material; what an extractor made of it is derived,
+    # whatever the extractor's confidence. The contract carries the grades; this
+    # adapter mints no Capture.
+    capture_contract_families:
+      - web.fetch.retrieval.v1
+      - web.fetch.extraction.v1
+    # A fetch of a live resource is not reproducible and the network is a side
+    # effect the caller cannot undo. Both flags say so.
+    deterministic: false
+    side_effects: true
+
+  - interface_id: search.web
+    interface_digest: "sha256:6ea709274b8e6766a52845b2ec279221c3092288e9a8450226a725ee56852064"
+    entrypoint: "cruxible_provider_web.search:SearxngSearch"
+    backends: [local_env, container]
+    # No engine: an HTTP client to somebody else's instance is the whole
+    # implementation. Its environment is therefore the base one, and differs
+    # from web.fetch's above -- one lock, two environments, two pins.
+    requires_extras: []
+    # Claimed: shallow and standard depths at any-time, and shallow at the
+    # recent bound. Unclaimed: realtime (an instance's indexing lag is the
+    # binding constraint and this adapter cannot promise past it) and deep
+    # (paging past 50 results means several requests and a different pacing
+    # story, with no fixture behind it).
+    declared_input_buckets:
+      - "query_form=*;recency=any_time;result_depth=shallow"
+      - "query_form=*;recency=any_time;result_depth=standard"
+      - "query_form=*;recency=recent;result_depth=shallow"
+    bucket_conformance:
+      "query_form=*;recency=any_time;result_depth=shallow": search-web-shallow
+      "query_form=*;recency=any_time;result_depth=standard": search-web-standard
+      "query_form=*;recency=recent;result_depth=shallow": search-web-recent
+    # A concrete declaration, because this implementation's target is
+    # configuration rather than input: the instance is named by a coordinate and
+    # refused unless it is one of these origins.
+    #
+    # As shipped, the declared instance is the reserved conformance host. That is
+    # not an oversight and it is not deployable as-is: under manifest-verbatim
+    # transcription, WHICH instance a deployment queries is part of what the
+    # accepted artifact says, so pointing this adapter at a real instance means
+    # publishing a distribution whose manifest declares that instance. Whether
+    # that is the intended cost -- it makes the instance part of the
+    # implementation's identity, and therefore of its track record -- is an open
+    # question for the artifact vocabulary, recorded with the batch.
+    declared_endpoints:
+      - "https://fixture.invalid"
+    capture_contract_families:
+      - search.web.instance_answer.v1
+    # A ranking is a fact about an instance at a moment, not a reproducible
+    # function of the query. No side effects: a query changes nothing.
+    deterministic: false
+    side_effects: false

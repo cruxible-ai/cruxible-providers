@@ -1,0 +1,36 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: search.web
+version: 1
+status: draft
+description: >-
+  Return ranked web results for a query. Buckets separate query shapes that
+  different engines answer with different competence, and the depth at which a
+  result set stops being cheap.
+dimensions:
+  - name: query_form
+    description: the shape of the query as submitted
+    classes:
+      - id: keyword
+        description: a short bag of terms
+      - id: natural_language
+        description: a full question or sentence
+      - id: boolean
+        description: explicit operators, field qualifiers, or phrase pinning
+  - name: recency
+    description: how fresh the results must be
+    classes:
+      - id: any_time
+        description: no recency constraint
+      - id: recent
+        description: bounded to roughly the last 90 days
+      - id: realtime
+        description: bounded to hours; indexing lag is the binding constraint
+  - name: result_depth
+    description: how far down the ranking the caller intends to read
+    classes:
+      - id: shallow
+        description: at most 10 results
+      - id: standard
+        description: more than 10 and at most 50 results
+      - id: deep
+        description: more than 50 results
