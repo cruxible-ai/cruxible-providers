@@ -1,0 +1,17 @@
+{
+  "id": "html-brief",
+  "note": "An HTML document with navigation and a footer, which the conversion drops.",
+  "interface_id": "doc.to_markdown",
+  "engine": "docling",
+  "recorded_from": "transcription of the shipped HTML's main content, in the structure Docling reports for it; the engine-marked lane asserts the engine reproduces this.",
+  "document": {
+    "filename": "datum-brief.html",
+    "media_type": "text/html",
+    "path": "datum-brief.html",
+    "sha256": "sha256:dd25fe1f59ba694076cd7f34afd7df5caf6f7aa3c00ace8b1f5ff91e8f939d72"
+  },
+  "output": {
+    "page_count": 1,
+    "markdown": "# Datum revision brief\n\nThe vertical datum was last revised in 1998, and the gauge record since then has drifted by a measurable amount.\n\nThis brief summarises the case for a revision and the evidence behind it.\n"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "doc-pdf-short",
+  "note": "A three-page PDF, which is a different bucket and therefore a different claim.",
+  "interface_id": "doc.to_markdown",
+  "bucket_selector": "format=pdf;scanned=born_digital;page_count=short;layout=*",
+  "bucket_id": "format=pdf;scanned=born_digital;page_count=short;layout=linear",
+  "recording_id": "pdf-short",
+  "input": {
+    "source": {
+      "kind": "packaged_fixture",
+      "id": "pdf-short",
+      "filename": "water-quality-report.pdf",
+      "media_type": "application/pdf"
+    },
+    "page_count": 3
+  },
+  "expect": {
+    "status": "ok",
+    "engine": "recorded:pdf-short",
+    "derived_kind": "markdown",
+    "derived_contains": [
+      "Sampling programme",
+      "lower reach"
+    ],
+    "origin": "packaged-recording",
+    "page_count": 3
+  }
+}

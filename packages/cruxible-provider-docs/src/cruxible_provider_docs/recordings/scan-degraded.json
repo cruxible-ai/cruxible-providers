@@ -1,0 +1,23 @@
+{
+  "id": "scan-degraded",
+  "note": "The same three lines, rotated, blurred, and speckled: the degraded bucket.",
+  "interface_id": "ocr.extract",
+  "engine": "paddleocr",
+  "recorded_from": "the ground-truth text drawn into the shipped image before degradation; the engine-marked lane asserts the engine still recovers it, normalised for case and spacing.",
+  "document": {
+    "filename": "scan-degraded.png",
+    "media_type": "image/png",
+    "path": "scan-degraded.png",
+    "sha256": "sha256:acfc9bf438730e8b79c5d0f62bfddcf93cbdfa8fa27933e4975b742876cf8ab0"
+  },
+  "output": {
+    "pages": [
+      {
+        "page": 1,
+        "text": "NEWLYN TIDE GAUGE\nMEAN LEVEL 3.214 M\nMARCH 2026",
+        "line_count": 3,
+        "mean_confidence": 0.86
+      }
+    ]
+  }
+}

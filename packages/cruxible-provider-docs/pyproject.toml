@@ -1,0 +1,60 @@
+# The document plane. One distribution, one lock, one identity unit; two
+# implementations, of two different interfaces.
+#
+# The base install is LIGHT: adapter logic, schemas, bucket classifiers, and
+# recorded engine responses. Docling (which drags torch) and PaddleOCR (which
+# drags PaddlePaddle) live behind per-engine extras that the default test lane
+# never installs, and each implementation's manifest declares which extra it
+# requires.
+[project]
+name = "cruxible-provider-docs"
+version = "0.1.0"
+description = "Cruxible provider adapters for the document plane: document-to-Markdown conversion and OCR."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Cruxible maintainers" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "cruxible-provider-runtime",
+]
+
+[project.optional-dependencies]
+# Per-engine extras. Neither is installed by the default lane; each is named by
+# the manifest of the implementation that needs it.
+docling = ["docling>=2.0"]
+# PaddleOCR rather than Surya, and the reason is licensing before quality:
+# PaddleOCR is Apache-2.0, which an Apache-2.0 package can name as an optional
+# dependency without qualification. See README.md for the full note.
+paddleocr = ["paddleocr>=3.0", "paddlepaddle>=3.0"]
+
+[project.entry-points."cruxible.providers"]
+"doc.to_markdown" = "cruxible_provider_docs.to_markdown:DoclingToMarkdown"
+"ocr.extract" = "cruxible_provider_docs.ocr:PaddleOcrExtract"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "types-pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+cruxible-provider-runtime = { path = "../cruxible-provider-runtime", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cruxible_provider_docs"]

@@ -39,6 +39,7 @@ def test_a_digest_is_computed_per_package_not_per_repository() -> None:
 
     digests = compute(REPO_ROOT)
     assert set(digests) == {
+        "cruxible-provider-docs",
         "cruxible-provider-noop",
         "cruxible-provider-runtime",
         "cruxible-provider-web",

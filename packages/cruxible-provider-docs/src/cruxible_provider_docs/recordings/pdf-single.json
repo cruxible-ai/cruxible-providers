@@ -1,0 +1,17 @@
+{
+  "id": "pdf-single",
+  "note": "A one-page born-digital PDF: a heading and three lines of running text.",
+  "interface_id": "doc.to_markdown",
+  "engine": "docling",
+  "recorded_from": "transcription of the shipped PDF's text, in the structure Docling reports for it; the engine-marked lane runs Docling over these same bytes and asserts it reproduces this.",
+  "document": {
+    "filename": "tide-gauge-report.pdf",
+    "media_type": "application/pdf",
+    "path": "tide-gauge-report.pdf",
+    "sha256": "sha256:2e5cbb169f7fe08893e50e4fef29302d7f3ae6649adb5541badec9290d4e8da5"
+  },
+  "output": {
+    "page_count": 1,
+    "markdown": "## Newlyn tide gauge recalibration\n\nThe Newlyn gauge has anchored the British vertical datum since 1915.\n\nRecalibration ran over three spring tides in March 2026.\n\nThe correction is 3.8 millimetres per year and is systematic.\n"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "pdf-short",
+  "note": "A three-page born-digital PDF, so that the page-count check has something to check.",
+  "interface_id": "doc.to_markdown",
+  "engine": "docling",
+  "recorded_from": "transcription of the shipped PDF's text, in the structure Docling reports for it; the engine-marked lane runs Docling over these same bytes and asserts it reproduces this.",
+  "document": {
+    "filename": "water-quality-report.pdf",
+    "media_type": "application/pdf",
+    "path": "water-quality-report.pdf",
+    "sha256": "sha256:4834f03e0dc52e87d6d4fd5495edbd7d4c25da7a9949fef4894c698b61706f64"
+  },
+  "output": {
+    "page_count": 3,
+    "markdown": "## Catchment water quality, 2026\n\nNitrate fell across the middle catchment for a third year.\n\n## Sampling programme\n\nThree reaches were sampled fortnightly between April and October.\n\n## Conclusions\n\nThe lower reach remains the outlier and sampling will double.\n"
+  }
+}

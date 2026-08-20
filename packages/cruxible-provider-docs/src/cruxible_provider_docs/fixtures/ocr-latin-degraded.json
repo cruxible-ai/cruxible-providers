@@ -1,0 +1,28 @@
+{
+  "id": "ocr-latin-degraded",
+  "note": "The degraded face of the same bucket cube: rotated, blurred, speckled.",
+  "interface_id": "ocr.extract",
+  "bucket_selector": "script=latin;scan_quality=degraded;page_count=single;layout=*",
+  "bucket_id": "script=latin;scan_quality=degraded;page_count=single;layout=linear",
+  "recording_id": "scan-degraded",
+  "input": {
+    "source": {
+      "kind": "packaged_fixture",
+      "id": "scan-degraded",
+      "filename": "scan-degraded.png",
+      "media_type": "image/png"
+    },
+    "page_count": 1,
+    "scan_quality": "degraded"
+  },
+  "expect": {
+    "status": "ok",
+    "engine": "recorded:scan-degraded",
+    "derived_kind": "ocr_text",
+    "derived_contains": [
+      "NEWLYN TIDE GAUGE"
+    ],
+    "origin": "packaged-recording",
+    "line_count": 3
+  }
+}

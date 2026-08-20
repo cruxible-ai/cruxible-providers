@@ -281,6 +281,31 @@ wheels = [
 ]
 
 [[package]]
+name = "cruxible-provider-docs"
+version = "0.1.0"
+source = { editable = "packages/cruxible-provider-docs" }
+dependencies = [
+    { name = "cruxible-provider-runtime" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cruxible-provider-runtime", editable = "packages/cruxible-provider-runtime" },
+    { name = "docling", marker = "extra == 'docling'", specifier = ">=2.0" },
+    { name = "paddleocr", marker = "extra == 'paddleocr'", specifier = ">=3.0" },
+    { name = "paddlepaddle", marker = "extra == 'paddleocr'", specifier = ">=3.0" },
+]
+provides-extras = ["docling", "paddleocr"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.11" },
+    { name = "pytest", specifier = ">=8.2" },
+    { name = "ruff", specifier = ">=0.6" },
+    { name = "types-pyyaml", specifier = ">=6.0" },
+]
+
+[[package]]
 name = "cruxible-provider-noop"
 version = "0.1.0"
 source = { editable = "packages/cruxible-provider-noop" }
@@ -356,6 +381,7 @@ name = "cruxible-providers-dev"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "cruxible-provider-docs" },
     { name = "cruxible-provider-noop" },
     { name = "cruxible-provider-runtime" },
     { name = "cruxible-provider-web" },
@@ -371,6 +397,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cruxible-provider-docs", editable = "packages/cruxible-provider-docs" },
     { name = "cruxible-provider-noop", editable = "packages/cruxible-provider-noop" },
     { name = "cruxible-provider-runtime", editable = "packages/cruxible-provider-runtime" },
     { name = "cruxible-provider-web", editable = "packages/cruxible-provider-web" },

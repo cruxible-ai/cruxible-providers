@@ -1,0 +1,28 @@
+{
+  "id": "doc-pdf-single",
+  "note": "A one-page born-digital PDF through the conversion engine.",
+  "interface_id": "doc.to_markdown",
+  "bucket_selector": "format=pdf;scanned=born_digital;page_count=single;layout=*",
+  "bucket_id": "format=pdf;scanned=born_digital;page_count=single;layout=linear",
+  "recording_id": "pdf-single",
+  "input": {
+    "source": {
+      "kind": "packaged_fixture",
+      "id": "pdf-single",
+      "filename": "tide-gauge-report.pdf",
+      "media_type": "application/pdf"
+    },
+    "page_count": 1
+  },
+  "expect": {
+    "status": "ok",
+    "engine": "recorded:pdf-single",
+    "derived_kind": "markdown",
+    "derived_contains": [
+      "Newlyn tide gauge recalibration",
+      "3.8 millimetres"
+    ],
+    "origin": "packaged-recording",
+    "page_count": 1
+  }
+}

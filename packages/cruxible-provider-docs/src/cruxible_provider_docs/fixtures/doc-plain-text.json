@@ -1,0 +1,27 @@
+{
+  "id": "doc-plain-text",
+  "note": "The engine-free path. An already-linear document needs no layout analysis, so this bucket binds with no extra installed and runs end to end in the default lane.",
+  "interface_id": "doc.to_markdown",
+  "bucket_selector": "format=plain_text;scanned=born_digital;page_count=single;layout=*",
+  "bucket_id": "format=plain_text;scanned=born_digital;page_count=single;layout=tabular",
+  "recording_id": null,
+  "input": {
+    "source": {
+      "kind": "inline",
+      "filename": "reach-readings.csv",
+      "media_type": "text/csv",
+      "content_base64": "cmVhY2gsbml0cmF0ZV9tZ19sLHBob3NwaGF0ZV9tZ19sClVwcGVyLDQuMSwwLjA4Ck1pZGRsZSw2LjcsMC4xMQpMb3dlciw5LjIsMC4xOQo="
+    },
+    "layout": "tabular"
+  },
+  "expect": {
+    "status": "ok",
+    "engine": "plain-text",
+    "derived_kind": "markdown",
+    "derived_contains": [
+      "| reach | nitrate_mg_l | phosphate_mg_l |",
+      "| Lower | 9.2 | 0.19 |"
+    ],
+    "origin": "inline"
+  }
+}

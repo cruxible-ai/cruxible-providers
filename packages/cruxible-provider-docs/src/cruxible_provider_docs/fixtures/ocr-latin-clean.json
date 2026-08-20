@@ -1,0 +1,28 @@
+{
+  "id": "ocr-latin-clean",
+  "note": "A clean single-page latin scan.",
+  "interface_id": "ocr.extract",
+  "bucket_selector": "script=latin;scan_quality=clean;page_count=single;layout=*",
+  "bucket_id": "script=latin;scan_quality=clean;page_count=single;layout=linear",
+  "recording_id": "scan-clean",
+  "input": {
+    "source": {
+      "kind": "packaged_fixture",
+      "id": "scan-clean",
+      "filename": "scan-clean.png",
+      "media_type": "image/png"
+    },
+    "page_count": 1
+  },
+  "expect": {
+    "status": "ok",
+    "engine": "recorded:scan-clean",
+    "derived_kind": "ocr_text",
+    "derived_contains": [
+      "NEWLYN TIDE GAUGE",
+      "3.214"
+    ],
+    "origin": "packaged-recording",
+    "line_count": 3
+  }
+}

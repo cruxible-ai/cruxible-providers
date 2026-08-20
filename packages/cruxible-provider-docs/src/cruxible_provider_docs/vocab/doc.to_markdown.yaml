@@ -1,0 +1,53 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+interface_id: doc.to_markdown
+version: 1
+status: draft
+description: >-
+  Convert a document into structured Markdown. This is one of the two slots whose
+  buckets are worth being fussy about: conversion quality varies far more with
+  the document's provenance and layout than with its subject matter.
+dimensions:
+  - name: format
+    description: the container format of the source document
+    classes:
+      - id: pdf
+        description: PDF, whatever produced it
+      - id: office
+        description: word-processor, spreadsheet, or presentation formats
+      - id: html
+        description: HTML or XHTML, including saved pages
+      - id: plain_text
+        description: text, Markdown, CSV, or another already-linear format
+      - id: email
+        description: RFC 5322 messages and mailbox exports, attachments included
+  - name: scanned
+    description: whether a text layer exists or must be recovered
+    classes:
+      - id: born_digital
+        description: a reliable text layer is present throughout
+      - id: mixed
+        description: some pages carry text, others are images
+      - id: scanned
+        description: no usable text layer; recovery requires OCR
+  - name: page_count
+    description: length of the document
+    classes:
+      - id: single
+        description: one page
+      - id: short
+        description: 2 to 10 pages
+      - id: medium
+        description: 11 to 100 pages
+      - id: long
+        description: more than 100 pages
+  - name: layout
+    description: the structural difficulty of the page
+    classes:
+      - id: linear
+        description: single-column running text
+      - id: multi_column
+        description: two or more columns, sidebars, or footnote apparatus
+      - id: tabular
+        description: tables carry a material part of the content
+      - id: forms
+        description: field-and-value layouts, checkboxes, or stamped annotations

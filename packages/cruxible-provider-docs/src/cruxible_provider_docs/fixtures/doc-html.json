@@ -1,0 +1,30 @@
+{
+  "id": "doc-html",
+  "note": "An HTML document whose navigation and footer do not survive the conversion.",
+  "interface_id": "doc.to_markdown",
+  "bucket_selector": "format=html;scanned=born_digital;page_count=single;layout=linear",
+  "bucket_id": "format=html;scanned=born_digital;page_count=single;layout=linear",
+  "recording_id": "html-brief",
+  "input": {
+    "source": {
+      "kind": "packaged_fixture",
+      "id": "html-brief",
+      "filename": "datum-brief.html",
+      "media_type": "text/html"
+    },
+    "page_count": 1
+  },
+  "expect": {
+    "status": "ok",
+    "engine": "recorded:html-brief",
+    "derived_kind": "markdown",
+    "derived_contains": [
+      "Datum revision brief",
+      "1998"
+    ],
+    "derived_excludes": [
+      "Sign up to volunteer"
+    ],
+    "origin": "packaged-recording"
+  }
+}

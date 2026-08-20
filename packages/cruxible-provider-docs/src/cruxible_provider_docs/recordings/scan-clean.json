@@ -1,0 +1,23 @@
+{
+  "id": "scan-clean",
+  "note": "A clean, deskewed, single-page rendering of three printed lines.",
+  "interface_id": "ocr.extract",
+  "engine": "paddleocr",
+  "recorded_from": "the ground-truth text drawn into the shipped image; the engine-marked lane runs PaddleOCR over these same bytes and asserts it reproduces this, normalised for case and spacing.",
+  "document": {
+    "filename": "scan-clean.png",
+    "media_type": "image/png",
+    "path": "scan-clean.png",
+    "sha256": "sha256:9a4c9aa8a310a7aba3d5578140594385f1601318c76b800dc33c86f230e8341a"
+  },
+  "output": {
+    "pages": [
+      {
+        "page": 1,
+        "text": "NEWLYN TIDE GAUGE\nMEAN LEVEL 3.214 M\nMARCH 2026",
+        "line_count": 3,
+        "mean_confidence": 0.98
+      }
+    ]
+  }
+}

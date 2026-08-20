@@ -1,0 +1,89 @@
+# Package-side provider manifest for the document plane.
+#
+# This file is a transcription SOURCE, never authority. A provider is bindable
+# only through an accepted providers/<provider-id>.yaml governed artifact whose
+# payload transcribes this document; at bind and invoke the runtime recomputes
+# this manifest's digest and refuses on any divergence.
+#
+# The distribution's own sha256 is deliberately absent: an artifact cannot carry
+# its own hash. It is pinned by the accepted artifact, and it is what the
+# implementation digest consumes.
+schema_version: 1
+provider_id: cruxible-provider-docs
+distribution:
+  name: cruxible-provider-docs
+  version: 0.1.0
+entrypoint_group: cruxible.providers
+supported_protocol_majors: [1]
+implementations:
+  - interface_id: doc.to_markdown
+    # STUB digest, minted under cruxible.interface.stub.v1 until core registers
+    # this interface. interfaces.py carries the preimage and a drift test.
+    interface_digest: "sha256:5bb615e27f9eaa3967a87d5e90e0d4dd9d8551c6b46e610e934138fa897ead16"
+    entrypoint: "cruxible_provider_docs.to_markdown:DoclingToMarkdown"
+    backends: [local_env, container]
+    # Docling drags a tensor stack, so it lives behind an extra and this
+    # implementation declares it. The plain-text bucket below is served by the
+    # adapter itself and needs none of it -- but an implementation binds ONE
+    # environment, so the declaration is the union of what its claimed buckets
+    # need, and the cheap bucket rides in an environment sized for the expensive
+    # one. Splitting that would mean two implementations of one interface, which
+    # is terminal (ambiguous_implementation), so it is a real cost of the
+    # one-implementation-per-interface rule rather than an oversight.
+    requires_extras: [docling]
+    # Claimed: already-linear documents, born-digital PDFs up to ten pages, and
+    # linear HTML. Deliberately UNCLAIMED: office formats and email (no fixture
+    # and no recorded engine response), anything scanned or mixed (that is
+    # ocr.extract's work, and routing it here would hide the OCR step from the
+    # track record), and long documents (a hundred-page conversion is a
+    # different cost and a different failure mode).
+    declared_input_buckets:
+      - "format=plain_text;scanned=born_digital;page_count=single;layout=*"
+      - "format=pdf;scanned=born_digital;page_count=single;layout=*"
+      - "format=pdf;scanned=born_digital;page_count=short;layout=*"
+      - "format=html;scanned=born_digital;page_count=single;layout=linear"
+    bucket_conformance:
+      "format=plain_text;scanned=born_digital;page_count=single;layout=*": doc-plain-text
+      "format=pdf;scanned=born_digital;page_count=single;layout=*": doc-pdf-single
+      "format=pdf;scanned=born_digital;page_count=short;layout=*": doc-pdf-short
+      "format=html;scanned=born_digital;page_count=single;layout=linear": doc-html
+    # Nothing is contacted. The document arrives in the run input and the engine
+    # runs locally; a conversion that reached the network would be fetching
+    # something nobody declared.
+    declared_endpoints: []
+    # One family, and it is a derived one. This plane retrieves nothing: the
+    # document is supplied, so there is no observed-shaped material to be had
+    # and no contract here should offer a grade that suggests otherwise.
+    capture_contract_families:
+      - doc.to_markdown.conversion.v1
+    # Layout models are not bit-stable across runs on all backends, and the
+    # honest answer to "will this produce the same Markdown twice" is "usually".
+    # No side effects: converting a document changes nothing.
+    deterministic: false
+    side_effects: false
+
+  - interface_id: ocr.extract
+    interface_digest: "sha256:7d975b826e13e71fe5adc133ce35b4eeb067d2e2673bf786d887c9e32b59c7b2"
+    entrypoint: "cruxible_provider_docs.ocr:PaddleOcrExtract"
+    backends: [local_env, container]
+    # PaddleOCR rather than Surya, and licensing decides it: PaddleOCR is
+    # Apache-2.0, Surya is GPL-3.0-or-later with a revenue-dependent commercial
+    # grant. See NOTICE and README for the full note.
+    requires_extras: [paddleocr]
+    # Claimed: single-page latin scans, clean and degraded. Unclaimed, and each
+    # for its own reason: cjk, rtl and mixed scripts (a different recognition
+    # model and no fixture), handwriting (a different problem), and anything
+    # past one page (batching is a different pacing and memory story).
+    declared_input_buckets:
+      - "script=latin;scan_quality=clean;page_count=single;layout=*"
+      - "script=latin;scan_quality=degraded;page_count=single;layout=*"
+    bucket_conformance:
+      "script=latin;scan_quality=clean;page_count=single;layout=*": ocr-latin-clean
+      "script=latin;scan_quality=degraded;page_count=single;layout=*": ocr-latin-degraded
+    declared_endpoints: []
+    capture_contract_families:
+      - ocr.extract.text.v1
+    # An OCR reading is a model's opinion about marks on a page. Not
+    # deterministic, and emphatically not observed.
+    deterministic: false
+    side_effects: false
