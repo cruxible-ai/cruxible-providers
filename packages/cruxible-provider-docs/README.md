@@ -42,6 +42,36 @@ Splitting them would mean two implementations of `doc.to_markdown`, which is a
 terminal `ambiguous_implementation` refusal — so this is a real cost of the
 one-implementation-per-interface rule, not an oversight.
 
+## Neither engine environment can be pinned yet
+
+The extras mechanism is implemented and exercised by this package's tests, but
+**neither `+docling` nor `+paddleocr` can be pinned in an accepted artifact
+today**, against the three launch marker environments in
+`ci/marker-environments.json`:
+
+| Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
+|---|---|---|---|
+| *(base)* | resolves | resolves | resolves |
+| `docling` | refuses | refuses | refuses |
+| `paddleocr` | refuses | refuses | resolves |
+
+Every refusal is `no_compatible_artifact`, naming `torchvision` or
+`paddlepaddle`. `paddleocr` resolving on one environment out of three is not
+something to rely on: an artifact needs a pin for the environment a deployment
+actually binds, and both Linux environments refuse.
+
+The cause is the tag vocabulary rather than this package. Tag matching is exact
+string membership; the platform-tag scheme it matches is an ordering, and PEP 600
+says a `manylinux_2_17` wheel installs on a `manylinux_2_28` host. Three literal
+tags cannot cover the dozen a tensor stack reaches for. Fixing that changes what a
+materialization digest *means*, so it is a separately-owned follow-up rather than
+something this package worked around; the conformance suite uses the runtime's
+`ENGINE_MARKER_ENVIRONMENT`, which enumerates the tags instead.
+
+**The base install is unaffected**: it resolves for all three environments, so the
+default lane, the digest-scope gate and the closure report are unimpaired — and
+the engine-free plain-text path is bindable today.
+
 ## Why PaddleOCR rather than Surya
 
 Licensing decides it before quality does. PaddleOCR is Apache-2.0, which an

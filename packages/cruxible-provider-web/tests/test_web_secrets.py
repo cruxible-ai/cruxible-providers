@@ -88,6 +88,32 @@ def test_the_instance_credential_travels_as_a_header_and_not_in_the_query() -> N
     assert CREDENTIAL not in client.urls[0]
 
 
+def test_a_run_served_by_a_real_transport_is_not_labelled_as_a_replay() -> None:
+    """The negative half of the replay label, on a path that actually succeeds.
+
+    The full-loop suite asserts the label is present in the output *and* on the
+    trace whenever a packaged recording served a run. This is the other
+    direction, and it needs a non-replayed run that still reaches ``ok``: the
+    capturing client is one, because it answers from a canned body without being
+    a packaged recording. A label emitted unconditionally rather than tracking
+    the actual source would show up right here.
+    """
+
+    client = _CapturingClient(INSTANCE_ANSWER, "application/json")
+    provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]
+    result = provider(
+        _context(
+            "search.web",
+            input={"query": "tide gauge"},
+            coordinates={"instance_url": "https://instance.example"},
+        )
+    )
+    assert result.status == "ok"
+    assert result.output is not None
+    assert result.output["retrieved"]["source"] == "network"
+    assert not [event for event in result.events if event.get("kind") == "packaged_recording"]
+
+
 def test_the_credential_reaches_neither_the_output_nor_the_trace() -> None:
     client = _CapturingClient(INSTANCE_ANSWER, "application/json")
     provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]

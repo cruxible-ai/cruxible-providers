@@ -81,6 +81,15 @@ different environments — `doc.to_markdown` binds one with a conversion engine,
 `ocr.extract` one with an OCR runtime — and an artifact that pins only one of
 them refuses the other rather than falling back.
 
+**Known limitation: no engine environment is pinnable yet.** The mechanism is
+implemented and tested, but the three launch marker environments in
+`ci/marker-environments.json` cannot express the environments it produces: tag
+matching is exact string membership while the platform-tag scheme it matches is
+an ordering (PEP 600), so `+browser`, `+docling` and `+paddleocr` all refuse with
+`no_compatible_artifact` against the committed locks. Base environments are
+unaffected and resolve everywhere. The tag-vocabulary fix is a separately-owned
+follow-up; `docs/packaging.md` carries the reproduction table.
+
 The consequence for testing is the point of the whole arrangement: `uv run
 pytest` installs no engine and downloads nothing. Real-engine tests exist, are
 marked `engine`, are excluded from the default run by construction, and have

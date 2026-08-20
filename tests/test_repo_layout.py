@@ -66,35 +66,74 @@ def _is_umbrella(package: Path) -> bool:
     return document.get("tool", {}).get("cruxible", {}).get("role") == "umbrella"
 
 
-UMBRELLA = PACKAGES / "cruxible-providers"
-
-
-def test_the_umbrella_ships_no_code() -> None:
-    """Zero code is the whole reason it can exist beside the per-plane identity unit.
-
-    A distribution with code would enter an implementation digest, and an
-    umbrella that entered every provider's digest would re-digest the fleet on
-    every release — the exact failure the per-plane split exists to prevent.
-    """
-
-    assert _is_umbrella(UMBRELLA)
-    assert not list(UMBRELLA.rglob("*.py"))
-    assert not (UMBRELLA / "src").exists()
-    document = tomllib.loads((UMBRELLA / "pyproject.toml").read_text(encoding="utf-8"))
-    assert document["project"]["dependencies"] == []
-    assert set(document["project"]["optional-dependencies"]) == {"web", "docs"}
-
-
-def test_the_umbrella_is_the_only_package_exempt_from_the_digest_scope_gate() -> None:
-    """An exemption that spread would quietly disable the gate."""
-
+def _exempt_packages() -> list[Path]:
     import sys
 
     sys.path.insert(0, str(REPO_ROOT))
     from scripts.dependency_closure_digests import is_exempt
 
-    exempt = [package.name for package in REAL_PACKAGES if is_exempt(package)]
-    assert exempt == ["cruxible-providers"]
+    return [package for package in REAL_PACKAGES if is_exempt(package)]
+
+
+EXEMPT_PACKAGES = _exempt_packages()
+
+
+def test_the_exemption_allowlist_holds() -> None:
+    """An exemption that spread would quietly disable the gate.
+
+    Fail-closed on the name, and then — in the test below — on the property that
+    justifies the name. Both halves are needed: this one catches an exemption
+    appearing, and that one catches an exemption being granted to something the
+    justification does not cover.
+    """
+
+    assert [package.name for package in EXEMPT_PACKAGES] == ["cruxible-providers"]
+
+
+@pytest.mark.parametrize("package", EXEMPT_PACKAGES, ids=lambda p: p.name)
+def test_an_exempt_package_ships_no_code(package: Path) -> None:
+    """The property the exemption rests on, checked per exempt package.
+
+    A package skips the digest-scope gate because it *is* nothing but
+    dependencies: its closure moves whenever any package it names does, and it
+    pins no environment, carries no implementation digest, and appears on no
+    track record. That argument holds only for a distribution with no code in it
+    — a distribution with code enters an implementation digest, and one that
+    entered every provider's digest would re-digest the fleet on every release,
+    which is the exact failure the per-plane split exists to prevent.
+
+    Parametrised over the exempt set rather than written against a path, so that
+    a future addition to the allowlist inherits the check instead of only the
+    exemption.
+    """
+
+    assert _is_umbrella(package), (
+        f"{package.name} is exempt from the digest-scope gate without declaring the role "
+        "that justifies it"
+    )
+    assert not (package / "src").exists(), f"{package.name} is exempt and ships a src/ tree"
+    assert not list(package.rglob("*.py")), f"{package.name} is exempt and ships code"
+    document = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))
+    assert document["project"]["dependencies"] == [], (
+        f"{package.name} is a dependency shell, so installing it bare must install nothing; "
+        "everything it offers belongs behind an extra"
+    )
+    assert document["project"]["optional-dependencies"], (
+        f"{package.name} is exempt for being nothing but extras, and declares none"
+    )
+
+
+def test_the_umbrella_offers_one_extra_per_plane() -> None:
+    """Specific to this umbrella, unlike the property test above.
+
+    `quant` and `all` are wired at merge; naming a distribution that does not
+    exist yet would produce an umbrella that cannot resolve.
+    """
+
+    document = tomllib.loads(
+        (PACKAGES / "cruxible-providers" / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert set(document["project"]["optional-dependencies"]) == {"web", "docs"}
 
 
 def test_no_test_directory_is_an_importable_package() -> None:

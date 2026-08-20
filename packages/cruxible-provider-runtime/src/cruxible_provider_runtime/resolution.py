@@ -28,6 +28,25 @@ wrong.
 The consequence for pins: one lock produces several environments, one per
 selected extras set, and an accepted artifact pins each separately. See
 :func:`environment_pin_key`.
+
+**Known-unpinnable engine environments, pending the tag-vocabulary fix.** The
+mechanism above works and is tested; the launch marker environments cannot yet
+express what it produces. A heavy-engine closure refuses with
+``no_compatible_artifact`` against every environment in
+``ci/marker-environments.json`` — ``playwright``, ``torchvision``,
+``paddlepaddle`` — because tag matching here is exact string membership while
+the platform-tag scheme it matches is an ordering: PEP 600 says a
+``manylinux_2_17`` wheel installs on a ``manylinux_2_28`` host, and three
+literal tags cannot cover the dozen a binary closure reaches for. So no
+``<environment>+<engine>`` pin can be computed for a launch environment today,
+and "extras are a resolution input" must not be read as "engine environments are
+pinned and ready". Base environments are unaffected and resolve everywhere.
+
+Teaching this resolver the ordering would change what a materialization digest
+*means*, so it is a separately-owned follow-up rather than a fix made here.
+``docs/packaging.md`` carries the reproduction table, and
+``testing.ENGINE_MARKER_ENVIRONMENT`` is what the conformance suites use in the
+meantime.
 """
 
 from __future__ import annotations

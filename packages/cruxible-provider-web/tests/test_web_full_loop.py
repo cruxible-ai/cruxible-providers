@@ -133,6 +133,15 @@ def test_fetch_success_path(
     assert "Newlyn" in derived["text"]
     assert "Subscribe to our newsletter" not in derived["text"]
 
+    # The replay is labelled in the OUTPUT and on the TRACE, and both halves are
+    # asserted: a Capture is built from the output, but an exhaust reader sees
+    # the trace, and a label that reached only one of them would let a replayed
+    # run read as a fetch on the surface that happened not to carry it.
+    events = outcome.envelope.trace.events
+    assert [event["kind"] for event in events] == ["packaged_recording"]
+    assert events[0]["url"] == ARTICLE_URL
+    assert "no origin was contacted" in events[0]["note"]
+
 
 @pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)
 def test_fetch_records_the_endpoint_it_requested(
@@ -182,6 +191,8 @@ def test_fetch_renders_when_the_run_asks_for_a_browser(
     assert outcome.envelope.output is not None
     assert outcome.envelope.output["retrieved"]["renderer"] == "recorded:dashboard-rendered"
     assert "3.214" in outcome.envelope.output["derived"]["text"]
+    # A recorded render is a replay too, and carries the same label on the trace.
+    assert [event["kind"] for event in outcome.envelope.trace.events] == ["packaged_recording"]
 
 
 @pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)
@@ -191,7 +202,13 @@ def test_fetch_error_path_is_reported_not_raised(
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    """A URL with no recording behind it fails inside the client, in the child."""
+    """A URL with no recording behind it fails inside the client, in the child.
+
+    This is also the negative half of the replay label. No recording matches, so
+    the real transport is selected and the run must NOT be labelled as one served
+    from a packaged recording — the branch that would break if the event were
+    emitted unconditionally rather than tracking the actual source.
+    """
 
     outcome = invoke(
         fetch_binding,
@@ -203,6 +220,11 @@ def test_fetch_error_path_is_reported_not_raised(
     )
     assert outcome.status == "error"
     assert outcome.envelope.error is not None
+    assert not [
+        event
+        for event in outcome.envelope.trace.events
+        if event.get("kind") == "packaged_recording"
+    ]
 
 
 @pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)

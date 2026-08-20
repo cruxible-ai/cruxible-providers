@@ -30,6 +30,30 @@ pure-Python extractor over an lxml wheel is none of those, and putting it behind
 an extra would buy a few megabytes at the price of a default lane that never runs
 a real extraction.
 
+### The browser environment cannot be pinned yet
+
+The extras mechanism is implemented and exercised by this package's tests, but
+**`+browser` cannot be pinned in an accepted artifact today**. Resolved against
+the committed lock and the three launch marker environments in
+`ci/marker-environments.json`:
+
+| Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
+|---|---|---|---|
+| *(base)* | resolves | resolves | resolves |
+| `browser` | refuses | refuses | refuses |
+
+Each refusal is `no_compatible_artifact`, naming `playwright` — which publishes
+`py3-none-manylinux1_x86_64` and friends, none of them among the three literal
+tags each launch environment lists. Tag matching is exact string membership while
+the platform-tag scheme it matches is an ordering (PEP 600), and fixing that
+changes what a materialization digest *means*, so it is a separately-owned
+follow-up rather than something this package worked around. The conformance suite
+uses the runtime's `ENGINE_MARKER_ENVIRONMENT`, which enumerates the tags instead.
+
+**`search.web` is unaffected and bindable today**: it declares no extras, and the
+base environment resolves for all three launch environments. So does everything
+the default lane, the digest-scope gate, and the closure report depend on.
+
 ## What the output claims
 
 Both implementations split their output in two, and the split is the contract:

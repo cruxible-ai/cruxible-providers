@@ -75,8 +75,17 @@ the platform-tag scheme it is matching is not a set of names but an ordering: a
 says so. Teaching the resolver that ordering is a change to what a materialization
 digest *means*, so it is not made here; enumerating the tags is the honest
 alternative, and this constant is the enumeration plus a note saying why it
-exists. The narrowness of the launch environment list is recorded as a finding
-for whoever owns the tag vocabulary.
+exists.
+
+Read its scope carefully. This is a **test** environment, and its existence is
+exactly what lets the extras mechanism be exercised while remaining unpinnable in
+production: against the launch environments, ``+browser``, ``+docling`` and
+``+paddleocr`` all refuse with ``no_compatible_artifact``, so no engine
+environment can be pinned in an accepted artifact today. Do not read this
+constant as a shipped environment, and do not resolve the problem by adding it to
+``ci/marker-environments.json`` — re-pinning that file is a deliberate, separate
+act that moves every package at once, and the real fix belongs to whoever owns
+the tag vocabulary.
 """
 
 

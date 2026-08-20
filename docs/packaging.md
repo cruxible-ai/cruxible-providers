@@ -65,20 +65,48 @@ than resolving to the base set. Resolving to the base set would be the fail-open
 reading: the environment would come out one engine short and every digest over it
 would still verify.
 
-### A limit worth knowing about
+### Known-unpinnable engine environments, pending the tag-vocabulary fix
 
-The launch marker environments in `ci/marker-environments.json` list three wheel
-tags each, and **cannot pin an environment containing a heavy engine**: a real
+**No engine environment can be pinned today.** The mechanism above is
+implemented and tested; the launch marker environments cannot express the
+environments it produces, so an accepted artifact cannot yet carry a
+`+<engine>` pin for a real deployment. This is a shipped limitation, not a
+detail: "extras are a resolution input" must not be read as
+"engine environments are pinned and ready".
+
+Reproduced against the committed locks, for the three environments in
+`ci/marker-environments.json`:
+
+| Package | Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
+|---|---|---|---|---|
+| `cruxible-provider-web` | *(base)* | resolves | resolves | resolves |
+| `cruxible-provider-web` | `browser` | refuses | refuses | refuses |
+| `cruxible-provider-docs` | *(base)* | resolves | resolves | resolves |
+| `cruxible-provider-docs` | `docling` | refuses | refuses | refuses |
+| `cruxible-provider-docs` | `paddleocr` | refuses | refuses | resolves |
+
+Every refusal is `no_compatible_artifact`, naming `playwright`, `torchvision`,
+or `paddlepaddle`. `paddleocr` resolving on one environment out of three is not
+a partial success worth relying on: an artifact needs a pin for the environment
+a deployment actually binds, and both Linux environments refuse.
+
+The cause is not the packages. Tag matching here is **exact string membership**,
+while the platform-tag scheme it matches is an **ordering**: a `manylinux_2_17`
+wheel is installable on a `manylinux_2_28` host, and PEP 600 says so. A real
 binary closure reaches for a dozen glibc platform tags across its packages
 (`py3-none-manylinux1_x86_64`, `cp311-cp311-manylinux_2_28_x86_64`,
-`py3-none-manylinux_2_18_x86_64`, …). Tag matching here is exact string
-membership, while the platform-tag scheme it matches is an ordering — a
-`manylinux_2_17` wheel is installable on a `manylinux_2_28` host, and PEP 600
-says so. Teaching the resolver that ordering would change what a materialization
-digest *means*, so RP-1 did not: the plane packages' conformance suites use
-`cruxible_provider_runtime.testing.ENGINE_MARKER_ENVIRONMENT`, which enumerates
-the tags instead, and the narrowness of the launch list is recorded as a finding
-for whoever owns the tag vocabulary.
+`py3-none-manylinux_2_18_x86_64`, …), and three literal tags cannot cover them.
+
+Teaching the resolver that ordering changes what a materialization digest
+*means*, so RP-1 deliberately did not: that is a separately-owned follow-up for
+whoever holds the tag vocabulary. In the meantime the plane packages' conformance
+suites use `cruxible_provider_runtime.testing.ENGINE_MARKER_ENVIRONMENT`, which
+enumerates the tags instead — which is why the extras mechanism is fully
+exercised by tests while remaining unpinnable in the launch environments.
+
+What is unaffected: **the base lane**. Every package's base environment resolves
+for all three launch environments, so the digest-scope gate, the closure report,
+and every default test lane are unimpaired.
 
 ## Test directories are not packages
 
