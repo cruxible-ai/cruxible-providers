@@ -140,6 +140,39 @@ def test_the_umbrella_offers_one_extra_per_plane_plus_all() -> None:
     assert set(extras["all"]) == plane_union
 
 
+def test_ci_typechecks_every_real_package() -> None:
+    """The mypy matrix must name exactly the packages that exist.
+
+    Parsed with a loader that refuses duplicate keys: YAML's last-key-wins is
+    how a merge once dropped two packages from this matrix without a sound —
+    the discarded key was still sitting in the file, reading as coverage.
+    """
+
+    import yaml
+
+    class _NoDuplicateKeysLoader(yaml.SafeLoader):
+        pass
+
+    def _construct_mapping(loader: yaml.SafeLoader, node: yaml.MappingNode) -> dict[object, object]:
+        seen: dict[object, object] = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node, deep=True)
+            assert key not in seen, f"duplicate YAML key {key!r} at {key_node.start_mark}"
+            seen[key] = loader.construct_object(value_node, deep=True)
+        return seen
+
+    _NoDuplicateKeysLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping
+    )
+
+    workflow_text = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow = yaml.load(workflow_text, Loader=_NoDuplicateKeysLoader)
+    matrix = workflow["jobs"]["typecheck"]["strategy"]["matrix"]["package"]
+    code_packages = {package.name for package in REAL_PACKAGES if (package / "src").is_dir()}
+    assert set(matrix) == code_packages
+    assert len(matrix) == len(code_packages), "the matrix lists a package twice"
+
+
 def test_no_test_directory_is_an_importable_package() -> None:
     """Two packages named ``tests`` collide the moment both are collected.
 
