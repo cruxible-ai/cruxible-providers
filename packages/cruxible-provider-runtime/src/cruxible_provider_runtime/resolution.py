@@ -41,7 +41,11 @@ environment that declared ``cp311-cp311-manylinux_2_17_x86_64`` and
 ``py3-none-any``, and exact string membership said otherwise.
 
 The declared list is still what a preimage carries; the expansion is a function
-of it and enters no digest.
+of it and enters no digest. That does **not** mean widening the expansion leaves
+existing pins alone — it changes which artifact a package resolves to, and a
+materialization digest hashes the resolution, so a pin computed under a narrower
+expansion has to be recomputed. ``docs/packaging.md`` records which pins this
+resolver's first widening moved.
 """
 
 from __future__ import annotations

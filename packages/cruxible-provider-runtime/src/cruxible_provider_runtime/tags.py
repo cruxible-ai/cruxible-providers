@@ -30,6 +30,13 @@ would produce a materialization digest that cannot be reproduced anywhere else.
 
 The declared list remains what a digest preimage carries. This expansion is a
 function of it, and lives outside every preimage.
+
+Read that for exactly what it says. It means an environment is not re-keyed *by*
+the expansion getting wider; it does **not** mean existing pins survive one. A
+wider expansion admits artifacts a narrower one refused, so a package can resolve
+to a different wheel, and a materialization digest hashes the resolution. This
+module's first widening moved four environment pins for that reason, and
+``docs/packaging.md`` names them.
 """
 
 from __future__ import annotations

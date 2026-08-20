@@ -80,10 +80,24 @@ dozen a binary closure reaches for — a browser driver ships
 `cp311-cp311-manylinux1_x86_64`, and exact membership matched neither.
 
 The expansion is derived from the declared tags and markers and from nothing
-else — never from the running interpreter — and it enters **no digest preimage**.
-The declared list is still what a materialization digest carries; widening what
-the resolver understands about tag families therefore cannot re-key an
-environment pin that already exists.
+else — never from the running interpreter — and it enters **no digest preimage**:
+`MarkerEnvironment.digest_payload()` carries the declared list, so the expansion
+is not itself something a pin is keyed on.
+
+That is a narrower statement than it looks, and the wider version of it is
+false. **This change re-keys four environment pins**, correctly:
+`cruxible-provider-quant` on all three declared environments and
+`cruxible-provider-web` on `macos-arm-cp312` now resolve to different artifacts,
+because the resolver selects the binary wheels an installer would select instead
+of falling back to an sdist or to `py3-none-any` — an abi3 `polars-runtime-32`,
+an abi3 `igraph`, a universal2 `lxml` and `charset-normalizer`. A materialization
+digest hashes the resolved set, so a resolution that changes moves the digest.
+Any pin computed before this change must be recomputed, and any accepted Provider
+artifact carrying one must be re-issued.
+
+What the preimage property does buy is the *next* such change: widening the
+expansion again moves a pin only where it moves the resolution, and never by
+re-keying the environment itself.
 
 Reproduced against the committed locks, for the three environments in
 `ci/marker-environments.json`, and asserted by
