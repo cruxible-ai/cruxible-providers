@@ -34,6 +34,7 @@ from typing import Any
 
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .outputs import ok_if_finite
 from .refusals import DeclineReason, decline
 
 __all__ = ["AGGREGATIONS", "Reduce"]
@@ -100,7 +101,7 @@ class Reduce:
             kind = "scalar_aggregate"
         rendered = reduced.to_dicts()
 
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "reduction_kind": kind,
                 "input_row_count": frame.height,
@@ -174,7 +175,7 @@ class Reduce:
         reduced = ordered.with_columns(rolling.alias(alias))
         rendered = reduced.to_dicts()
 
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "reduction_kind": "windowed",
                 "input_row_count": frame.height,

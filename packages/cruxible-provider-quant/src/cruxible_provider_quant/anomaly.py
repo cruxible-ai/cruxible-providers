@@ -38,6 +38,7 @@ from typing import Any
 
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .outputs import ok_if_finite
 from .refusals import DeclineReason, decline
 from .series import Series, parse_series
 
@@ -161,7 +162,7 @@ class Anomaly:
             for index in range(series.length)
         ]
 
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "method": "stl_mad",
                 "season_length": period,
@@ -231,7 +232,7 @@ class Anomaly:
             for start, end in zip(starts, boundaries, strict=True)
         ]
 
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "method": "changepoint",
                 "season_length": 0,

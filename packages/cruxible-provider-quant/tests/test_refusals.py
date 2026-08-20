@@ -368,6 +368,50 @@ def test_a_non_finite_sample_observation_refuses() -> None:
     assert _declined("stat.test", payload) is DeclineReason.NON_FINITE_INPUT
 
 
+def test_two_constant_samples_decline_rather_than_reporting_a_nan_conclusion() -> None:
+    """The input is impeccable; the question is the one with no answer.
+
+    Every observation is finite, both groups are the right length, and the test
+    name and family agree. SciPy still returns a NaN statistic and a NaN p-value,
+    because a t test over two zero-variance samples is undefined -- and reported
+    as ``status=ok`` that reaches the evidence path as ``reject_null=False``, a
+    statistical conclusion nobody drew.
+    """
+
+    payload = _fixture("quant-stat-location-independent")
+    payload["samples"] = {"a": [4.0] * 12, "b": [4.0] * 12}
+    assert _declined("stat.test", payload) is DeclineReason.NON_FINITE_RESULT
+
+
+def test_an_unanswerable_question_declines_rather_than_erroring() -> None:
+    """A decline, not an error: the implementation did exactly what it was asked."""
+
+    payload = _fixture("quant-stat-location-independent")
+    payload["samples"] = {"a": [1.0] * 8, "b": [1.0] * 8}
+    result = run_in_process("stat.test", payload)
+    assert result.status == "refused"
+    assert result.error is None
+
+
+def test_bin_edges_that_leave_part_of_the_probability_domain_uncovered_refuse() -> None:
+    """A 0.1 must never be reported as though it had been seen inside [0.2, 0.8].
+
+    The binning clips anything outside the declared edges into the nearest bin,
+    so uncovered edges do not drop the prediction -- they relabel it, which is
+    worse.
+    """
+
+    payload = _fixture("quant-calibrate-balanced")
+    payload["bin_edges"] = [0.2, 0.5, 0.8]
+    assert _declined("calc.calibrate", payload) is DeclineReason.INVALID_PARAMETER
+
+
+def test_non_finite_bin_edges_refuse() -> None:
+    payload = _fixture("quant-calibrate-balanced")
+    payload["bin_edges"] = [0.0, 0.5, float("inf")]
+    assert _declined("calc.calibrate", payload) is DeclineReason.NON_FINITE_INPUT
+
+
 # --------------------------------------------------------------------------
 # the standing check
 # --------------------------------------------------------------------------

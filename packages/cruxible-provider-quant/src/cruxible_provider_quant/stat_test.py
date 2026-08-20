@@ -40,6 +40,7 @@ from typing import Any
 
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .outputs import ok_if_finite
 from .refusals import DeclineReason, decline
 
 __all__ = ["TESTS", "StatTest", "StatTestSpec"]
@@ -218,7 +219,7 @@ class StatTest:
         assumptions = self._assumptions(spec, declared_names, arrays, alpha, stats)
         holds = [entry["holds"] for entry in assumptions if entry["holds"] is not None]
 
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "test": name,
                 "test_family": spec.family,

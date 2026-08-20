@@ -74,6 +74,7 @@ from typing import Any
 from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .outputs import ok_if_finite
 from .refusals import DeclineReason, decline
 
 __all__ = ["MODES", "SCORE_KINDS", "TIE_BREAK", "Rank"]
@@ -123,7 +124,7 @@ class Rank:
         score_kind, signals_used, scores, engine = scored
 
         ranking = self._ranking(items, scores)
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "mode": str(mode),
                 "objective": objective,

@@ -41,6 +41,7 @@ from typing import Any
 
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .outputs import ok_if_finite
 from .refusals import DeclineReason, decline
 from .series import Series, parse_series
 
@@ -192,7 +193,7 @@ class Forecast:
                 model=model_name,
             )
 
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "model": model_name,
                 "model_selected": self._selected(model),

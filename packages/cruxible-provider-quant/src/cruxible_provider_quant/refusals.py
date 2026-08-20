@@ -67,6 +67,18 @@ class DeclineReason(StrEnum):
     DEGENERATE_SCALE = "degenerate_scale"
     """A scale estimate of zero: the series carries no dispersion to score against."""
 
+    NON_FINITE_RESULT = "non_finite_result"
+    """Well-formed inputs, and a computation that has no answer for them.
+
+    Deliberately distinct from ``non_finite_input``. That one says the caller
+    handed over a NaN; this one says the caller handed over a perfectly good
+    sample and the declared method produced a NaN from it -- two constant samples
+    under a t test being the canonical case. Filing both under one name would
+    make "the data was malformed" and "the question was unanswerable"
+    indistinguishable on a track record, and only one of them is the caller's to
+    fix.
+    """
+
     MISMATCHED_LENGTHS = "mismatched_lengths"
     """Two inputs that must be aligned element-wise are not the same length."""
 

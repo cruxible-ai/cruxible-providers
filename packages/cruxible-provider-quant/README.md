@@ -122,6 +122,18 @@ whole run, so engine chatter lands in stderr — which the executor captures,
 redacts, and measures against the output budget — without any plane package
 remembering to arrange it.
 
+## No number that is not a number
+
+Every `ok` this package emits passes through `outputs.ok_if_finite`. Input
+validation is not result validation, and the gap is where the useful failure
+lives: two constant samples are perfectly well-formed input, and a t test over
+them returns a NaN statistic and a NaN p-value. Emitting that as `status=ok`
+with `reject_null=False` puts a statistical conclusion nobody drew into the
+evidence path with a successful status on it. A non-finite value anywhere in the
+output declines with `non_finite_result` instead — a decline rather than an
+error, because the question was unanswerable rather than the implementation
+broken, and distinct from `non_finite_input`, which is the caller's to fix.
+
 ## Refusals
 
 Executor-side refusals — `unclaimed_bucket`, `unclassified_input`, budget

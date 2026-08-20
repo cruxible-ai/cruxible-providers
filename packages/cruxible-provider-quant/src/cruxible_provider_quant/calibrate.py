@@ -34,6 +34,7 @@ from typing import Any
 
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .outputs import ok_if_finite
 from .refusals import DeclineReason, decline
 
 __all__ = ["DEFAULT_BIN_COUNT", "Calibrate"]
@@ -135,7 +136,7 @@ class Calibrate:
 
         uncertainty = base_rate * (1.0 - base_rate)
 
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "outcome_type": "binary",
                 "sample_size": size,
@@ -170,11 +171,28 @@ class Calibrate:
             for edge in declared:
                 if isinstance(edge, bool) or not isinstance(edge, int | float):
                     return decline(DeclineReason.INVALID_PARAMETER, "bin edges must be numbers")
+                if not math.isfinite(float(edge)):
+                    return decline(DeclineReason.NON_FINITE_INPUT, "bin edges must be finite")
                 edges.append(float(edge))
             if edges != sorted(edges) or len(set(edges)) != len(edges):
                 return decline(
                     DeclineReason.INVALID_PARAMETER,
                     "bin edges must be strictly increasing",
+                    bin_edges=edges,
+                )
+            # Edges that leave part of [0, 1] uncovered have no honest reading.
+            # Predictions are probabilities, so every one of them belongs
+            # somewhere, and the binning clips whatever falls outside into the
+            # nearest bin: with edges [0.2, 0.8] a prediction of 0.1 is reported
+            # as though it had been observed inside [0.2, 0.8]. Inventing
+            # underflow and overflow bins instead would put edges in the output
+            # that the caller never declared, so this refuses and says what is
+            # missing.
+            if edges[0] > 0.0 or edges[-1] < 1.0:
+                return decline(
+                    DeclineReason.INVALID_PARAMETER,
+                    "bin edges must cover [0, 1]; a prediction outside the declared edges "
+                    "has no bin and must not be reported inside one",
                     bin_edges=edges,
                 )
             return edges

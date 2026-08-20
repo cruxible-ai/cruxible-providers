@@ -37,6 +37,7 @@ from typing import Any
 
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .outputs import ok_if_finite
 from .refusals import DeclineReason, decline
 
 __all__ = ["DEFAULT_THRESHOLD", "RecordLinkage"]
@@ -239,7 +240,7 @@ class RecordLinkage:
             )
         pairs.sort(key=lambda pair: (pair["left_id"], pair["right_id"]))
 
-        return ProviderResult.ok(
+        return ok_if_finite(
             {
                 "link_type": "dedupe_only",
                 "prior_match_probability": prior,
