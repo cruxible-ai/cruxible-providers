@@ -65,44 +65,55 @@ than resolving to the base set. Resolving to the base set would be the fail-open
 reading: the environment would come out one engine short and every digest over it
 would still verify.
 
-### Known-unpinnable engine environments, pending the tag-vocabulary fix
+### A declared tag list is an ordering, not a vocabulary
 
-**No engine environment can be pinned today.** The mechanism above is
-implemented and tested; the launch marker environments cannot express the
-environments it produces, so an accepted artifact cannot yet carry a
-`+<engine>` pin for a real deployment. This is a shipped limitation, not a
-detail: "extras are a resolution input" must not be read as
-"engine environments are pinned and ready".
+A marker environment lists a handful of tags. Those tags name the *most
+preferred* member of each family the environment supports, and
+`cruxible_provider_runtime.tags` expands them into the ordered list an installer
+would compute. Reading them as literal names instead is what made every engine
+environment unpinnable in RP-1: PEP 600 says a `manylinux_2_5` wheel installs on
+a `manylinux_2_17` host, PEP 425 says an `abi3` wheel built against `cp39`
+installs on `cp311` and that a `py3-none-<platform>` wheel installs on any
+interpreter of that major version, and three literal tags cannot enumerate the
+dozen a binary closure reaches for — a browser driver ships
+`py3-none-manylinux1_x86_64`, an OCR runtime ships
+`cp311-cp311-manylinux1_x86_64`, and exact membership matched neither.
+
+The expansion is derived from the declared tags and markers and from nothing
+else — never from the running interpreter — and it enters **no digest preimage**.
+The declared list is still what a materialization digest carries; widening what
+the resolver understands about tag families therefore cannot re-key an
+environment pin that already exists.
 
 Reproduced against the committed locks, for the three environments in
-`ci/marker-environments.json`:
+`ci/marker-environments.json`, and asserted by
+`tests/test_engine_environments.py`:
 
 | Package | Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
 |---|---|---|---|---|
 | `cruxible-provider-web` | *(base)* | resolves | resolves | resolves |
-| `cruxible-provider-web` | `browser` | refuses | refuses | refuses |
+| `cruxible-provider-web` | `browser` | resolves | resolves | resolves |
 | `cruxible-provider-docs` | *(base)* | resolves | resolves | resolves |
 | `cruxible-provider-docs` | `docling` | refuses | refuses | refuses |
-| `cruxible-provider-docs` | `paddleocr` | refuses | refuses | resolves |
+| `cruxible-provider-docs` | `paddleocr` | resolves | resolves | resolves |
 
-Every refusal is `no_compatible_artifact`, naming `playwright`, `torchvision`,
-or `paddlepaddle`. `paddleocr` resolving on one environment out of three is not
-a partial success worth relying on: an artifact needs a pin for the environment
-a deployment actually binds, and both Linux environments refuse.
+#### The one closure that still refuses, and why that is correct
 
-The cause is not the packages. Tag matching here is **exact string membership**,
-while the platform-tag scheme it matches is an **ordering**: a `manylinux_2_17`
-wheel is installable on a `manylinux_2_28` host, and PEP 600 says so. A real
-binary closure reaches for a dozen glibc platform tags across its packages
-(`py3-none-manylinux1_x86_64`, `cp311-cp311-manylinux_2_28_x86_64`,
-`py3-none-manylinux_2_18_x86_64`, …), and three literal tags cannot cover them.
+`docling` refuses with `no_compatible_artifact`, naming `torchvision`, and the
+refusal is the mechanism working rather than failing. The declared environments
+target glibc 2.17 and macOS 11.0; torchvision publishes `manylinux_2_28` and
+`macosx_14_0` wheels only. A newer floor is not a compatible floor, and an
+ordering that admitted one would be the fail-open reading of the same rule it
+exists to enforce.
 
-Teaching the resolver that ordering changes what a materialization digest
-*means*, so RP-1 deliberately did not: that is a separately-owned follow-up for
-whoever holds the tag vocabulary. In the meantime the plane packages' conformance
-suites use `cruxible_provider_runtime.testing.ENGINE_MARKER_ENVIRONMENT`, which
-enumerates the tags instead — which is why the extras mechanism is fully
-exercised by tests while remaining unpinnable in the launch environments.
+Making that closure pinnable is therefore a decision about the **declared
+floors**, not about tag matching: raising `ci/marker-environments.json` to
+`manylinux_2_28` and `macosx_14_0`. That file re-pins every package at once,
+which is why it is a committed artifact, and why raising it is a deliberate act
+of its own rather than a side effect of a plane package needing an engine. Until
+then the document plane's engine suite binds against
+`cruxible_provider_runtime.testing.ENGINE_MARKER_ENVIRONMENT`, which declares the
+higher floor for tests only.
 
 What is unaffected: **the base lane**. Every package's base environment resolves
 for all three launch environments, so the digest-scope gate, the closure report,

@@ -42,31 +42,29 @@ Splitting them would mean two implementations of `doc.to_markdown`, which is a
 terminal `ambiguous_implementation` refusal — so this is a real cost of the
 one-implementation-per-interface rule, not an oversight.
 
-## Neither engine environment can be pinned yet
+## The OCR environment pins; the conversion environment needs a newer floor
 
-The extras mechanism is implemented and exercised by this package's tests, but
-**neither `+docling` nor `+paddleocr` can be pinned in an accepted artifact
-today**, against the three launch marker environments in
-`ci/marker-environments.json`:
+Against the three launch marker environments in `ci/marker-environments.json`:
 
 | Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
 |---|---|---|---|
 | *(base)* | resolves | resolves | resolves |
 | `docling` | refuses | refuses | refuses |
-| `paddleocr` | refuses | refuses | resolves |
+| `paddleocr` | resolves | resolves | resolves |
 
-Every refusal is `no_compatible_artifact`, naming `torchvision` or
-`paddlepaddle`. `paddleocr` resolving on one environment out of three is not
-something to rely on: an artifact needs a pin for the environment a deployment
-actually binds, and both Linux environments refuse.
+`+paddleocr` refused on two of the three until the resolver stopped matching
+declared tags by exact string membership: PaddlePaddle publishes
+`cp311-cp311-manylinux1_x86_64`, which a `manylinux_2_17` environment installs
+and a literal tag list does not name.
 
-The cause is the tag vocabulary rather than this package. Tag matching is exact
-string membership; the platform-tag scheme it matches is an ordering, and PEP 600
-says a `manylinux_2_17` wheel installs on a `manylinux_2_28` host. Three literal
-tags cannot cover the dozen a tensor stack reaches for. Fixing that changes what a
-materialization digest *means*, so it is a separately-owned follow-up rather than
-something this package worked around; the conformance suite uses the runtime's
-`ENGINE_MARKER_ENVIRONMENT`, which enumerates the tags instead.
+`+docling` still refuses with `no_compatible_artifact`, naming `torchvision`, and
+that refusal is correct rather than a residual bug. The declared environments
+target glibc 2.17 and macOS 11.0; torchvision publishes `manylinux_2_28` and
+`macosx_14_0` wheels only, which do not install on those floors. Pinning this
+closure means raising the declared floors, which re-pins every package at once
+and is deliberately not a change this package's batch makes. Its engine suite
+binds against the runtime's `ENGINE_MARKER_ENVIRONMENT`, which declares the
+higher floor for tests only.
 
 **The base install is unaffected**: it resolves for all three environments, so the
 default lane, the digest-scope gate and the closure report are unimpaired — and

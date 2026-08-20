@@ -59,33 +59,22 @@ ENGINE_MARKER_ENVIRONMENT = MarkerEnvironment(
         "py3-none-any",
     ),
 )
-"""A marker environment broad enough to pin an environment containing an engine.
+"""A marker environment with a high enough floor for every engine closure.
 
-Shared by every plane package that puts a heavy engine behind an extra, because
-the launch environments in ``ci/marker-environments.json`` cannot pin one: they
-list three tags each, and a real binary closure reaches for a dozen glibc
-platform tags across its packages — a browser driver ships
-``py3-none-manylinux1_x86_64``, a tensor library ships
-``cp311-cp311-manylinux_2_28_x86_64``, an accelerator runtime ships
-``py3-none-manylinux_2_18_x86_64``.
+One thing separates it from the launch environments in
+``ci/marker-environments.json``: its glibc floor is 2.28 rather than 2.17. The
+resolver reads a declared tag list as an ordering now, so the launch
+environments pin ``+browser`` and ``+paddleocr`` on their own — but a tensor
+stack publishes ``manylinux_2_28`` and ``macosx_14_0`` wheels only, and those
+genuinely do not install on a 2.17 host. Raising the declared floors is a
+decision that re-pins every package at once, so the document plane's engine
+suite binds against this constant instead.
 
-The list is long because tag matching here is **exact string membership**, and
-the platform-tag scheme it is matching is not a set of names but an ordering: a
-``manylinux_2_17`` wheel is installable on a ``manylinux_2_28`` host, and PEP 600
-says so. Teaching the resolver that ordering is a change to what a materialization
-digest *means*, so it is not made here; enumerating the tags is the honest
-alternative, and this constant is the enumeration plus a note saying why it
-exists.
-
-Read its scope carefully. This is a **test** environment, and its existence is
-exactly what lets the extras mechanism be exercised while remaining unpinnable in
-production: against the launch environments, ``+browser``, ``+docling`` and
-``+paddleocr`` all refuse with ``no_compatible_artifact``, so no engine
-environment can be pinned in an accepted artifact today. Do not read this
-constant as a shipped environment, and do not resolve the problem by adding it to
-``ci/marker-environments.json`` — re-pinning that file is a deliberate, separate
-act that moves every package at once, and the real fix belongs to whoever owns
-the tag vocabulary.
+Read its scope carefully: this is a **test** environment. Its long tag list is
+enumeration for a test's convenience, not a shipped pin, and the way to make an
+engine closure pinnable in production is to raise the floors in
+``ci/marker-environments.json`` deliberately — never to quietly add this one to
+it.
 """
 
 

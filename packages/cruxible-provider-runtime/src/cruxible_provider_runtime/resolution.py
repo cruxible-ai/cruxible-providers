@@ -29,32 +29,29 @@ The consequence for pins: one lock produces several environments, one per
 selected extras set, and an accepted artifact pins each separately. See
 :func:`environment_pin_key`.
 
-**Known-unpinnable engine environments, pending the tag-vocabulary fix.** The
-mechanism above works and is tested; the launch marker environments cannot yet
-express what it produces. A heavy-engine closure refuses with
-``no_compatible_artifact`` against every environment in
-``ci/marker-environments.json`` — ``playwright``, ``torchvision``,
-``paddlepaddle`` — because tag matching here is exact string membership while
-the platform-tag scheme it matches is an ordering: PEP 600 says a
-``manylinux_2_17`` wheel installs on a ``manylinux_2_28`` host, and three
-literal tags cannot cover the dozen a binary closure reaches for. So no
-``<environment>+<engine>`` pin can be computed for a launch environment today,
-and "extras are a resolution input" must not be read as "engine environments are
-pinned and ready". Base environments are unaffected and resolve everywhere.
+Tag compatibility
+-----------------
 
-Teaching this resolver the ordering would change what a materialization digest
-*means*, so it is a separately-owned follow-up rather than a fix made here.
-``docs/packaging.md`` carries the reproduction table, and
-``testing.ENGINE_MARKER_ENVIRONMENT`` is what the conformance suites use in the
-meantime.
+A declared tag list is read as an **ordering**, not as a set of literal names:
+the tags a marker environment declares are the most preferred tag in each family
+it supports, and :mod:`.tags` expands them into the full ordered list an
+installer would compute. That is what makes a heavy-engine closure resolvable —
+a browser driver's ``py3-none-manylinux1_x86_64`` is compatible with an
+environment that declared ``cp311-cp311-manylinux_2_17_x86_64`` and
+``py3-none-any``, and exact string membership said otherwise.
+
+The declared list is still what a preimage carries; the expansion is a function
+of it and enters no digest.
 """
 
 from __future__ import annotations
 
 import re
 import tomllib
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from functools import cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal, Self
 
 from packaging.markers import InvalidMarker, Marker
@@ -62,6 +59,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from .canonical import SHA256_RE, normalize_sha256
 from .errors import RefusalCode, refuse
+from .tags import compatible_tags
 
 __all__ = [
     "MarkerEnvironment",
@@ -77,6 +75,12 @@ _WHEEL_RE = re.compile(
     r"^(?P<name>.+?)-(?P<version>.+?)(-(?P<build>\d[^-]*))?"
     r"-(?P<py>[^-]+)-(?P<abi>[^-]+)-(?P<plat>[^-]+)\.whl$"
 )
+
+
+@cache
+def _tag_ranks(markers: tuple[tuple[str, str], ...], tags: tuple[str, ...]) -> Mapping[str, int]:
+    expanded = compatible_tags(dict(markers), tags)
+    return MappingProxyType({tag: rank for rank, tag in enumerate(expanded)})
 
 
 class MarkerEnvironment(BaseModel):
@@ -116,6 +120,16 @@ class MarkerEnvironment(BaseModel):
     @property
     def python_version(self) -> str:
         return self.markers["python_version"]
+
+    def tag_ranks(self) -> Mapping[str, int]:
+        """Every tag this environment can install, mapped to its preference rank.
+
+        Derived from the declared tags and markers, cached because a resolution
+        asks for it once per candidate wheel and the answer depends on nothing
+        that changes in between.
+        """
+
+        return _tag_ranks(tuple(sorted(self.markers.items())), self.tags)
 
     def digest_payload(self) -> dict[str, Any]:
         """The environment as it enters a materialization preimage.
@@ -359,6 +373,7 @@ def _local_source(package: dict[str, Any]) -> ResolvedDistribution:
 def _pick_artifact(package: dict[str, Any], env: MarkerEnvironment) -> ResolvedDistribution | None:
     name = str(package["name"])
     version = str(package["version"])
+    ranked = env.tag_ranks()
     best: tuple[int, str, dict[str, Any]] | None = None
     for wheel in package.get("wheels", []) or []:
         url = str(wheel.get("url", ""))
@@ -367,7 +382,7 @@ def _pick_artifact(package: dict[str, Any], env: MarkerEnvironment) -> ResolvedD
         if match is None:
             continue
         wheel_tags = _expand_wheel_tags(match["py"], match["abi"], match["plat"])
-        ranks = [env.tags.index(tag) for tag in wheel_tags if tag in env.tags]
+        ranks = [ranked[tag] for tag in wheel_tags if tag in ranked]
         if not ranks:
             continue
         rank = min(ranks)
