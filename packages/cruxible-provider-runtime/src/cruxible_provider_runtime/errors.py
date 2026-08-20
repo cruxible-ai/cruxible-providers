@@ -26,6 +26,7 @@ class RefusalCode(StrEnum):
     # --- registration / manifest -------------------------------------------
     UNKNOWN_MANIFEST_FIELD = "unknown_manifest_field"
     MANIFEST_DIVERGENCE = "manifest_divergence"
+    ACCEPTANCE_DIVERGENCE = "acceptance_divergence"
     UNACCEPTED_PROVIDER = "unaccepted_provider"
     UNDECLARED_INTERFACE = "undeclared_interface"
     AMBIGUOUS_IMPLEMENTATION = "ambiguous_implementation"

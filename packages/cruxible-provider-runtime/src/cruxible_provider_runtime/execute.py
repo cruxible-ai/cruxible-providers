@@ -2,14 +2,18 @@
 
 The order is load-bearing:
 
-1. **admit** — the bucket is derived from the actual input by the interface's
+1. **revalidate** — the accepted artifact, the package-side manifest, and the
+   sealed environment are re-checked against what the binding was made under; a
+   binding is reusable and all three live somewhere mutable, so a stale one
+   refuses rather than executing under a withdrawn acceptance;
+2. **admit** — the bucket is derived from the actual input by the interface's
    registered classifier and matched against what the implementation claims; an
    unclaimed bucket refuses before any process is started;
-2. **deliver** — credential material goes over an inherited descriptor, never
+3. **deliver** — credential material goes over an inherited descriptor, never
    argv and never the environment block;
-3. **execute** — under executor-enforced wall-clock and output-size caps, a
+4. **execute** — under executor-enforced wall-clock and output-size caps, a
    breach of which is a typed refusal rather than a provider error;
-4. **check** — endpoints actually contacted are compared against the accepted
+5. **check** — endpoints actually contacted are compared against the accepted
    declaration, and credential material is asserted absent from everything
    destined for exhaust.
 """
@@ -93,6 +97,8 @@ def invoke(
 ) -> InvocationOutcome:
     secrets = dict(secrets or {})
     run_id = run_id or f"run-{uuid.uuid4().hex[:12]}"
+
+    binding.revalidate(registry)
 
     input_bucket = registry.admit(
         binding.interface_id, binding.implementation.declared_input_buckets, payload

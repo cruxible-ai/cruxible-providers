@@ -35,9 +35,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .artifact import ProviderArtifactPayload
+from .artifact import ProviderArtifactPayload, artifact_digest
 from .backends import ContainerBackend, LocalEnvBackend
 from .buckets import BucketSelector
+from .cache import tree_digest
 from .digests import container_materialization_digest, implementation_digest, materialization_digest
 from .errors import RefusalCode, refuse
 from .manifest import BackendKind, ImplementationManifest, load_manifest, manifest_digest
@@ -73,7 +74,17 @@ class BindRequest:
 
 @dataclass(frozen=True)
 class Binding:
-    """A verified, materialized pin, ready to invoke."""
+    """A verified, materialized pin, ready to invoke.
+
+    A binding is reusable, and everything bind checked lives somewhere mutable:
+    the registry's accepted artifact can be replaced, the package-side manifest
+    is a file on disk, and the materialized tree is a directory. So the binding
+    keeps the three digests bind established — accepted artifact, package
+    manifest, sealed tree — and :meth:`revalidate` recomputes each from its live
+    source before every run. Retaining them here rather than re-binding per
+    invocation keeps the expensive half (resolution, materialization) once per
+    bind while making the governance half unskippable.
+    """
 
     provider_id: str
     interface_id: str
@@ -84,6 +95,17 @@ class Binding:
     protocol_version: ProtocolVersion
     backend_kind: BackendKind
     artifact: ProviderArtifactPayload
+    manifest_path: Path
+    accepted_artifact_digest: str
+    manifest_digest: str
+    sealed_tree_digest: str | None = None
+    """The materialized tree's digest as bind sealed it; ``None`` for a container.
+
+    The cache's own seal is a self-consistent pair, so a rewrite that updates
+    both halves survives it. This copy is held outside the tree, which is what
+    makes the invoke-time comparison mean something.
+    """
+
     extras: tuple[str, ...] = ()
     """The extras this implementation's manifest requires, sorted.
 
@@ -118,6 +140,46 @@ class Binding:
             "dev_sources_permitted": self.dev_sources_permitted,
         }
         return snapshot
+
+    def revalidate(self, registry: StubRegistry) -> None:
+        """Re-check, from live sources, the acceptance this binding runs under.
+
+        Called before every invocation, in bind's order. The contract says the
+        manifest is re-digested at bind *and invoke*; the same reasoning applies
+        to the other two mutable inputs, because a binding held across a
+        withdrawal, a manifest edit, or a tampered cache entry would otherwise
+        keep executing under an acceptance that no longer exists.
+        """
+
+        current = artifact_digest(registry.accepted_provider(self.provider_id))
+        if current != self.accepted_artifact_digest:
+            raise refuse(
+                RefusalCode.ACCEPTANCE_DIVERGENCE,
+                "the accepted Provider artifact changed after this binding was made",
+                provider_id=self.provider_id,
+                bound=self.accepted_artifact_digest,
+                current=current,
+            )
+        recomputed = manifest_digest(load_manifest(self.manifest_path))
+        if recomputed != self.manifest_digest:
+            raise refuse(
+                RefusalCode.MANIFEST_DIVERGENCE,
+                "the package-side manifest changed after this binding was made",
+                provider_id=self.provider_id,
+                bound=self.manifest_digest,
+                recomputed=recomputed,
+            )
+        if self.env_path is not None and self.sealed_tree_digest is not None:
+            actual = tree_digest(self.env_path)
+            if actual != self.sealed_tree_digest:
+                raise refuse(
+                    RefusalCode.CACHE_INTEGRITY,
+                    "the materialized environment changed after this binding was made",
+                    provider_id=self.provider_id,
+                    env_path=str(self.env_path),
+                    sealed=self.sealed_tree_digest,
+                    actual=actual,
+                )
 
 
 def bind(
@@ -289,6 +351,10 @@ def _bind_local(
         protocol_version=PROTOCOL_VERSION,
         backend_kind="local_env",
         artifact=payload,
+        manifest_path=request.manifest_path,
+        accepted_artifact_digest=artifact_digest(payload),
+        manifest_digest=payload.manifest_digest,
+        sealed_tree_digest=tree_digest(env_path),
         extras=extras,
         env_path=env_path,
         resolved=resolved,
@@ -327,6 +393,9 @@ def _bind_container(
         protocol_version=PROTOCOL_VERSION,
         backend_kind="container",
         artifact=payload,
+        manifest_path=request.manifest_path,
+        accepted_artifact_digest=artifact_digest(payload),
+        manifest_digest=payload.manifest_digest,
         # The image already contains whatever the extras pulled in; the field
         # records what the implementation asked for, so the two backends'
         # snapshots stay comparable.

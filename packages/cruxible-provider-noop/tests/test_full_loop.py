@@ -12,6 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import yaml
 from cruxible_provider_noop.provider import CREDENTIAL_REF
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
@@ -402,6 +403,110 @@ def test_second_bind_reuses_the_verified_cache_entry(
     _bind("local_env", registry, manifest_path, lock_path, local_backend, container_backend)
     _bind("local_env", registry, manifest_path, lock_path, local_backend, container_backend)
     assert len(builder.builds) == 1  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
+def test_replacing_the_accepted_artifact_refuses_a_binding_already_made(
+    binding: Binding,
+    registry: StubRegistry,
+    accepted_artifact: ProviderArtifactPayload,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """A binding is reusable; the acceptance behind it is not immutable.
+
+    Re-registering the provider against a different index is an ordinary
+    governance act. Every later call through a binding made before it must stop,
+    or the acceptance a receipt names is not the one the run happened under.
+    """
+
+    moved = accepted_artifact.model_copy(
+        update={
+            "distribution": accepted_artifact.distribution.model_copy(
+                update={"index_url": "https://other-index.example/simple"}
+            )
+        }
+    )
+    registry.register_provider(moved)
+
+    with pytest.raises(RefusalError) as exc:
+        invoke(
+            binding,
+            registry=registry,
+            payload={"text": "hello", "mode": "echo"},
+            budgets=BUDGETS,
+            local_backend=local_backend,
+            container_backend=container_backend,
+        )
+    assert exc.value.code is RefusalCode.ACCEPTANCE_DIVERGENCE
+    assert exc.value.refusal.detail["bound"] == binding.accepted_artifact_digest
+
+
+@pytest.mark.parametrize("backend_kind", BACKENDS)
+def test_editing_the_package_manifest_refuses_a_binding_already_made(
+    backend_kind: BackendKind,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+    tmp_path: Path,
+) -> None:
+    """The contract re-digests the manifest at bind *and* invoke.
+
+    Bound through a copy so the edit lands on a throwaway file. A byte-identical
+    copy digests identically, because the digest is over the parsed manifest and
+    not over its bytes.
+    """
+
+    copied = tmp_path / "manifest.yaml"
+    copied.write_bytes(manifest_path.read_bytes())
+    binding = _bind(backend_kind, registry, copied, lock_path, local_backend, container_backend)
+
+    document = yaml.safe_load(copied.read_text(encoding="utf-8"))
+    document["implementations"][0]["side_effects"] = True
+    copied.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+    with pytest.raises(RefusalError) as exc:
+        invoke(
+            binding,
+            registry=registry,
+            payload={"text": "hello", "mode": "echo"},
+            budgets=BUDGETS,
+            local_backend=local_backend,
+            container_backend=container_backend,
+        )
+    assert exc.value.code is RefusalCode.MANIFEST_DIVERGENCE
+    assert exc.value.refusal.detail["bound"] == binding.manifest_digest
+
+
+def test_tampering_with_the_materialized_tree_refuses_a_binding_already_made(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """The seal bind computed is held on the binding, outside the tree it covers.
+
+    Whoever rewrites a cache entry can rewrite its seal file along with it, so
+    the tree's self-consistency proves nothing on its own. The copy the binding
+    kept is what the invoke-time comparison is against.
+    """
+
+    assert binding.env_path is not None
+    (binding.env_path / "smuggled.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+
+    with pytest.raises(RefusalError) as exc:
+        invoke(
+            binding,
+            registry=registry,
+            payload={"text": "hello", "mode": "echo"},
+            budgets=BUDGETS,
+            local_backend=local_backend,
+            container_backend=container_backend,
+        )
+    assert exc.value.code is RefusalCode.CACHE_INTEGRITY
+    assert exc.value.refusal.detail["sealed"] == binding.sealed_tree_digest
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)
