@@ -212,9 +212,11 @@ def test_an_unpinned_model_reference_refuses(pinned_model: tuple[Path, str]) -> 
     assert _declined("score.rank", payload) is DeclineReason.MALFORMED_MODEL_REF
 
 
-def test_a_model_whose_bytes_do_not_match_its_pin_refuses(
+def test_a_model_whose_bytes_do_not_match_its_pin_is_an_integrity_refusal(
     pinned_model: tuple[Path, str],
 ) -> None:
+    """Not a decline. The file exists, was read, and is not what was approved."""
+
     path, pin = pinned_model
     path.write_bytes(path.read_bytes() + b"\x00")
     payload = _fixture("quant-rank-small")
@@ -223,6 +225,38 @@ def test_a_model_whose_bytes_do_not_match_its_pin_refuses(
     payload["model_ref"] = {
         "kind": "pickled_sklearn",
         "path": str(path),
+        "sha256": pin,
+        "feature_order": ["severity", "exposure", "age_days"],
+        "score_kind": "decision_function",
+    }
+    result = run_in_process("score.rank", payload)
+    assert result.status == "refused", result.output
+    assert result.refusal is not None
+    # An integrity event, not a capability decline. It must be countable apart
+    # from the shape failures above, so it wears the taxonomy's own name.
+    assert result.refusal.code is RefusalCode.ARTIFACT_HASH_MISMATCH
+    assert result.refusal.detail["pinned"] == pin
+    assert result.refusal.detail["observed"] != pin
+    assert DECLINE_DETAIL_KEY not in result.refusal.detail
+
+
+def test_a_missing_model_file_declines_rather_than_reporting_tampering(
+    pinned_model: tuple[Path, str],
+) -> None:
+    """The other side of the split: absent is not altered.
+
+    A file that was never supplied is a request this implementation cannot
+    serve. Reporting it as a hash mismatch would put a tampering signal on a
+    track record every time somebody mistyped a path.
+    """
+
+    path, pin = pinned_model
+    payload = _fixture("quant-rank-small")
+    payload["mode"] = "pinned_model"
+    payload.pop("weights")
+    payload["model_ref"] = {
+        "kind": "pickled_sklearn",
+        "path": str(path.parent / "absent.pkl"),
         "sha256": pin,
         "feature_order": ["severity", "exposure", "age_days"],
         "score_kind": "decision_function",

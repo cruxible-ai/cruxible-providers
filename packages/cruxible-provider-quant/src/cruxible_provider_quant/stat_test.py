@@ -43,12 +43,19 @@ from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunCo
 from .refusals import DeclineReason, decline
 from .stdio import stdout_to_stderr
 
-__all__ = ["TESTS", "StatTest", "TestSpec"]
+__all__ = ["TESTS", "StatTest", "StatTestSpec"]
 
 
 @dataclass(frozen=True)
-class TestSpec:
-    """One declared test: its family, its samples, and its effect measure."""
+class StatTestSpec:
+    """One declared test: its family, its samples, and its effect measure.
+
+    Named ``StatTestSpec`` rather than ``TestSpec`` because pytest collects any
+    importable class whose name starts with ``Test``. It would find this one in
+    any downstream test module that imported it and report it as an uncollectable
+    test class — a warning with nothing behind it, arriving in somebody else's
+    suite.
+    """
 
     family: str
     groups: int
@@ -58,20 +65,20 @@ class TestSpec:
     checkable_assumptions: tuple[str, ...]
 
 
-TESTS: dict[str, TestSpec] = {
-    "student_t": TestSpec("location", 2, False, "t", "mean_difference", ("normality",)),
-    "welch_t": TestSpec("location", 2, False, "t", "mean_difference", ("normality",)),
-    "paired_t": TestSpec("location", 2, True, "t", "mean_difference", ("normality",)),
-    "mann_whitney_u": TestSpec("location", 2, False, "u", "rank_biserial", ()),
-    "wilcoxon_signed_rank": TestSpec("location", 2, True, "w", None, ()),
-    "proportions_z": TestSpec("proportion", 2, False, "z", "proportion_difference", ()),
-    "levene": TestSpec("variance", 2, False, "f", "variance_ratio", ()),
-    "bartlett": TestSpec("variance", 2, False, "chi2", "variance_ratio", ("normality",)),
-    "pearson_r": TestSpec("association", 2, True, "r", "pearson_r", ("normality",)),
-    "spearman_rho": TestSpec("association", 2, True, "rho", "spearman_rho", ()),
-    "chi2_contingency": TestSpec("association", 2, False, "chi2", "cramers_v", ()),
-    "ks_2samp": TestSpec("distributional", 2, False, "d", None, ()),
-    "shapiro_wilk": TestSpec("distributional", 1, False, "w", None, ()),
+TESTS: dict[str, StatTestSpec] = {
+    "student_t": StatTestSpec("location", 2, False, "t", "mean_difference", ("normality",)),
+    "welch_t": StatTestSpec("location", 2, False, "t", "mean_difference", ("normality",)),
+    "paired_t": StatTestSpec("location", 2, True, "t", "mean_difference", ("normality",)),
+    "mann_whitney_u": StatTestSpec("location", 2, False, "u", "rank_biserial", ()),
+    "wilcoxon_signed_rank": StatTestSpec("location", 2, True, "w", None, ()),
+    "proportions_z": StatTestSpec("proportion", 2, False, "z", "proportion_difference", ()),
+    "levene": StatTestSpec("variance", 2, False, "f", "variance_ratio", ()),
+    "bartlett": StatTestSpec("variance", 2, False, "chi2", "variance_ratio", ("normality",)),
+    "pearson_r": StatTestSpec("association", 2, True, "r", "pearson_r", ("normality",)),
+    "spearman_rho": StatTestSpec("association", 2, True, "rho", "spearman_rho", ()),
+    "chi2_contingency": StatTestSpec("association", 2, False, "chi2", "cramers_v", ()),
+    "ks_2samp": StatTestSpec("distributional", 2, False, "d", None, ()),
+    "shapiro_wilk": StatTestSpec("distributional", 1, False, "w", None, ()),
 }
 
 _ALTERNATIVES = ("two-sided", "less", "greater")
@@ -131,7 +138,7 @@ class StatTest:
     # -- input -------------------------------------------------------------
 
     @staticmethod
-    def _samples(payload: Any, spec: TestSpec) -> list[list[float]] | ProviderResult:
+    def _samples(payload: Any, spec: StatTestSpec) -> list[list[float]] | ProviderResult:
         raw = payload.get("samples")
         if not isinstance(raw, Mapping) or not raw:
             return decline(
@@ -179,7 +186,7 @@ class StatTest:
     def _run(
         self,
         name: str,
-        spec: TestSpec,
+        spec: StatTestSpec,
         groups: list[list[float]],
         alpha: float,
         alternative: str,
@@ -316,7 +323,7 @@ class StatTest:
 
     @staticmethod
     def _assumptions(
-        spec: TestSpec,
+        spec: StatTestSpec,
         declared: Sequence[str],
         arrays: list[Any],
         alpha: float,

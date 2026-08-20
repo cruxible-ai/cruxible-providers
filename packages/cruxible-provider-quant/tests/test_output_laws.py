@@ -87,35 +87,113 @@ def test_no_output_carries_a_generic_confidence_or_a_grade(fixture: object) -> N
         )
 
 
-def test_no_source_declares_a_banned_field() -> None:
-    """Parsed, not grepped.
+def declared_field_names(source: str, filename: str = "<planted>") -> set[str]:
+    """Every name this source *declares*, lower-cased. Prose is invisible to it.
 
-    The prohibition has to be explainable in the docstrings that explain it, so
-    scanning for the *word* would forbid the documentation along with the thing
-    documented. The syntax tree does not have that problem: what is checked is
-    the shape a field actually takes — a string key in a dict literal, an
-    attribute name, a keyword argument, a variable — and prose is invisible to
-    it.
+    Parsed, not grepped. The prohibition has to be explainable in the docstrings
+    that explain it, so scanning for the word would forbid the documentation
+    along with the thing documented, and scanning every string constant would do
+    the same. What is collected instead is the set of shapes a field actually
+    takes:
+
+    * a string key in a dict literal — ``{"confidence": 0.9}``;
+    * a string subscript — ``out["confidence"] = 0.9``, which the first cut
+      missed entirely and which is the most natural way to add one;
+    * a string positional argument to a **method** call —
+      ``out.setdefault("confidence", 0.9)``, ``out.pop("confidence")``. Method
+      calls only: widening to plain function calls would start reading the
+      message strings passed to ``decline(...)``, which are prose;
+    * an attribute, a keyword argument, or a bare name.
+
+    Membership is tested against the whole string, so a sentence that happens to
+    contain a banned word is never a match — only a field genuinely called one.
     """
 
+    tree = ast.parse(source, filename=filename)
+    named: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            named |= {
+                key.value.lower()
+                for key in node.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            }
+        elif isinstance(node, ast.Subscript):
+            index = node.slice
+            if isinstance(index, ast.Constant) and isinstance(index.value, str):
+                named.add(index.value.lower())
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            named |= {
+                argument.value.lower()
+                for argument in node.args
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str)
+            }
+        elif isinstance(node, ast.Attribute):
+            named.add(node.attr.lower())
+        elif isinstance(node, ast.keyword) and node.arg:
+            named.add(node.arg.lower())
+        elif isinstance(node, ast.Name):
+            named.add(node.id.lower())
+    return named
+
+
+def test_no_source_declares_a_banned_field() -> None:
     for path in sorted(SOURCE_DIR.glob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        named: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Dict):
-                named |= {
-                    key.value.lower()
-                    for key in node.keys
-                    if isinstance(key, ast.Constant) and isinstance(key.value, str)
-                }
-            elif isinstance(node, ast.Attribute):
-                named.add(node.attr.lower())
-            elif isinstance(node, ast.keyword) and node.arg:
-                named.add(node.arg.lower())
-            elif isinstance(node, ast.Name):
-                named.add(node.id.lower())
-        offending = named & BANNED_KEYS
+        offending = declared_field_names(path.read_text(encoding="utf-8"), str(path)) & BANNED_KEYS
         assert not offending, f"{path.name} declares {sorted(offending)}"
+
+
+PLANTED_VIOLATIONS = [
+    pytest.param('out = {"confidence": 0.9}\n', id="dict-literal-key"),
+    pytest.param('out["confidence"] = 0.9\n', id="string-subscript"),
+    pytest.param('out.setdefault("confidence", 0.9)\n', id="setdefault-positional"),
+    pytest.param('out.pop("certainty")\n', id="pop-positional"),
+    pytest.param("out = dict(confidence=0.9)\n", id="keyword-argument"),
+    pytest.param("confidence = 0.9\n", id="bare-name"),
+    pytest.param("value = result.confidence\n", id="attribute"),
+    pytest.param('payload["grade"] = "observed"\n', id="grade-subscript"),
+]
+
+
+@pytest.mark.parametrize("source", PLANTED_VIOLATIONS)
+def test_the_scan_catches_every_shape_it_claims_to(source: str) -> None:
+    """A scanner nobody has tried to defeat is a scanner nobody should trust.
+
+    Two of these — the subscript and the ``setdefault`` positional — were shapes
+    an earlier cut of this check let through, which is how they earned a test
+    apiece rather than a comment.
+    """
+
+    assert declared_field_names(source) & BANNED_KEYS
+
+
+PLANTED_INNOCENT = [
+    pytest.param(
+        '"""No generic confidence score: certainty is not a field here."""\n',
+        id="module-docstring",
+    ),
+    pytest.param(
+        'def f() -> None:\n    """A confidence score would be wrong."""\n',
+        id="function-docstring",
+    ),
+    pytest.param(
+        'decline(Reason.X, "a confidence score would be meaningless here")\n',
+        id="prose-message-argument",
+    ),
+    pytest.param('parts = {"uncertainty": 0.25}\n', id="uncertainty-is-a-real-component"),
+    pytest.param('bins = {"reliability": 0.01}\n', id="reliability-is-a-real-component"),
+]
+
+
+@pytest.mark.parametrize("source", PLANTED_INNOCENT)
+def test_the_scan_leaves_prose_and_real_components_alone(source: str) -> None:
+    """The other half. A check that fires on its own documentation gets removed.
+
+    ``uncertainty`` and ``reliability`` are named components of the Brier
+    decomposition with definitions — the opposite of the thing being banned.
+    """
+
+    assert not declared_field_names(source) & BANNED_KEYS
 
 
 def test_every_declared_capture_contract_family_is_a_derived_family(

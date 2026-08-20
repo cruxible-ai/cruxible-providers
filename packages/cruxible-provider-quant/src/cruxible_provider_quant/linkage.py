@@ -200,6 +200,16 @@ class RecordLinkage:
                 )
                 for field, m, u in comparisons
             ],
+            # Defensive, and unreachable today. An empty ``blocking_fields``
+            # classifies to ``blocking=none``, which this implementation does
+            # not claim, so admission refuses with ``unclaimed_bucket`` before
+            # anything gets here — an unblocked cross product is a different
+            # scaling problem and is left to an implementation that says so.
+            # The fallback stays because it is the *correct* rule if that bucket
+            # is ever claimed (``block_on("1")`` is the full cross product,
+            # which is exactly what ``blocking=none`` means), and because an
+            # empty rule list would otherwise reach splink as a silent
+            # misconfiguration rather than as an explicit choice.
             blocking_rules_to_generate_predictions=[block_on(field) for field in blocking_fields]
             or [block_on("1")],
             retain_intermediate_calculation_columns=True,

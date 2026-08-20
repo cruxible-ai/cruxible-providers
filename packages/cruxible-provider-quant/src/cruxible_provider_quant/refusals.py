@@ -9,7 +9,7 @@ everything the *executor* decides — an unclaimed bucket, a budget breach, an
 undeclared endpoint. What it does not yet carry is the handful of conditions a
 quantitative implementation is the only thing positioned to detect: a series too
 short for the seasonal model the caller declared, a test name that is not a
-test, a pinned model reference that does not verify.
+test, a pinned model reference of the wrong shape.
 
 Those belong in the runtime taxonomy. This batch may not put them there: the
 runtime package is owned by a concurrent batch, and adding a code to a shared
@@ -18,6 +18,15 @@ taxonomy behind another author's back is exactly the drift the standing
 package declares its own closed set and carries it inside the detail payload of
 the one runtime code that genuinely fits — ``provider_declined``, whose meaning
 is "the provider deliberately declined under a named rule".
+
+**This argument does not extend to a code the taxonomy already has.** Where a
+condition already has a name upstream, the implementation uses it directly: a
+model file whose bytes do not hash to their pin raises
+``RefusalCode.ARTIFACT_HASH_MISMATCH``, not a decline, because the taxonomy
+defines that code for exactly this event and routing it through here would
+convert an integrity signal into a capability limit — the one confusion this
+module must not create while it exists. Everything here is a *decline*: the
+provider declining to answer something it does not do.
 
 The shape is deliberately liftable: each member here maps one-to-one onto a
 future ``RefusalCode``, and the day the runtime carries them, the change is a
@@ -79,7 +88,15 @@ class DeclineReason(StrEnum):
     """A column named in the request that the relation does not carry."""
 
     MALFORMED_MODEL_REF = "malformed_model_ref"
-    """A pinned-model reference missing its pin, or whose bytes do not match it."""
+    """A pinned-model reference this implementation cannot act on.
+
+    Shape only: no reference, an unsupported kind, a missing path, an absent or
+    ill-formed pin, an unnamed score scale, a missing feature order, or a path
+    that cannot be read. A reference whose bytes **do not hash to their pin** is
+    deliberately not here — that is an integrity event, and the runtime taxonomy
+    already names it ``artifact_hash_mismatch``. Filing a missing file and an
+    altered file under one code would make tampering uncountable.
+    """
 
     UNDECLARED_MATCH_PARAMETERS = "undeclared_match_parameters"
     """Linkage was asked for without the m/u probabilities it must be told."""

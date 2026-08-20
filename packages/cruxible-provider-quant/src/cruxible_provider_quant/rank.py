@@ -11,9 +11,28 @@ Two modes.
 ``pinned_model``
     Score with a pinned, serialised scikit-learn estimator. The reference names
     a path, a **required** sha256, an explicit feature order, and the score kind
-    the model produces. The bytes are hashed before anything is loaded, and a
-    reference without a pin or with a pin that does not match refuses
-    (``malformed_model_ref``).
+    the model produces. The bytes are hashed before anything is loaded.
+
+Two kinds of failure, two kinds of refusal
+-------------------------------------------
+
+A reference that is malformed and a reference whose bytes do not hash to their
+pin are not the same event, and collapsing them would lose the one that matters.
+
+*Shape* failures — no ``model_ref``, an unsupported ``kind``, a missing path, an
+absent or ill-formed pin, an unnamed score scale, a missing ``feature_order`` —
+say this implementation was asked for something it does not do. They decline
+under ``malformed_model_ref``, alongside the plane's other capability limits. An
+unreadable path belongs here too: a file that is not there is a request that
+cannot be served, not a file that has been altered.
+
+A *byte* mismatch says something else entirely. The file exists, it was read,
+and it is **not the artifact that was reviewed** — the one event on this path
+that is an integrity signal rather than a capability limit. That gets
+``RefusalCode.ARTIFACT_HASH_MISMATCH``, which the runtime taxonomy already
+defines for exactly this ("bytes do not hash to the pinned sha256"), so it
+reaches a receipt and a track record wearing its own name and can be counted
+apart from ordinary declines.
 
 The honest boundary on ``pinned_model``
 ---------------------------------------
@@ -52,6 +71,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .refusals import DeclineReason, decline
@@ -244,6 +264,8 @@ class Rank:
         try:
             blob = Path(path).read_bytes()
         except OSError as exc:
+            # A shape failure, not an integrity one: a file that is not there
+            # has not been altered, it was never supplied.
             return decline(
                 DeclineReason.MALFORMED_MODEL_REF,
                 f"model_ref path could not be read: {exc.strerror}",
@@ -251,11 +273,18 @@ class Rank:
             )
         observed = "sha256:" + hashlib.sha256(blob).hexdigest()
         if observed != pin:
-            return decline(
-                DeclineReason.MALFORMED_MODEL_REF,
-                "the model file does not match its pin; this is not the model that was reviewed",
+            # The integrity signal. Not a decline: the runtime taxonomy already
+            # names this event, and it has to be countable apart from the
+            # capability limits above — a provider that cannot serve a request
+            # and a provider handed an artifact nobody approved are different
+            # things for a track record to have seen.
+            return ProviderResult.refused(
+                RefusalCode.ARTIFACT_HASH_MISMATCH,
+                "the model file does not hash to its pin; this is not the artifact that "
+                "was reviewed",
                 pinned=pin,
                 observed=observed,
+                path=path,
             )
 
         rows: list[list[float]] = []

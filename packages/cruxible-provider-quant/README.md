@@ -98,6 +98,19 @@ Containment for third-party models exists in the cloud container backend and
 nowhere else. The `weighted` mode needs no deserialisation at all and is what
 the fixtures use.
 
+The two failures on this path are reported as two different things, because they
+are two different things:
+
+| Failure | Refusal |
+|---|---|
+| no `model_ref`, unsupported `kind`, missing path, absent or ill-formed pin, unnamed score scale, missing `feature_order`, **unreadable path** | `provider_declined` / `malformed_model_ref` — a request this implementation cannot serve |
+| the file was read and its bytes do not hash to the pin | `artifact_hash_mismatch` — an **integrity** signal, from the runtime taxonomy, countable on a track record apart from ordinary declines |
+
+A file that is not there has not been altered; folding a missing path into the
+tampering signal would put one on a track record every time somebody mistyped a
+path, and folding tampering into the declines would hide the only event here
+worth an alarm.
+
 ## The stdout hazard
 
 The child harness writes its result envelope to file descriptor 1, and a single
@@ -117,14 +130,22 @@ a warning.
 ## Refusals
 
 Executor-side refusals — `unclaimed_bucket`, `unclassified_input`, budget
-breaches, `undeclared_egress` — come from the runtime taxonomy unchanged. The
-conditions only a quantitative implementation can detect (a series too short for
-the declared seasonal model, a test name that is not a test, a model reference
-that does not verify) are declared as a closed set in `refusals.py` and carried
-in the `reason` detail of `provider_declined`, because this batch may not extend
-a taxonomy another batch owns. Each member maps one-to-one onto a future
-`RefusalCode`, each has a raise site, and `tests/test_refusals.py` fails if any
-member is not exercised by a named test.
+breaches, `undeclared_egress` — come from the runtime taxonomy unchanged, and so
+does `artifact_hash_mismatch`, which the taxonomy already defines for the one
+event on this plane that is about integrity rather than capability.
+
+The conditions only a quantitative implementation can detect (a series too short
+for the declared seasonal model, a test name that is not a test, a model
+reference that is the wrong shape) have no code yet. They are declared as a
+closed set in `refusals.py` and carried in the `reason` detail of
+`provider_declined`, because this batch may not extend a taxonomy another batch
+owns. Each member maps one-to-one onto a future `RefusalCode`, each has a raise
+site, and `tests/test_refusals.py` fails if any member is not exercised by a
+named test.
+
+The line between the two is capability versus integrity. "I do not do that" is a
+decline; "this is not the artifact that was approved" is not, and it must stay
+countable on its own.
 
 ## Secrets and egress
 
