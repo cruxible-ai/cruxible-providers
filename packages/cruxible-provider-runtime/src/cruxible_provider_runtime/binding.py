@@ -54,6 +54,8 @@ from .resolution import (
 
 __all__ = ["BindRequest", "Binding", "bind"]
 
+_VANISHED_TREE_FINGERPRINT = (-1, -1.0)
+
 
 @dataclass(frozen=True)
 class BindRequest:
@@ -91,7 +93,7 @@ def _tree_fingerprint(root: Path) -> tuple[int, float]:
         try:
             newest = max(newest, path.lstat().st_mtime)
         except OSError:
-            return (-1, -1.0)
+            return _VANISHED_TREE_FINGERPRINT
     return (count, newest)
 
 
@@ -242,7 +244,7 @@ class Binding:
             # Recorded only after the authority agreed. A fingerprint cached
             # before the hash ran would be a gate that skips a check nobody
             # passed.
-            if fingerprint != (-1, -1.0):
+            if fingerprint != _VANISHED_TREE_FINGERPRINT:
                 self.tree_watch[str(self.env_path)] = fingerprint
 
 
