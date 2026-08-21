@@ -91,8 +91,8 @@ INTERFACE_PREIMAGES: dict[str, dict[str, Any]] = {
             "rows": {"type": "array<object>"},
             "engine": {"type": "object"},
         },
-        "refusals": ["provider_declined"],
-        "decline_reasons": [
+        "refusals": [
+            "non_finite_result",
             "unknown_column",
             "unsupported_aggregation",
             "invalid_parameter",
@@ -117,10 +117,10 @@ INTERFACE_PREIMAGES: dict[str, dict[str, Any]] = {
             "segments": {"type": "array<object>"},
             "engine": {"type": "object"},
         },
-        "refusals": ["provider_declined"],
-        "decline_reasons": [
+        "refusals": [
             "insufficient_series_length",
             "non_finite_input",
+            "non_finite_result",
             "degenerate_scale",
             "unknown_method",
             "invalid_parameter",
@@ -152,10 +152,10 @@ INTERFACE_PREIMAGES: dict[str, dict[str, Any]] = {
             },
             "engine": {"type": "object"},
         },
-        "refusals": ["provider_declined"],
-        "decline_reasons": [
+        "refusals": [
             "insufficient_series_length",
             "non_finite_input",
+            "non_finite_result",
             "unknown_method",
             "invalid_parameter",
         ],
@@ -197,13 +197,13 @@ INTERFACE_PREIMAGES: dict[str, dict[str, Any]] = {
             "assumptions_satisfied": {"type": "boolean|null"},
             "engine": {"type": "object"},
         },
-        "refusals": ["provider_declined"],
-        "decline_reasons": [
+        "refusals": [
             "unknown_test_name",
             "declared_family_mismatch",
             "invalid_parameter",
             "mismatched_lengths",
             "non_finite_input",
+            "non_finite_result",
         ],
     },
     "score.rank": {
@@ -247,13 +247,14 @@ INTERFACE_PREIMAGES: dict[str, dict[str, Any]] = {
             },
             "engine": {"type": "object"},
         },
-        "refusals": ["provider_declined"],
-        "decline_reasons": [
+        "refusals": [
             "unknown_method",
             "malformed_model_ref",
             "unknown_column",
             "invalid_parameter",
             "non_finite_input",
+            "non_finite_result",
+            "artifact_hash_mismatch",
         ],
     },
     "match.record": {
@@ -295,11 +296,11 @@ INTERFACE_PREIMAGES: dict[str, dict[str, Any]] = {
             "review_required": {"type": "boolean"},
             "engine": {"type": "object"},
         },
-        "refusals": ["provider_declined"],
-        "decline_reasons": [
+        "refusals": [
             "undeclared_match_parameters",
             "unknown_column",
             "invalid_parameter",
+            "non_finite_result",
         ],
     },
     "calc.calibrate": {
@@ -346,11 +347,11 @@ INTERFACE_PREIMAGES: dict[str, dict[str, Any]] = {
             },
             "engine": {"type": "object"},
         },
-        "refusals": ["provider_declined"],
-        "decline_reasons": [
+        "refusals": [
             "mismatched_lengths",
             "non_finite_input",
             "invalid_parameter",
+            "non_finite_result",
         ],
     },
 }
@@ -358,13 +359,13 @@ INTERFACE_PREIMAGES: dict[str, dict[str, Any]] = {
 INTERFACE_IDS: tuple[str, ...] = tuple(sorted(INTERFACE_PREIMAGES))
 
 INTERFACE_DIGESTS: dict[str, str] = {
-    "calc.calibrate": "sha256:2569fb7ca8021413b6369a93c334bccd24dbef769e0389b3adf03f04cf40b003",
-    "calc.reduce": "sha256:03b51d8ed139039fe2b3af1b81f0939d5593d43f862e900bae6fb97485227fea",
-    "match.record": "sha256:9330ac3b0eedd4e2bc7df7c88475957c4b2395081d80c80bb6be28eba899dede",
-    "score.rank": "sha256:43f333336abc78d6a365b964c53a485d6f8106c05e4d47ab8f22322caab7e068",
-    "stat.test": "sha256:4cf098b47cdc911e92ceaa89217b5106a0167b0fe918bc4daf53c33a3d0b2b94",
-    "ts.anomaly": "sha256:184042e57be1faa247e9d1617470f906a2860b840782ed704fe9933f14d490bb",
-    "ts.forecast": "sha256:61d0700e69c7b8ce81df8b98f2a2d3c3d1b6ceb6e7bd14f62dd3bc4dc9fe5262",
+    "calc.calibrate": "sha256:68ed76a4d56a0ccaf0dd80380d20b84072bdd3bee2424ede0ec519cfb0d559a8",
+    "calc.reduce": "sha256:148c0044ea289d8014b2223f5bd269248972e6213bca046ed476f426642e586e",
+    "match.record": "sha256:a0f902bdb0bf13ede311b32808c36124e85d0fb5a639398c512135ffec66fd4e",
+    "score.rank": "sha256:96d0ff67eac67537d304273de990221b1342c2e637e393e472dc7abf644b2c80",
+    "stat.test": "sha256:ed085bcc3fbda9dea5005432f2f0be723f165b2804df71e3e20bb69c43cec937",
+    "ts.anomaly": "sha256:c9dcccbecdfb991df310853aa4b1193032f58480ddfe26d9f065ddc7557736e0",
+    "ts.forecast": "sha256:a350e46acd787ad8eebfcc6242f8fd99cd0a1a47bf4e9d5cf6930b0a8cdd4baa",
 }
 
 

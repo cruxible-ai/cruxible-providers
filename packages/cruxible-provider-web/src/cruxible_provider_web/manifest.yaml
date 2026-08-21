@@ -23,7 +23,7 @@ implementations:
   - interface_id: web.fetch
     # STUB digest, minted under cruxible.interface.stub.v1 until core registers
     # this interface. interfaces.py carries the preimage and a drift test.
-    interface_digest: "sha256:8fbe7a7b093f5802a2f55414c70846d873081145e3e8e368ccbc8238d275fd6b"
+    interface_digest: "sha256:65db4ad92e8e7d9824369949b622f7daa51ad5b2e847dbac1eeb9bde49f442e1"
     entrypoint: "cruxible_provider_web.fetch:WebFetch"
     backends: [local_env, container]
     # The js_rendered bucket needs a browser, and a browser is a heavy engine,

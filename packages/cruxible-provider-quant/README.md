@@ -103,7 +103,7 @@ are two different things:
 
 | Failure | Refusal |
 |---|---|
-| no `model_ref`, unsupported `kind`, missing path, absent or ill-formed pin, unnamed score scale, missing `feature_order`, **unreadable path** | `provider_declined` / `malformed_model_ref` — a request this implementation cannot serve |
+| no `model_ref`, unsupported `kind`, missing path, absent or ill-formed pin, unnamed score scale, missing `feature_order`, **unreadable path** | `malformed_model_ref` — a request this implementation cannot serve |
 | the file was read and its bytes do not hash to the pin | `artifact_hash_mismatch` — an **integrity** signal, from the runtime taxonomy, countable on a track record apart from ordinary declines |
 
 A file that is not there has not been altered; folding a missing path into the

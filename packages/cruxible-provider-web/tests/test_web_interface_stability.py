@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 import tomllib
 from pathlib import Path
 
@@ -10,12 +12,18 @@ import pytest
 from cruxible_provider_runtime.buckets import BucketVocabulary
 from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, ProviderManifest
 from cruxible_provider_runtime.registry import load_bucket_vocabulary
-from cruxible_provider_web import interfaces
+from cruxible_provider_web import engines, fetch, http, interfaces, search
 
 STUBS = [
     ("web.fetch", interfaces.FETCH_PREIMAGE, interfaces.FETCH_INTERFACE_DIGEST),
     ("search.web", interfaces.SEARCH_PREIMAGE, interfaces.SEARCH_INTERFACE_DIGEST),
 ]
+
+IMPLEMENTATION_MODULES = {
+    "web.fetch": (fetch, engines, http),
+    "search.web": (search,),
+}
+EXECUTOR_REFUSALS = {"undeclared_egress", "unresolved_secret_ref"}
 
 
 @pytest.mark.parametrize(("interface_id", "preimage", "digest"), STUBS, ids=lambda v: str(v)[:24])
@@ -26,6 +34,26 @@ def test_the_pinned_interface_digest_still_matches_its_preimage(
 
     assert interfaces.recompute_interface_digest(preimage) == digest
     assert preimage["interface_id"] == interface_id
+
+
+@pytest.mark.parametrize(("interface_id", "preimage", "digest"), STUBS, ids=lambda v: str(v)[:24])
+def test_every_emitted_refusal_is_declared_by_the_interface(
+    interface_id: str, preimage: dict[str, object], digest: str
+) -> None:
+    """The refusal schema is exhaustive over implementation and executor paths."""
+
+    del digest
+    emitted = set(EXECUTOR_REFUSALS)
+    for module in IMPLEMENTATION_MODULES[interface_id]:
+        tree = ast.parse(inspect.getsource(module))
+        emitted.update(
+            node.attr.lower()
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "RefusalCode"
+        )
+    assert set(preimage["refusals"]) == emitted
 
 
 @pytest.mark.parametrize(("interface_id", "preimage", "digest"), STUBS, ids=lambda v: str(v)[:24])

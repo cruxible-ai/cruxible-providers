@@ -24,7 +24,7 @@ supported_protocol_majors: [1]
 implementations:
   # ---------------------------------------------------------------- calc.reduce
   - interface_id: calc.reduce
-    interface_digest: "sha256:03b51d8ed139039fe2b3af1b81f0939d5593d43f862e900bae6fb97485227fea"
+    interface_digest: "sha256:148c0044ea289d8014b2223f5bd269248972e6213bca046ed476f426642e586e"
     entrypoint: "cruxible_provider_quant.reduce:Reduce"
     backends: [local_env, container]
     declared_input_buckets:
@@ -41,7 +41,7 @@ implementations:
 
   # ----------------------------------------------------------------- ts.anomaly
   - interface_id: ts.anomaly
-    interface_digest: "sha256:184042e57be1faa247e9d1617470f906a2860b840782ed704fe9933f14d490bb"
+    interface_digest: "sha256:c9dcccbecdfb991df310853aa4b1193032f58480ddfe26d9f065ddc7557736e0"
     entrypoint: "cruxible_provider_quant.anomaly:Anomaly"
     backends: [local_env, container]
     declared_input_buckets:
@@ -62,7 +62,7 @@ implementations:
 
   # ---------------------------------------------------------------- ts.forecast
   - interface_id: ts.forecast
-    interface_digest: "sha256:61d0700e69c7b8ce81df8b98f2a2d3c3d1b6ceb6e7bd14f62dd3bc4dc9fe5262"
+    interface_digest: "sha256:a350e46acd787ad8eebfcc6242f8fd99cd0a1a47bf4e9d5cf6930b0a8cdd4baa"
     entrypoint: "cruxible_provider_quant.forecast:Forecast"
     backends: [local_env, container]
     declared_input_buckets:
@@ -83,7 +83,7 @@ implementations:
 
   # ------------------------------------------------------------------ stat.test
   - interface_id: stat.test
-    interface_digest: "sha256:4cf098b47cdc911e92ceaa89217b5106a0167b0fe918bc4daf53c33a3d0b2b94"
+    interface_digest: "sha256:ed085bcc3fbda9dea5005432f2f0be723f165b2804df71e3e20bb69c43cec937"
     entrypoint: "cruxible_provider_quant.stat_test:StatTest"
     backends: [local_env, container]
     declared_input_buckets:
@@ -108,7 +108,7 @@ implementations:
 
   # ----------------------------------------------------------------- score.rank
   - interface_id: score.rank
-    interface_digest: "sha256:43f333336abc78d6a365b964c53a485d6f8106c05e4d47ab8f22322caab7e068"
+    interface_digest: "sha256:96d0ff67eac67537d304273de990221b1342c2e637e393e472dc7abf644b2c80"
     entrypoint: "cruxible_provider_quant.rank:Rank"
     backends: [local_env, container]
     declared_input_buckets:
@@ -125,7 +125,7 @@ implementations:
 
   # --------------------------------------------------------------- match.record
   - interface_id: match.record
-    interface_digest: "sha256:9330ac3b0eedd4e2bc7df7c88475957c4b2395081d80c80bb6be28eba899dede"
+    interface_digest: "sha256:a0f902bdb0bf13ede311b32808c36124e85d0fb5a639398c512135ffec66fd4e"
     entrypoint: "cruxible_provider_quant.linkage:RecordLinkage"
     backends: [local_env, container]
     declared_input_buckets:
@@ -142,7 +142,7 @@ implementations:
 
   # ------------------------------------------------------------- calc.calibrate
   - interface_id: calc.calibrate
-    interface_digest: "sha256:2569fb7ca8021413b6369a93c334bccd24dbef769e0389b3adf03f04cf40b003"
+    interface_digest: "sha256:68ed76a4d56a0ccaf0dd80380d20b84072bdd3bee2424ede0ec519cfb0d559a8"
     entrypoint: "cruxible_provider_quant.calibrate:Calibrate"
     backends: [local_env, container]
     declared_input_buckets:
