@@ -17,7 +17,7 @@ entrypoint_group: cruxible.providers
 supported_protocol_majors: [1]
 implementations:
   - interface_id: noop.echo
-    interface_digest: "sha256:caff71f0df710f7e281a7272a9056d5ca36f22bf3f434c5443e873b9c3872173"
+    interface_digest: "sha256:e72546b97fdcb8875c4fa3d8828909db60809d98d55e7a2450d0c6043113cb87"
     entrypoint: "cruxible_provider_noop.provider:NoopEcho"
     backends: [local_env, container]
     # payload_size=large is deliberately unclaimed, so that an oversized input

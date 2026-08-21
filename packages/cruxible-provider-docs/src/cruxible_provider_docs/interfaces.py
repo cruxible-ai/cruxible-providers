@@ -76,7 +76,6 @@ MARKDOWN_PREIMAGE: dict[str, Any] = {
     "refusals": [
         "provider_declined",
         "environment_divergence",
-        "unclaimed_bucket",
     ],
 }
 
@@ -99,14 +98,13 @@ OCR_PREIMAGE: dict[str, Any] = {
     "refusals": [
         "provider_declined",
         "environment_divergence",
-        "unclaimed_bucket",
     ],
 }
 
 MARKDOWN_INTERFACE_DIGEST = (
-    "sha256:5bb615e27f9eaa3967a87d5e90e0d4dd9d8551c6b46e610e934138fa897ead16"
+    "sha256:e33e09a19024a719282cdc36ba808bfce64e2ffe2b6fa5a9705852b52cc8e0ca"
 )
-OCR_INTERFACE_DIGEST = "sha256:7d975b826e13e71fe5adc133ce35b4eeb067d2e2673bf786d887c9e32b59c7b2"
+OCR_INTERFACE_DIGEST = "sha256:602020c2032b8162876db4f592d9b46f523e96f1a342c908707afc3150272ae9"
 
 MARKDOWN_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "doc.to_markdown.yaml")
 OCR_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "ocr.extract.yaml")

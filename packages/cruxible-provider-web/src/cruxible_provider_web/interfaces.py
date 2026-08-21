@@ -77,7 +77,6 @@ FETCH_PREIMAGE: dict[str, Any] = {
         "provider_declined",
         "unresolved_secret_ref",
         "environment_divergence",
-        "undeclared_egress",
         "cross_origin_credentialed_redirect",
         "unsupported_redirect_scheme",
         "redirect_limit",
@@ -103,13 +102,12 @@ SEARCH_PREIMAGE: dict[str, Any] = {
     },
     "refusals": [
         "provider_declined",
-        "unresolved_secret_ref",
         "undeclared_egress",
     ],
 }
 
-FETCH_INTERFACE_DIGEST = "sha256:65db4ad92e8e7d9824369949b622f7daa51ad5b2e847dbac1eeb9bde49f442e1"
-SEARCH_INTERFACE_DIGEST = "sha256:6ea709274b8e6766a52845b2ec279221c3092288e9a8450226a725ee56852064"
+FETCH_INTERFACE_DIGEST = "sha256:997888c143ed1f7905c88af55e7d29d1dd6c064026c183f12ce6989a7d5dc187"
+SEARCH_INTERFACE_DIGEST = "sha256:346827bfeeeabe10cd9655f73025ad77a717ad1bac6a8f828551b3fd9b506b9d"
 
 FETCH_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "web.fetch.yaml")
 SEARCH_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "search.web.yaml")

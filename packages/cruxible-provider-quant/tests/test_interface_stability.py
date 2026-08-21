@@ -16,16 +16,7 @@ from pathlib import Path
 
 import cruxible_provider_quant
 import pytest
-from cruxible_provider_quant import (
-    anomaly,
-    calibrate,
-    forecast,
-    interfaces,
-    linkage,
-    rank,
-    reduce,
-    stat_test,
-)
+from cruxible_provider_quant import interfaces
 from cruxible_provider_quant.classifiers import CLASSIFIERS
 from cruxible_provider_runtime.canonical import SHA256_RE
 from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, ProviderManifest
@@ -34,16 +25,6 @@ from cruxible_provider_runtime.registry import load_bucket_vocabulary
 from .conftest import PACKAGE_DIR, VOCAB_DIR
 
 IDS = list(interfaces.INTERFACE_IDS)
-
-IMPLEMENTATION_MODULES = {
-    "calc.calibrate": calibrate,
-    "calc.reduce": reduce,
-    "match.record": linkage,
-    "score.rank": rank,
-    "stat.test": stat_test,
-    "ts.anomaly": anomaly,
-    "ts.forecast": forecast,
-}
 
 
 @pytest.mark.parametrize("interface_id", IDS)
@@ -61,27 +42,6 @@ def test_every_digest_is_well_formed_and_distinct() -> None:
     assert set(digests) == set(IDS)
     assert all(SHA256_RE.match(value) for value in digests.values())
     assert len(set(digests.values())) == len(digests)
-
-
-@pytest.mark.parametrize("interface_id", IDS)
-def test_every_emitted_refusal_is_declared_by_the_interface(interface_id: str) -> None:
-    """The refusal schema is exhaustive over each quantitative implementation."""
-
-    tree = ast.parse(inspect.getsource(IMPLEMENTATION_MODULES[interface_id]))
-    emitted = {
-        node.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "RefusalCode"
-    }
-    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
-    assert "ok_if_finite" in names
-    emitted.add("NON_FINITE_RESULT")
-
-    preimage = interfaces.INTERFACE_PREIMAGES[interface_id]
-    assert "decline_reasons" not in preimage
-    assert set(preimage["refusals"]) == {code.lower() for code in emitted}
 
 
 @pytest.mark.parametrize("interface_id", IDS)

@@ -44,10 +44,10 @@ INTERFACE_PREIMAGE: dict[str, Any] = {
         "echo": {"type": "string"},
         "input_bucket": {"type": "string"},
     },
-    "refusals": ["provider_declined"],
+    "refusals": ["provider_declined", "unresolved_secret_ref"],
 }
 
-INTERFACE_DIGEST = "sha256:caff71f0df710f7e281a7272a9056d5ca36f22bf3f434c5443e873b9c3872173"
+INTERFACE_DIGEST = "sha256:e72546b97fdcb8875c4fa3d8828909db60809d98d55e7a2450d0c6043113cb87"
 
 VOCABULARY = BucketVocabulary(
     interface_id=INTERFACE_ID,

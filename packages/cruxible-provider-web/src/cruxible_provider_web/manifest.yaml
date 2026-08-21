@@ -23,7 +23,7 @@ implementations:
   - interface_id: web.fetch
     # STUB digest, minted under cruxible.interface.stub.v1 until core registers
     # this interface. interfaces.py carries the preimage and a drift test.
-    interface_digest: "sha256:65db4ad92e8e7d9824369949b622f7daa51ad5b2e847dbac1eeb9bde49f442e1"
+    interface_digest: "sha256:997888c143ed1f7905c88af55e7d29d1dd6c064026c183f12ce6989a7d5dc187"
     entrypoint: "cruxible_provider_web.fetch:WebFetch"
     backends: [local_env, container]
     # The js_rendered bucket needs a browser, and a browser is a heavy engine,
@@ -68,7 +68,7 @@ implementations:
     side_effects: true
 
   - interface_id: search.web
-    interface_digest: "sha256:6ea709274b8e6766a52845b2ec279221c3092288e9a8450226a725ee56852064"
+    interface_digest: "sha256:346827bfeeeabe10cd9655f73025ad77a717ad1bac6a8f828551b3fd9b506b9d"
     entrypoint: "cruxible_provider_web.search:SearxngSearch"
     backends: [local_env, container]
     # No engine: an HTTP client to somebody else's instance is the whole

@@ -19,7 +19,7 @@ implementations:
   - interface_id: doc.to_markdown
     # STUB digest, minted under cruxible.interface.stub.v1 until core registers
     # this interface. interfaces.py carries the preimage and a drift test.
-    interface_digest: "sha256:5bb615e27f9eaa3967a87d5e90e0d4dd9d8551c6b46e610e934138fa897ead16"
+    interface_digest: "sha256:e33e09a19024a719282cdc36ba808bfce64e2ffe2b6fa5a9705852b52cc8e0ca"
     entrypoint: "cruxible_provider_docs.to_markdown:DoclingToMarkdown"
     backends: [local_env, container]
     # Docling drags a tensor stack, so it lives behind an extra and this
@@ -63,7 +63,7 @@ implementations:
     side_effects: false
 
   - interface_id: ocr.extract
-    interface_digest: "sha256:7d975b826e13e71fe5adc133ce35b4eeb067d2e2673bf786d887c9e32b59c7b2"
+    interface_digest: "sha256:602020c2032b8162876db4f592d9b46f523e96f1a342c908707afc3150272ae9"
     entrypoint: "cruxible_provider_docs.ocr:PaddleOcrExtract"
     backends: [local_env, container]
     # PaddleOCR rather than Surya, and licensing decides it: PaddleOCR is
