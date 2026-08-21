@@ -56,8 +56,9 @@ _MAX_REPORTED_PATHS = 10
 def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
     """Yield ``(kind, path)`` for everything inside ``value`` an envelope cannot carry.
 
-    Two kinds, because they are two faults rather than one. ``non_finite`` is a
-    number with no JSON spelling. ``unsupported`` is a value this walk will not
+    Three kinds, because they are distinct faults. ``non_finite`` is a number
+    with no JSON spelling. ``non_string_key`` is a mapping key the serialiser
+    would have to reinterpret. ``unsupported`` is a value this walk will not
     descend into and will not vouch for — and it has to be a fault rather than a
     shrug, because a walk that silently skips what it does not recognise is a
     walk whose "no NaN here" means "no NaN in the parts I understood". Each of
@@ -74,8 +75,13 @@ def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
             yield ("non_finite", path or "<root>")
         return
     if isinstance(value, Mapping):
-        for key, item in value.items():
-            yield from _walk(item, f"{path}.{key}" if path else str(key))
+        for index, (key, item) in enumerate(value.items()):
+            if not isinstance(key, str):
+                prefix = f"{path}." if path else ""
+                yield ("non_string_key", f"{prefix}<key[{index}]> ({type(key).__name__})")
+                yield from _walk(item, f"{prefix}<value[{index}]>")
+                continue
+            yield from _walk(item, f"{path}.{key}" if path else key)
         return
     if isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
@@ -93,9 +99,10 @@ def reject_non_finite(value: Any, *, where: str) -> None:
 
     It is also **closed** over the JSON types rather than open over them. An
     output is on its way to canonical JSON, so a value outside ``None``,
-    ``bool``, ``int``, ``float``, ``str`` and the two containers is not one with
-    a subtler encoding — it is one whose encoding this layer would be guessing
-    at, and every available guess is worse than the refusal.
+    ``bool``, ``int``, ``float``, ``str`` and the two containers, or a mapping
+    key that is not a string, is not one with a subtler encoding — it is one
+    whose encoding this layer would be guessing at, and every available guess
+    is worse than the refusal.
     """
 
     findings = sorted(set(_walk(value, "")))
@@ -108,14 +115,29 @@ def reject_non_finite(value: Any, *, where: str) -> None:
             paths=non_finite[:_MAX_REPORTED_PATHS],
             count=len(non_finite),
         )
-    unsupported = [path for kind, path in findings if kind == "unsupported"]
+    unsupported = [path for kind, path in findings if kind in {"non_string_key", "unsupported"}]
     if unsupported:
         raise refuse(
             RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
-            f"{where} carries a value canonical JSON has no encoding for",
+            f"{where} carries a value or mapping key canonical JSON has no encoding for",
             where=where,
             paths=unsupported[:_MAX_REPORTED_PATHS],
             count=len(unsupported),
+        )
+
+
+def _reject_non_string_keys(value: Any, *, where: str) -> None:
+    """Refuse raw mapping keys before schema validation can reinterpret them."""
+
+    findings = sorted(set(_walk(value, "")))
+    paths = [path for kind, path in findings if kind == "non_string_key"]
+    if paths:
+        raise refuse(
+            RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+            f"{where} carries a mapping key canonical JSON has no encoding for",
+            where=where,
+            paths=paths[:_MAX_REPORTED_PATHS],
+            count=len(paths),
         )
 
 
@@ -265,6 +287,12 @@ class ResultEnvelope(BaseModel):
     refusal: Refusal | None = None
     error: ProviderErrorPayload | None = None
     trace: Trace = Field(default_factory=Trace)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _closed_mapping_keys(cls, value: Any) -> Any:
+        _reject_non_string_keys(value, where="provider result envelope")
+        return value
 
     @model_validator(mode="after")
     def _status_consistency(self) -> Self:

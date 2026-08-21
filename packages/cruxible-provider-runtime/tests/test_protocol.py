@@ -225,6 +225,63 @@ def test_a_value_canonical_json_cannot_encode_refuses(value: object, type_name: 
     assert exc.value.refusal.detail["paths"] == [f"statistic ({type_name})"]
 
 
+NON_STRING_KEY_ENVELOPES = [
+    pytest.param(
+        {"protocol_version": "1.0", "run_id": "r", "status": "ok", "output": {float("nan"): 1}},
+        "output.<key[0]> (float)",
+        id="nan-key",
+    ),
+    pytest.param(
+        {
+            "protocol_version": "1.0",
+            "run_id": "r",
+            "status": "ok",
+            "output": {"fine": 1},
+            "trace": {"events": [{None: "value"}]},
+        },
+        "trace.events[0].<key[0]> (NoneType)",
+        id="none-key",
+    ),
+    pytest.param(
+        {
+            "protocol_version": "1.0",
+            "run_id": "r",
+            "status": "refused",
+            "refusal": {
+                "code": "provider_declined",
+                "message": "no",
+                "detail": {1: "value"},
+            },
+        },
+        "refusal.detail.<key[0]> (int)",
+        id="integer-key",
+    ),
+    pytest.param(
+        {
+            "protocol_version": "1.0",
+            "run_id": "r",
+            "status": "ok",
+            "output": {"outer": [{"inner": {2: "value"}}]},
+        },
+        "output.outer[0].inner.<key[0]> (int)",
+        id="nested-key",
+    ),
+]
+
+
+@pytest.mark.parametrize(("document", "path"), NON_STRING_KEY_ENVELOPES)
+def test_a_non_string_mapping_key_is_a_typed_refusal(
+    document: dict[object, object], path: str
+) -> None:
+    """Pydantic must not turn an invalid key into an untyped validation error."""
+
+    with pytest.raises(RefusalError) as exc:
+        ResultEnvelope.model_validate(document)
+    assert exc.value.code is RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert exc.value.refusal.detail["where"] == "provider result envelope"
+    assert exc.value.refusal.detail["paths"] == [path]
+
+
 def test_a_numpy_scalar_refuses_here_rather_than_raising_from_the_serialiser() -> None:
     """The failure mode this closes is one with no refusal attached at all.
 
