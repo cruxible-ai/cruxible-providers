@@ -249,6 +249,12 @@ class RunContext(BaseModel):
         description="the additive region: unknown keys here are ignored by a provider",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _closed_mapping_keys(cls, value: Any) -> Any:
+        _reject_non_string_keys(value, where="provider run context")
+        return value
+
     @model_validator(mode="after")
     def _version_shape(self) -> Self:
         ProtocolVersion.parse(self.protocol_version)

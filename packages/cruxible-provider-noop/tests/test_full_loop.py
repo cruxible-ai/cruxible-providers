@@ -13,6 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import cruxible_provider_runtime.binding as binding_module
+import cruxible_provider_runtime.execute as execute_module
 import pytest
 import yaml
 from cruxible_provider_noop.provider import CREDENTIAL_REF
@@ -156,6 +157,46 @@ def test_credential_arrives_by_ref_over_the_descriptor(
     assert outcome.status == "ok"
     assert outcome.envelope.output is not None
     assert outcome.envelope.output["credential_length"] == len(DUMMY_CREDENTIAL)
+
+
+def test_nan_and_none_request_keys_cannot_collapse_before_provider_spawn(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both keys used to serialise as ``None``; now neither reaches the child."""
+
+    spawned = False
+
+    def unexpected_spawn(*args: object, **kwargs: object) -> None:
+        nonlocal spawned
+        del args, kwargs
+        spawned = True
+
+    monkeypatch.setattr(execute_module, "_execute", unexpected_spawn)
+    payload = {
+        "text": "hello",
+        "collision": {float("nan"): "nan-value", None: "none-value"},
+    }
+
+    with pytest.raises(RefusalError) as exc:
+        invoke(
+            binding,
+            registry=registry,
+            payload=payload,
+            budgets=BUDGETS,
+            local_backend=local_backend,
+            container_backend=container_backend,
+        )
+
+    assert exc.value.code is RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert set(exc.value.refusal.detail["paths"]) == {
+        "input.collision.<key[0]> (float)",
+        "input.collision.<key[1]> (NoneType)",
+    }
+    assert not spawned
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)

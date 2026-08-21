@@ -110,6 +110,37 @@ def test_run_context_is_frozen() -> None:
         context.run_id = "other"  # type: ignore[misc]
 
 
+NON_STRING_REQUEST_KEYS = [
+    pytest.param(1, "int", id="integer-key"),
+    pytest.param(float("nan"), "float", id="nan-key"),
+    pytest.param(None, "NoneType", id="none-key"),
+    pytest.param(True, "bool", id="boolean-key"),
+]
+
+
+@pytest.mark.parametrize(("key", "type_name"), NON_STRING_REQUEST_KEYS)
+def test_a_non_string_key_nested_in_the_request_payload_is_a_typed_refusal(
+    key: object, type_name: str
+) -> None:
+    """Mapping keys follow the string rule even when bool is valid as a JSON value."""
+
+    document = _context(input={"outer": [{key: "value"}]})
+    with pytest.raises(RefusalError) as exc:
+        RunContext.model_validate(document)
+    assert exc.value.code is RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert exc.value.refusal.detail["where"] == "provider run context"
+    assert exc.value.refusal.detail["paths"] == [f"input.outer[0].<key[0]> ({type_name})"]
+
+
+@pytest.mark.parametrize("field", ["input", "coordinates", "additive"])
+def test_every_open_run_context_region_enforces_string_mapping_keys(field: str) -> None:
+    document = _context(**{field: {"outer": {1: "value"}}})
+    with pytest.raises(RefusalError) as exc:
+        RunContext.model_validate(document)
+    assert exc.value.code is RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert exc.value.refusal.detail["paths"] == [f"{field}.outer.<key[0]> (int)"]
+
+
 def test_an_executor_side_refusal_renders_in_the_provider_result_shape() -> None:
     """So a caller reads one envelope shape regardless of who refused."""
 
