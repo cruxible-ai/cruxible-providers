@@ -548,6 +548,29 @@ def test_an_untouched_environment_is_not_re_hashed_on_every_invoke(
     assert len(calls) == 1, "the gate should have skipped the second and third hash"
 
 
+def test_a_vanished_tree_reading_always_forces_the_full_hash(
+    binding: Binding,
+    registry: StubRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A partial stat walk is never a reusable reading of the environment."""
+
+    assert binding.env_path is not None
+    calls: list[Path] = []
+    real = binding_module.tree_digest
+
+    monkeypatch.setattr(binding_module, "_tree_fingerprint", lambda root: (-1, -1.0))
+    monkeypatch.setattr(
+        binding_module, "tree_digest", lambda root: (calls.append(root), real(root))[1]
+    )
+
+    binding.revalidate(registry)
+    binding.revalidate(registry)
+
+    assert calls == [binding.env_path, binding.env_path]
+    assert str(binding.env_path) not in binding.tree_watch
+
+
 def test_a_touched_environment_is_re_hashed_and_still_refuses(
     binding: Binding,
     registry: StubRegistry,

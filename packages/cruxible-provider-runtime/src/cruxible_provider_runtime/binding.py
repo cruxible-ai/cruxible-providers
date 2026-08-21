@@ -79,9 +79,9 @@ def _tree_fingerprint(root: Path) -> tuple[int, float]:
     integrity one — :meth:`Binding.revalidate` uses it only to decide whether to
     recompute the digest that *is* the integrity check.
 
-    An entry that disappears mid-walk returns a reading that cannot equal any
-    cached one, which forces the full hash. Guessing at what the tree looked like
-    a moment ago would be the fail-open reading.
+    An entry that disappears mid-walk returns a sentinel this binding never
+    caches, which forces the full hash. Guessing at what the tree looked like a
+    moment ago would be the fail-open reading.
     """
 
     count = 0
@@ -242,7 +242,8 @@ class Binding:
             # Recorded only after the authority agreed. A fingerprint cached
             # before the hash ran would be a gate that skips a check nobody
             # passed.
-            self.tree_watch[str(self.env_path)] = fingerprint
+            if fingerprint != (-1, -1.0):
+                self.tree_watch[str(self.env_path)] = fingerprint
 
 
 def bind(
