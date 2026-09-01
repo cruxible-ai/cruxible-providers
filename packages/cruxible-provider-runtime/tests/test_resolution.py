@@ -110,6 +110,7 @@ def test_no_compatible_artifact_refuses(linux_env: MarkerEnvironment) -> None:
     with pytest.raises(RefusalError) as exc:
         resolve(lock, "root", linux_env)
     assert exc.value.code is RefusalCode.NO_COMPATIBLE_ARTIFACT
+    assert exc.value.refusal.detail["package"] == "wrong-platform"
 
 
 def test_ambiguous_fork_refuses(linux_env: MarkerEnvironment) -> None:

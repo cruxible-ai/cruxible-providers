@@ -37,36 +37,72 @@ DECLARED_ENVIRONMENTS = [
     )["environments"]
 ]
 
-RATIFIED_TAGS = {
-    "linux-cp311": (
-        "cp311-cp311-manylinux_2_28_x86_64",
-        "cp311-abi3-manylinux_2_28_x86_64",
-        "py3-none-any",
-    ),
-    "linux-cp312": (
-        "cp312-cp312-manylinux_2_28_x86_64",
-        "cp312-abi3-manylinux_2_28_x86_64",
-        "py3-none-any",
-    ),
-    "macos-arm-cp312": (
-        "cp312-cp312-macosx_14_0_arm64",
-        "cp312-abi3-macosx_14_0_arm64",
-        "py3-none-any",
-    ),
+RATIFIED_ENVIRONMENT_PAYLOADS = {
+    "linux-cp311": {
+        "markers": {
+            "implementation_name": "cpython",
+            "os_name": "posix",
+            "platform_machine": "x86_64",
+            "python_full_version": "3.11.9",
+            "python_version": "3.11",
+            "sys_platform": "linux",
+        },
+        "tags": [
+            "cp311-cp311-manylinux_2_28_x86_64",
+            "cp311-abi3-manylinux_2_28_x86_64",
+            "py3-none-any",
+        ],
+    },
+    "linux-cp312": {
+        "markers": {
+            "implementation_name": "cpython",
+            "os_name": "posix",
+            "platform_machine": "x86_64",
+            "python_full_version": "3.12.6",
+            "python_version": "3.12",
+            "sys_platform": "linux",
+        },
+        "tags": [
+            "cp312-cp312-manylinux_2_28_x86_64",
+            "cp312-abi3-manylinux_2_28_x86_64",
+            "py3-none-any",
+        ],
+    },
+    "macos-arm-cp312": {
+        "markers": {
+            "implementation_name": "cpython",
+            "os_name": "posix",
+            "platform_machine": "arm64",
+            "python_full_version": "3.12.6",
+            "python_version": "3.12",
+            "sys_platform": "darwin",
+        },
+        "tags": [
+            "cp312-cp312-macosx_14_0_arm64",
+            "cp312-abi3-macosx_14_0_arm64",
+            "py3-none-any",
+        ],
+    },
 }
 
-ENGINE_ENVIRONMENTS = []
+EXPECTED_ENGINE_ENVIRONMENTS = {
+    "doc.to_markdown+docling",
+    "ocr.extract+paddleocr",
+    "web.fetch+browser",
+}
+ENGINE_ENVIRONMENTS: list[tuple[str, str, tuple[str, ...]]] = []
 for manifest_path in sorted((REPO_ROOT / "packages").glob("*/src/*/manifest.yaml")):
     manifest = load_manifest(manifest_path)
     for implementation in manifest.implementations:
         if implementation.requires_extras:
+            subject = f"{implementation.interface_id}+{'+'.join(implementation.requires_extras)}"
             ENGINE_ENVIRONMENTS.append(
-                pytest.param(
-                    manifest.distribution.name,
-                    implementation.requires_extras,
-                    id=f"{implementation.interface_id}+{'+'.join(implementation.requires_extras)}",
-                )
+                (subject, manifest.distribution.name, implementation.requires_extras)
             )
+
+ENGINE_ENVIRONMENT_PARAMS = [
+    pytest.param(package, extras, id=subject) for subject, package, extras in ENGINE_ENVIRONMENTS
+]
 
 
 def _resolve(package: str, extras: tuple[str, ...], environment: MarkerEnvironment) -> ResolvedSet:
@@ -75,13 +111,17 @@ def _resolve(package: str, extras: tuple[str, ...], environment: MarkerEnvironme
 
 
 def test_declared_environments_pin_the_ratified_launch_floors() -> None:
-    assert {environment.id: environment.tags for environment in DECLARED_ENVIRONMENTS} == (
-        RATIFIED_TAGS
-    )
+    assert {
+        environment.id: environment.digest_payload() for environment in DECLARED_ENVIRONMENTS
+    } == RATIFIED_ENVIRONMENT_PAYLOADS
+
+
+def test_engine_environment_inventory_is_complete() -> None:
+    assert {subject for subject, _, _ in ENGINE_ENVIRONMENTS} == (EXPECTED_ENGINE_ENVIRONMENTS)
 
 
 @pytest.mark.parametrize("environment", DECLARED_ENVIRONMENTS, ids=lambda env: env.id)
-@pytest.mark.parametrize(("package", "extras"), ENGINE_ENVIRONMENTS)
+@pytest.mark.parametrize(("package", "extras"), ENGINE_ENVIRONMENT_PARAMS)
 def test_every_engine_environment_resolves_for_every_declared_environment(
     package: str, extras: tuple[str, ...], environment: MarkerEnvironment
 ) -> None:
