@@ -42,33 +42,31 @@ Splitting them would mean two implementations of `doc.to_markdown`, which is a
 terminal `ambiguous_implementation` refusal — so this is a real cost of the
 one-implementation-per-interface rule, not an oversight.
 
-## The OCR environment pins; the conversion environment needs a newer floor
+## Both engine environments pin
 
 Against the three launch marker environments in `ci/marker-environments.json`:
 
 | Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
 |---|---|---|---|
 | *(base)* | resolves | resolves | resolves |
-| `docling` | refuses | refuses | refuses |
+| `docling` | resolves | resolves | resolves |
 | `paddleocr` | resolves | resolves | resolves |
 
 `+paddleocr` refused on two of the three until the resolver stopped matching
 declared tags by exact string membership: PaddlePaddle publishes
-`cp311-cp311-manylinux1_x86_64`, which a `manylinux_2_17` environment installs
+`cp311-cp311-manylinux1_x86_64`, which a `manylinux_2_28` environment installs
 and a literal tag list does not name.
 
-`+docling` still refuses with `no_compatible_artifact`, naming `torchvision`, and
-that refusal is correct rather than a residual bug. The declared environments
-target glibc 2.17 and macOS 11.0; torchvision publishes `manylinux_2_28` and
-`macosx_14_0` wheels only, which do not install on those floors. Pinning this
-closure means raising the declared floors, which re-pins every package at once
-and is deliberately not a change this package's batch makes. Its engine suite
-binds against the runtime's `ENGINE_MARKER_ENVIRONMENT`, which declares the
-higher floor for tests only.
+`+docling` resolves now because the declared launch floors are glibc 2.28 and
+macOS 14.0, the floors its tensor stack requires. The re-baseline deliberately
+re-keyed every package's materialization digest before any Provider artifact was
+accepted; it did not change the document interfaces or their implementation
+digests. The engine suite's shared `ENGINE_MARKER_ENVIRONMENT` now matches the
+Linux launch floor rather than standing in for a future one.
 
-**The base install is unaffected**: it resolves for all three environments, so the
-default lane, the digest-scope gate and the closure report are unimpaired — and
-the engine-free plain-text path is bindable today.
+**The base install remains resolvable** for all three environments, so the
+default lane, the digest-scope gate and the closure report remain unimpaired —
+and the engine-free plain-text path stays bindable.
 
 ## Why PaddleOCR rather than Surya
 

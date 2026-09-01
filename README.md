@@ -83,15 +83,15 @@ different environments — `doc.to_markdown` binds one with a conversion engine,
 `ocr.extract` one with an OCR runtime — and an artifact that pins only one of
 them refuses the other rather than falling back.
 
-**Remaining limitation: one engine closure needs a newer floor than the declared
-environments have.** A declared tag list is read as an ordering (PEP 425/600)
-rather than as literal names, so `+browser` and `+paddleocr` pin on all three
-launch environments in `ci/marker-environments.json`. `+docling` still refuses
-with `no_compatible_artifact`, naming `torchvision`, and that refusal is right:
-the declared environments target glibc 2.17 and macOS 11.0, and torchvision
-publishes `manylinux_2_28` and `macosx_14_0` wheels only. Making that closure
-pinnable means raising the declared floors, which re-pins every package at once.
-`docs/packaging.md` carries the table.
+**Every launch engine closure pins on every declared environment.** A declared
+tag list is read as an ordering (PEP 425/600) rather than as literal names, and
+the launch floors are `manylinux_2_28` and `macosx_14_0`. Consequently
+`+browser`, `+paddleocr`, and `+docling` all resolve on the three environments in
+`ci/marker-environments.json`. Raising those floors deliberately re-keyed every
+package's materialization digest before any Provider artifact was accepted; it
+does not enter or move the backend-invariant implementation digest.
+`docs/packaging.md` carries the table, cloud base-image coupling, and Windows
+posture.
 
 The consequence for testing is the point of the whole arrangement: `uv run
 pytest` installs no engine and downloads nothing. Real-engine tests exist, are

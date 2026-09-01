@@ -108,30 +108,33 @@ Reproduced against the committed locks, for the three environments in
 | `cruxible-provider-web` | *(base)* | resolves | resolves | resolves |
 | `cruxible-provider-web` | `browser` | resolves | resolves | resolves |
 | `cruxible-provider-docs` | *(base)* | resolves | resolves | resolves |
-| `cruxible-provider-docs` | `docling` | refuses | refuses | refuses |
+| `cruxible-provider-docs` | `docling` | resolves | resolves | resolves |
 | `cruxible-provider-docs` | `paddleocr` | resolves | resolves | resolves |
 
-#### The one closure that still refuses, and why that is correct
+#### The launch floors, and the global re-key
 
-`docling` refuses with `no_compatible_artifact`, naming `torchvision`, and the
-refusal is the mechanism working rather than failing. The declared environments
-target glibc 2.17 and macOS 11.0; torchvision publishes `manylinux_2_28` and
-`macosx_14_0` wheels only. A newer floor is not a compatible floor, and an
-ordering that admitted one would be the fail-open reading of the same rule it
-exists to enforce.
+The declared Linux environments target `manylinux_2_28`; the declared macOS
+environment targets `macosx_14_0`. Those floors admit every engine closure the
+launch manifests require, including Docling's tensor stack. The Linux floor is
+also the cloud base-image intent: a cloud image that claimed a lower glibc floor
+could not honestly materialize the same accepted pin.
 
-Making that closure pinnable is therefore a decision about the **declared
-floors**, not about tag matching: raising `ci/marker-environments.json` to
-`manylinux_2_28` and `macosx_14_0`. That file re-pins every package at once,
-which is why it is a committed artifact, and why raising it is a deliberate act
-of its own rather than a side effect of a plane package needing an engine. Until
-then the document plane's engine suite binds against
-`cruxible_provider_runtime.testing.ENGINE_MARKER_ENVIRONMENT`, which declares the
-higher floor for tests only.
+Raising the floors changed every declared marker-environment payload, so **every
+package's local materialization digest moved**, including base environments and
+extras sets whose selected wheels did not change. That global re-key was
+deliberate, pre-acceptance, and free: no accepted Provider artifact carried the
+old pins, so nothing needed re-issuance. The marker environments do not enter the
+backend-invariant implementation preimage, and this slice changes no interface,
+entrypoint, or released distribution pin; implementation digests do not move.
 
-What is unaffected: **the base lane**. Every package's base environment resolves
-for all three launch environments, so the digest-scope gate, the closure report,
-and every default test lane are unimpaired.
+Windows development uses WSL2 now. Native Windows is demand-gated and, if
+needed, arrives later as an **additive** marker environment. It will create new
+materialization digests for that environment without re-keying any existing
+Linux or macOS pin.
+
+The base lane also continues to resolve for every package on all three launch
+environments, so the floor raise adds the Docling closure without trading away
+an existing environment.
 
 ## Test directories are not packages
 

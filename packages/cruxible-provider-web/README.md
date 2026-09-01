@@ -40,6 +40,11 @@ Resolved against the committed lock and the three launch marker environments in
 | *(base)* | resolves | resolves | resolves |
 | `browser` | resolves | resolves | resolves |
 
+The launch floors are now `manylinux_2_28` and `macosx_14_0`. Raising them
+deliberately re-keyed every package's materialization digest before acceptance;
+the browser closure remains resolvable on all three and selects the compatible
+binary artifacts an installer on those floors would prefer.
+
 `+browser` refused on all three until the resolver stopped matching declared tags
 by exact string membership. Playwright publishes `py3-none-manylinux1_x86_64`,
 `py3-none-macosx_11_0_universal2` and friends — none of them among the three
