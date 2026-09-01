@@ -66,9 +66,10 @@ environments. Every declared engine closure now resolves at that floor,
 including Docling's tensor stack.
 
 Read its scope carefully: this is still a **test** environment. Its long tag
-list explicitly enumerates compatibility for test convenience, whereas the
-shipped marker environment declares only the preferred family members and lets
-the resolver derive the same ordering. It is not an additional production pin.
+list admits the same tags as the shipped environment but in a **different
+preference order**. That order selects different wheels inside a real engine
+closure and therefore produces a different materialization pin. It must never
+be treated as an additional production environment.
 """
 
 

@@ -55,6 +55,8 @@ IMAGE_DIGEST = "sha256:" + "e1" * 32
 BASE_IMAGE_DIGEST = "sha256:" + "b0" * 32
 BUILDER_IDENTITY = "ci/build-provider-images@runner-0"
 
+# Mirrors the committed linux-cp311 launch environment and must move with
+# ci/marker-environments.json so test pins cannot diverge silently.
 MARKER_ENVIRONMENT = MarkerEnvironment(
     id="linux-cp311",
     markers={
@@ -66,8 +68,8 @@ MARKER_ENVIRONMENT = MarkerEnvironment(
         "sys_platform": "linux",
     },
     tags=(
-        "cp311-cp311-manylinux_2_17_x86_64",
-        "cp311-abi3-manylinux_2_17_x86_64",
+        "cp311-cp311-manylinux_2_28_x86_64",
+        "cp311-abi3-manylinux_2_28_x86_64",
         "py3-none-any",
     ),
 )

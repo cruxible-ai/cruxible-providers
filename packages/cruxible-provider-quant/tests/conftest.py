@@ -73,6 +73,8 @@ BUILDER_IDENTITY = "ci/build-provider-images@runner-0"
 BUDGETS = Budgets(wall_clock_seconds=120.0, output_bytes=16_000_000)
 BACKENDS: tuple[BackendKind, ...] = ("local_env", "container")
 
+# Mirrors the committed linux-cp311 launch environment and must move with
+# ci/marker-environments.json so test pins cannot diverge silently.
 MARKER_ENVIRONMENT = MarkerEnvironment(
     id="linux-cp311",
     markers={
@@ -84,8 +86,8 @@ MARKER_ENVIRONMENT = MarkerEnvironment(
         "sys_platform": "linux",
     },
     tags=(
-        "cp311-cp311-manylinux_2_17_x86_64",
-        "cp311-abi3-manylinux_2_17_x86_64",
+        "cp311-cp311-manylinux_2_28_x86_64",
+        "cp311-abi3-manylinux_2_28_x86_64",
         "py3-none-any",
     ),
 )
