@@ -84,8 +84,11 @@ else — never from the running interpreter — and it enters **no digest preima
 `MarkerEnvironment.digest_payload()` carries the declared list, so the expansion
 is not itself something a pin is keyed on.
 
+#### Resolver tag-ordering correction (2026-08-20): four selected-artifact re-keys
+
 That is a narrower statement than it looks, and the wider version of it is
-false. **This change re-keys four environment pins**, correctly:
+false. **The 2026-08-20 resolver correction re-keyed four environment pins**,
+correctly:
 `cruxible-provider-quant` on all three declared environments and
 `cruxible-provider-web` on `macos-arm-cp312` now resolve to different artifacts,
 because the resolver selects the binary wheels an installer would select instead
@@ -111,7 +114,7 @@ Reproduced against the committed locks, for the three environments in
 | `cruxible-provider-docs` | `docling` | resolves | resolves | resolves |
 | `cruxible-provider-docs` | `paddleocr` | resolves | resolves | resolves |
 
-#### The launch floors, and the global re-key
+#### Floor re-baseline (2026-09-01): global marker-payload re-key
 
 The declared Linux environments target `manylinux_2_28`; the declared macOS
 environment targets `macosx_14_0`. Those floors admit every engine closure the
