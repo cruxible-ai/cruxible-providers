@@ -3,6 +3,8 @@
     "The marker environments every package's materialization digest is computed",
     "for. Explicit, because a digest derived from whatever interpreter happened",
     "to run is not reproducible off that machine.",
+    "Linux targets manylinux_2_28, also the cloud base-image floor; macOS",
+    "targets macosx_14_0.",
     "Changing this file re-pins every package at once, which is exactly why it",
     "is a committed artifact and not a runtime default."
   ],
@@ -18,8 +20,8 @@
         "sys_platform": "linux"
       },
       "tags": [
-        "cp311-cp311-manylinux_2_17_x86_64",
-        "cp311-abi3-manylinux_2_17_x86_64",
+        "cp311-cp311-manylinux_2_28_x86_64",
+        "cp311-abi3-manylinux_2_28_x86_64",
         "py3-none-any"
       ]
     },
@@ -34,8 +36,8 @@
         "sys_platform": "linux"
       },
       "tags": [
-        "cp312-cp312-manylinux_2_17_x86_64",
-        "cp312-abi3-manylinux_2_17_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64",
+        "cp312-abi3-manylinux_2_28_x86_64",
         "py3-none-any"
       ]
     },
@@ -50,8 +52,8 @@
         "sys_platform": "darwin"
       },
       "tags": [
-        "cp312-cp312-macosx_11_0_arm64",
-        "cp312-abi3-macosx_11_0_arm64",
+        "cp312-cp312-macosx_14_0_arm64",
+        "cp312-abi3-macosx_14_0_arm64",
         "py3-none-any"
       ]
     }

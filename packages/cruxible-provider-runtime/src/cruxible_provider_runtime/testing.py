@@ -59,22 +59,16 @@ ENGINE_MARKER_ENVIRONMENT = MarkerEnvironment(
         "py3-none-any",
     ),
 )
-"""A marker environment with a high enough floor for every engine closure.
+"""The shared Linux engine-test environment at the launch floor.
 
-One thing separates it from the launch environments in
-``ci/marker-environments.json``: its glibc floor is 2.28 rather than 2.17. The
-resolver reads a declared tag list as an ordering now, so the launch
-environments pin ``+browser`` and ``+paddleocr`` on their own — but a tensor
-stack publishes ``manylinux_2_28`` and ``macosx_14_0`` wheels only, and those
-genuinely do not install on a 2.17 host. Raising the declared floors is a
-decision that re-pins every package at once, so the document plane's engine
-suite binds against this constant instead.
+Its glibc floor is 2.28, matching ``linux-cp311`` in the committed launch
+environments. Every declared engine closure now resolves at that floor,
+including Docling's tensor stack.
 
-Read its scope carefully: this is a **test** environment. Its long tag list is
-enumeration for a test's convenience, not a shipped pin, and the way to make an
-engine closure pinnable in production is to raise the floors in
-``ci/marker-environments.json`` deliberately — never to quietly add this one to
-it.
+Read its scope carefully: this is still a **test** environment. Its long tag
+list explicitly enumerates compatibility for test convenience, whereas the
+shipped marker environment declares only the preferred family members and lets
+the resolver derive the same ordering. It is not an additional production pin.
 """
 
 
