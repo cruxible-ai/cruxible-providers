@@ -420,6 +420,25 @@ dev = [
 ]
 
 [[package]]
+name = "cruxible-provider-workspace"
+version = "0.1.0"
+source = { editable = "../cruxible-provider-workspace" }
+dependencies = [
+    { name = "cruxible-provider-runtime" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cruxible-provider-runtime", editable = "../cruxible-provider-runtime" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.11" },
+    { name = "pytest", specifier = ">=8.2" },
+    { name = "ruff", specifier = ">=0.6" },
+    { name = "types-pyyaml", specifier = ">=6.0" },
+]
+
+[[package]]
 name = "cruxible-providers"
 version = "0.1.0"
 source = { editable = "." }
@@ -429,6 +448,7 @@ all = [
     { name = "cruxible-provider-docs" },
     { name = "cruxible-provider-quant" },
     { name = "cruxible-provider-web" },
+    { name = "cruxible-provider-workspace" },
 ]
 docs = [
     { name = "cruxible-provider-docs" },
@@ -438,6 +458,9 @@ quant = [
 ]
 web = [
     { name = "cruxible-provider-web" },
+]
+workspace = [
+    { name = "cruxible-provider-workspace" },
 ]
 
 [package.dev-dependencies]
@@ -454,8 +477,10 @@ requires-dist = [
     { name = "cruxible-provider-quant", marker = "extra == 'quant'", editable = "../cruxible-provider-quant" },
     { name = "cruxible-provider-web", marker = "extra == 'all'", editable = "../cruxible-provider-web" },
     { name = "cruxible-provider-web", marker = "extra == 'web'", editable = "../cruxible-provider-web" },
+    { name = "cruxible-provider-workspace", marker = "extra == 'all'", editable = "../cruxible-provider-workspace" },
+    { name = "cruxible-provider-workspace", marker = "extra == 'workspace'", editable = "../cruxible-provider-workspace" },
 ]
-provides-extras = ["web", "docs", "quant", "all"]
+provides-extras = ["web", "docs", "quant", "workspace", "all"]
 
 [package.metadata.requires-dev]
 dev = [

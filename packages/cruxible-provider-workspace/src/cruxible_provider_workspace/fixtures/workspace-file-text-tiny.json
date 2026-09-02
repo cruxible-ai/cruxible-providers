@@ -1,0 +1,28 @@
+{
+  "id": "workspace-file-text-tiny",
+  "note": "The smallest text case: three lines, LF-terminated, one non-ASCII character, a trailing newline. What a README fragment looks like.",
+  "interface_id": "workspace.file",
+  "bucket_selector": "content_kind=text;byte_size=tiny",
+  "bucket_id": "content_kind=text;byte_size=tiny",
+  "input": {
+    "logical_source": "fixtures/workspace-file-text-tiny",
+    "commitment_digest": "sha256:c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+    "content_encoding": "base64",
+    "bytes": "IyBSZWFjaCByZWFkaW5ncwoKVXBwZXIgcmVhY2g6IDQuMSBtZy9sIG5pdHJhdGUg4oCUIHNlZSB0aGUgdGlkZS1nYXVnZSByZXBvcnQuCg==",
+    "byte_length": 79,
+    "bytes_digest": "sha256:636e0468902a0eed2f0db09c95b3612e928dd71098ad288edd3d22eb2774ab4b"
+  },
+  "expect": {
+    "status": "ok",
+    "kind": "text",
+    "bytes_digest": "sha256:636e0468902a0eed2f0db09c95b3612e928dd71098ad288edd3d22eb2774ab4b",
+    "output_digest": "sha256:31cc27351725a968242404939f5cfcb0773358c06a9fc6d64a2a0bb6258f1449",
+    "bom": false,
+    "newline": "lf",
+    "trailing_newline": true,
+    "line_count": 3,
+    "character_count": 77,
+    "first_line": "# Reach readings",
+    "last_line": "Upper reach: 4.1 mg/l nitrate — see the tide-gauge report."
+  }
+}

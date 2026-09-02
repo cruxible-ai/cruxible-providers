@@ -138,6 +138,7 @@ def test_every_engine_environment_resolves_for_every_declared_environment(
         "cruxible-provider-quant",
         "cruxible-provider-runtime",
         "cruxible-provider-web",
+        "cruxible-provider-workspace",
     ],
 )
 def test_every_base_environment_still_resolves(

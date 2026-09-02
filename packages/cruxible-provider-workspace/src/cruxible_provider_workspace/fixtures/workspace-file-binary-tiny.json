@@ -1,0 +1,21 @@
+{
+  "id": "workspace-file-binary-tiny",
+  "note": "A NUL byte makes bytes binary whatever else they decode as: a PNG signature followed by an IHDR chunk header.",
+  "interface_id": "workspace.file",
+  "bucket_selector": "content_kind=binary;byte_size=tiny",
+  "bucket_id": "content_kind=binary;byte_size=tiny",
+  "input": {
+    "logical_source": "fixtures/workspace-file-binary-tiny",
+    "commitment_digest": "sha256:c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+    "content_encoding": "base64",
+    "bytes": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9h",
+    "byte_length": 33,
+    "bytes_digest": "sha256:e10408fe21c762c34ea7febdf4c9e0f8d57983f3f50f5efd01db795e7cce3961"
+  },
+  "expect": {
+    "status": "ok",
+    "kind": "bytes",
+    "bytes_digest": "sha256:e10408fe21c762c34ea7febdf4c9e0f8d57983f3f50f5efd01db795e7cce3961",
+    "output_digest": "sha256:37337814120d2cec573984d35febd5409352c442659aa0b90f062b74908e74fa"
+  }
+}

@@ -1,0 +1,33 @@
+# DRAFT. The bucket vocabulary of the `workspace.file` built-in Source adapter.
+#
+# Ships as DATA for core to register with the built-in interface (B4 seed
+# bundle). Both dimensions are MEASURED from the decoded bytes the run input
+# carries, never read from any declaration: the classifier decodes the base64
+# payload itself and looks at what it got.
+interface_id: workspace.file
+version: 1
+status: draft
+description: >-
+  Structure the bytes of one authorized workspace file read into a capture body.
+  The two dimensions separate the text path (a UTF-8 decode, a line view) from
+  the opaque-bytes path, and size the payload so a claim over a large file is
+  visibly a different bucket from a claim over a small one.
+dimensions:
+  - name: content_kind
+    description: whether the bytes decode as text
+    classes:
+      - id: text
+        description: strict UTF-8 with no NUL byte; an empty file is text
+      - id: binary
+        description: anything that is not strict UTF-8, or that carries a NUL byte
+  - name: byte_size
+    description: length of the decoded bytes
+    classes:
+      - id: tiny
+        description: at most 4096 bytes (4 KiB)
+      - id: small
+        description: 4097 to 65536 bytes (64 KiB)
+      - id: medium
+        description: 65537 to 1048576 bytes (1 MiB)
+      - id: large
+        description: more than 1048576 bytes (1 MiB); unclaimed by the built-in

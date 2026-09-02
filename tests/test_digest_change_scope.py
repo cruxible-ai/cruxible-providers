@@ -50,6 +50,7 @@ def test_a_digest_is_computed_per_package_not_per_repository() -> None:
         "cruxible-provider-quant",
         "cruxible-provider-runtime",
         "cruxible-provider-web",
+        "cruxible-provider-workspace",
     }
 
 

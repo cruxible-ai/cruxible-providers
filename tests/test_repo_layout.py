@@ -27,6 +27,7 @@ def test_there_are_real_packages() -> None:
         "cruxible-provider-quant",
         "cruxible-provider-runtime",
         "cruxible-provider-web",
+        "cruxible-provider-workspace",
         "cruxible-providers",
     ]
 
@@ -135,7 +136,7 @@ def test_the_umbrella_offers_one_extra_per_plane_plus_all() -> None:
         (PACKAGES / "cruxible-providers" / "pyproject.toml").read_text(encoding="utf-8")
     )
     extras = document["project"]["optional-dependencies"]
-    assert set(extras) == {"web", "docs", "quant", "all"}
+    assert set(extras) == {"web", "docs", "quant", "workspace", "all"}
     plane_union = {dep for name, deps in extras.items() if name != "all" for dep in deps}
     assert set(extras["all"]) == plane_union
 

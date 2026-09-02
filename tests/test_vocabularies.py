@@ -41,6 +41,9 @@ LAUNCH_INTERFACES = {
     "ts.forecast",
     "vcs.events",
     "web.fetch",
+    # The B4 built-in. Not a launch plane interface; seeded by core with the
+    # workspace adapter, and published here as data like every other one.
+    "workspace.file",
 }
 
 QUANTITATIVE = {

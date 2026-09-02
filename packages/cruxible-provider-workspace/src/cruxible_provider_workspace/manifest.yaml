@@ -1,0 +1,54 @@
+# Package-side provider manifest for the workspace built-in.
+#
+# This file is a transcription SOURCE, never authority. The built-in enters an
+# instance as an ordinary governed proposal of these exact bytes (G6, seed by
+# proposal); at bind and invoke the runtime recomputes this manifest's digest and
+# refuses on any divergence.
+#
+# The distribution's own sha256 is deliberately absent: an artifact cannot carry
+# its own hash. It is pinned by the accepted artifact, and it is what the
+# implementation digest consumes.
+schema_version: 1
+provider_id: cruxible-provider-workspace
+distribution:
+  name: cruxible-provider-workspace
+  version: 0.1.0
+entrypoint_group: cruxible.providers
+supported_protocol_majors: [1]
+implementations:
+  - interface_id: workspace.file
+    # STUB digest, minted under cruxible.interface.stub.v1 until core registers
+    # this interface. interface.py carries the preimage and a drift test.
+    interface_digest: "sha256:372bc808d6bd77627bdda7bc67586300e2eb812bf0a4fb3769283a26cc021f88"
+    entrypoint: "cruxible_provider_workspace.file:WorkspaceFile"
+    backends: [local_env, container]
+    # No engine. The base install is the whole install.
+    requires_extras: []
+    # Claimed: text and opaque bytes up to one mebibyte. Deliberately UNCLAIMED:
+    # byte_size=large. The policy-carried size cap (G5, RAT-7) is resolved at
+    # admission in core, and a file above the largest claimed class refuses as
+    # unclaimed_bucket before any process starts rather than being structured
+    # into a body twice its size. Claiming it later is a fixture plus a
+    # succession, not a code change.
+    declared_input_buckets:
+      - "content_kind=text;byte_size=tiny"
+      - "content_kind=text;byte_size=small"
+      - "content_kind=text;byte_size=medium"
+      - "content_kind=binary;byte_size=tiny"
+      - "content_kind=binary;byte_size=small"
+      - "content_kind=binary;byte_size=medium"
+    bucket_conformance:
+      "content_kind=text;byte_size=tiny": workspace-file-text-tiny
+      "content_kind=text;byte_size=small": workspace-file-text-small
+      "content_kind=text;byte_size=medium": workspace-file-text-medium
+      "content_kind=binary;byte_size=tiny": workspace-file-binary-tiny
+      "content_kind=binary;byte_size=small": workspace-file-binary-small
+      "content_kind=binary;byte_size=medium": workspace-file-binary-medium
+    # RAT-9 effect class PURE, spelled the way the manifest can spell it: zero
+    # declared endpoints (the egress-conformance lane asserts observed ==
+    # declared == empty in both processes), deterministic, no side effects.
+    declared_endpoints: []
+    capture_contract_families:
+      - workspace.file.capture.v1
+    deterministic: true
+    side_effects: false

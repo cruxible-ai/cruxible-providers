@@ -29,6 +29,8 @@ from cruxible_provider_quant import (
 from cruxible_provider_web import engines as web_engines
 from cruxible_provider_web import fetch, http, search
 from cruxible_provider_web import interfaces as web_interfaces
+from cruxible_provider_workspace import file as workspace_file
+from cruxible_provider_workspace import interface as workspace_interface
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,7 @@ INTERFACES = [
         (web_engines, http),
     ),
     InterfaceCase("search.web", web_interfaces.SEARCH_PREIMAGE, search),
+    InterfaceCase("workspace.file", workspace_interface.INTERFACE_PREIMAGE, workspace_file),
     InterfaceCase(
         "doc.to_markdown",
         docs_interfaces.MARKDOWN_PREIMAGE,

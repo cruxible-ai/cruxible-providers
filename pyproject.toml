@@ -19,6 +19,9 @@ dependencies = [
   "cruxible-provider-web",
   "cruxible-provider-docs",
   "cruxible-provider-quant",
+  # The workspace built-in: no engine, no extra, the base install is the whole
+  # install.
+  "cruxible-provider-workspace",
 ]
 
 [dependency-groups]
@@ -38,6 +41,7 @@ cruxible-provider-noop = { path = "packages/cruxible-provider-noop", editable = 
 cruxible-provider-web = { path = "packages/cruxible-provider-web", editable = true }
 cruxible-provider-docs = { path = "packages/cruxible-provider-docs", editable = true }
 cruxible-provider-quant = { path = "packages/cruxible-provider-quant", editable = true }
+cruxible-provider-workspace = { path = "packages/cruxible-provider-workspace", editable = true }
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -48,6 +52,7 @@ testpaths = [
   "packages/cruxible-provider-web/tests",
   "packages/cruxible-provider-docs/tests",
   "packages/cruxible-provider-quant/tests",
+  "packages/cruxible-provider-workspace/tests",
 ]
 # importlib mode: several packages name their test package `tests`, which the
 # default prepend import mode resolves to one module name and then rejects as a

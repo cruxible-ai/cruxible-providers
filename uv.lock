@@ -506,6 +506,25 @@ dev = [
 ]
 
 [[package]]
+name = "cruxible-provider-workspace"
+version = "0.1.0"
+source = { editable = "packages/cruxible-provider-workspace" }
+dependencies = [
+    { name = "cruxible-provider-runtime" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cruxible-provider-runtime", editable = "packages/cruxible-provider-runtime" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.11" },
+    { name = "pytest", specifier = ">=8.2" },
+    { name = "ruff", specifier = ">=0.6" },
+    { name = "types-pyyaml", specifier = ">=6.0" },
+]
+
+[[package]]
 name = "cruxible-providers-dev"
 version = "0.0.0"
 source = { virtual = "." }
@@ -515,6 +534,7 @@ dependencies = [
     { name = "cruxible-provider-quant" },
     { name = "cruxible-provider-runtime" },
     { name = "cruxible-provider-web" },
+    { name = "cruxible-provider-workspace" },
 ]
 
 [package.dev-dependencies]
@@ -532,6 +552,7 @@ requires-dist = [
     { name = "cruxible-provider-quant", editable = "packages/cruxible-provider-quant" },
     { name = "cruxible-provider-runtime", editable = "packages/cruxible-provider-runtime" },
     { name = "cruxible-provider-web", editable = "packages/cruxible-provider-web" },
+    { name = "cruxible-provider-workspace", editable = "packages/cruxible-provider-workspace" },
 ]
 
 [package.metadata.requires-dev]

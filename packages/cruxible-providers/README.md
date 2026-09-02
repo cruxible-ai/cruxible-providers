@@ -48,9 +48,15 @@ from the registry by distribution name. The distinction is not cosmetic — a pa
 source has no distribution sha256, so nothing published from one could ever be
 registered as a Provider artifact.
 
-## Not yet here
+## The planes
 
-`quant` and `all` are wired at merge, not anticipated. The quantitative plane
-lands on a separate branch, and naming a distribution that does not exist yet
-would produce an umbrella that cannot resolve. `all` waits for the same reason:
-an `all` extra that means "all but one" is worse than no `all` at all.
+`web`, `docs`, `quant`, and `workspace` -- one extra per plane distribution
+that exists, and `all` is exactly their union. A plane is wired the moment it
+lands, never anticipated: naming a distribution that does not exist yet would
+produce an umbrella that cannot resolve, and an `all` extra that means "all but
+one" is worse than no `all` at all.
+
+`workspace` is the built-in Source adapter core seeds by proposal. It is in the
+umbrella for the same reason the others are -- a developer installing the planes
+gets the built-in too -- and for no other: end users never install it, and core
+pins its digests rather than its distribution.

@@ -26,6 +26,9 @@ packages/cruxible-provider-docs/       the document plane: doc.to_markdown, ocr.
 packages/cruxible-providers/          the umbrella meta-package: zero code, plane extras
 packages/cruxible-provider-quant/     the quantitative plane: classical
                                       baselines on the seven quant interfaces
+packages/cruxible-provider-workspace/ the workspace built-in: workspace.file,
+                                      the pure Source adapter core seeds by
+                                      proposal (B4)
 packages/_template/                   copy this to start a new plane package
 vocab/interfaces/                     the launch bucket vocabularies, as draft data
 vocab/stub/                           the stub interface's vocabulary

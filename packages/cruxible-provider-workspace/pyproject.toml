@@ -1,0 +1,53 @@
+# The workspace built-in. One distribution, one lock, one identity unit; one
+# implementation, of the `workspace.file` interface.
+#
+# It is a built-in on the core side -- it enters every instance by the
+# seed-by-proposal verb -- and an ordinary plane package on this side. Nothing in
+# the layout is special: the same manifest, the same conformance suite, the same
+# three levels of identity. Core pins the implementation and materialization
+# digests this package produces; it does not vendor the code.
+[project]
+name = "cruxible-provider-workspace"
+version = "0.1.0"
+description = "Cruxible built-in Source adapter for the workspace plane: workspace.file."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Cruxible maintainers" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  # The runtime and nothing else. The adapter is a base64 decode, a UTF-8
+  # decode, and a digest; a dependency here would be a dependency in the seed
+  # bundle's materialization pin, for no work it does.
+  "cruxible-provider-runtime",
+]
+
+[project.entry-points."cruxible.providers"]
+"workspace.file" = "cruxible_provider_workspace.file:WorkspaceFile"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "types-pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+cruxible-provider-runtime = { path = "../cruxible-provider-runtime", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cruxible_provider_workspace"]
