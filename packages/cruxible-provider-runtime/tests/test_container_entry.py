@@ -20,9 +20,11 @@ import contextlib
 import hashlib
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +36,7 @@ from cruxible_provider_runtime.backends import CHILD_MODULE
 from cruxible_provider_runtime.container_entry import (
     MEMORY_BACKED_FILESYSTEM_MAGICS,
     SECRET_CHANNEL_FD,
+    SECRET_DRAIN_TIMEOUT_SECONDS,
     SHIM_MODULE,
     SHIM_REFUSED_EXIT_STATUS,
     ShimRefusal,
@@ -350,6 +353,46 @@ def test_a_path_that_is_not_a_regular_file_refuses(
     assert harness.records == []
 
 
+def test_a_socket_at_the_secret_path_refuses(
+    harness: _Harness,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Refused by kind, before anything asks what filesystem it is on."""
+
+    _pretend_filesystem(monkeypatch, TMPFS_MAGIC)
+    path = tmp_path / "bundle.sock"
+    # Bound relative from inside the directory: an ``AF_UNIX`` path is capped at
+    # ~104 bytes and a temp directory is longer than that on some hosts.
+    monkeypatch.chdir(tmp_path)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as endpoint:
+        endpoint.bind(path.name)
+        status = container_entry.main(["--secret-path", str(path), *COMMAND])
+
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: secret_path_unreadable\n"
+    assert harness.records == []
+
+
+@pytest.mark.skipif(not os.path.exists("/dev/zero"), reason="no /dev/zero on this host")
+def test_a_character_device_at_the_secret_path_refuses(
+    harness: _Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A device is where an endless "bundle" comes from; the kind check is the bound.
+
+    ``/dev`` is devtmpfs, whose magic is tmpfs's, so on Linux the memory-backed
+    check accepts it and the regular-file check is the only thing that does not.
+    """
+
+    _pretend_filesystem(monkeypatch, TMPFS_MAGIC)
+    status = container_entry.main(["--secret-path", "/dev/zero", *COMMAND])
+
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: secret_path_unreadable\n"
+    assert harness.records == []
+
+
 # --------------------------------------------------------------------------
 # Pipe delivery
 # --------------------------------------------------------------------------
@@ -554,6 +597,55 @@ def test_an_unforeseen_failure_is_still_one_typed_line(
     assert harness.records == []
 
 
+def test_the_drain_deadline_is_a_documented_constant() -> None:
+    parsed = container_entry._parse_argv(["--secret-pipe-fd", "9", *COMMAND])
+    assert SECRET_DRAIN_TIMEOUT_SECONDS == 5.0
+    assert parsed.drain_timeout == SECRET_DRAIN_TIMEOUT_SECONDS
+
+
+def test_only_an_executor_flag_moves_the_drain_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A knob that loosens a safety bound belongs in the argv the run recorded."""
+
+    for name in (
+        "SECRET_DRAIN_TIMEOUT_SECONDS",
+        "CRUXIBLE_SECRET_DRAIN_TIMEOUT_SECONDS",
+        "CRUXIBLE_SECRET_PIPE_TIMEOUT",
+    ):
+        monkeypatch.setenv(name, "0.001")
+
+    assert container_entry._parse_argv([*COMMAND]).drain_timeout == SECRET_DRAIN_TIMEOUT_SECONDS
+    flagged = container_entry._parse_argv(
+        ["--secret-pipe-timeout", "0.25", "--secret-pipe-fd", "9", *COMMAND]
+    )
+    assert flagged.drain_timeout == 0.25
+    assert flagged.secret_pipe_fd == 9
+
+
+@pytest.mark.parametrize("value", ["", "soon", "0", "-1", "nan", "inf"])
+def test_a_timeout_that_is_not_a_positive_number_refuses(
+    harness: _Harness, value: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status = container_entry.main(["--secret-pipe-timeout", value, *COMMAND])
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: invalid_option_value\n"
+    assert harness.records == []
+
+
+def test_the_timeout_flag_is_not_a_second_delivery(
+    harness: _Harness, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """It sits beside a delivery flag rather than conflicting with it."""
+
+    _pretend_filesystem(monkeypatch, TMPFS_MAGIC)
+    path = _bundle_file(tmp_path)
+
+    container_entry.main(["--secret-pipe-timeout", "3", "--secret-path", str(path), *COMMAND])
+
+    assert harness.only.secret_bytes == BUNDLE_BYTES
+
+
 # --------------------------------------------------------------------------
 # The filesystem check itself
 # --------------------------------------------------------------------------
@@ -697,14 +789,23 @@ def _run_shim(
     stdin: bytes = b"",
     pass_fds: Sequence[int] = (),
     extra_roots: Sequence[Path] = (),
+    timeout: float = 120,
 ) -> subprocess.CompletedProcess[bytes]:
+    """Run the shim as a real process.
+
+    ``timeout`` is never decoration: the two failures this suite has to be able
+    to observe — an open that waits for a writer, a drain that waits for an EOF
+    nobody is coming to send — are hangs, and a hang inside the runner is a
+    suite that never reports. Out here it is one failed test.
+    """
+
     return subprocess.run(
         [sys.executable, "-m", SHIM_MODULE, *shim_args, *command],
         input=stdin,
         capture_output=True,
         env=_environment(extra_roots),
         pass_fds=tuple(pass_fds),
-        timeout=120,
+        timeout=timeout,
     )
 
 
@@ -776,6 +877,54 @@ def test_an_argv_the_executor_got_wrong_exits_78_with_one_line(
     assert completed.stdout == b""
     assert completed.stderr == f"shim_refused: {code}\n".encode()
     assert b"Traceback" not in completed.stderr
+
+
+def test_a_fifo_at_the_secret_path_refuses_instead_of_blocking(tmp_path: Path) -> None:
+    """``open`` on a writer-less FIFO waits forever. ``O_NONBLOCK`` is why it does not.
+
+    A FIFO is not exotic here: ``mknod`` works on tmpfs, which is the very
+    filesystem this delivery insists on, so anything that can write into the
+    delivery directory can put one where the bundle should be. Before the
+    non-blocking open the shim never reached its own regular-file check.
+    """
+
+    fifo = tmp_path / "bundle.fifo"
+    os.mkfifo(fifo)
+
+    started = time.monotonic()
+    completed = _run_shim(["--secret-path", str(fifo)], _reporter(), timeout=30)
+    elapsed = time.monotonic() - started
+
+    assert completed.returncode == SHIM_REFUSED_EXIT_STATUS
+    assert completed.stderr == b"shim_refused: secret_path_unreadable\n"
+    assert elapsed < 30
+    assert fifo.exists(), "a refused delivery is not consumed"
+
+
+def test_a_pipe_whose_write_end_never_closes_refuses_on_the_deadline() -> None:
+    """The holder is outside the container, where the descriptor sweep cannot reach."""
+
+    read_fd, write_fd = os.pipe()
+    # A partial bundle and no close: exactly what an executor that crashed
+    # between writing and closing leaves behind.
+    os.write(write_fd, b'{"provider.api_key": "dummy-credential')
+    try:
+        started = time.monotonic()
+        completed = _run_shim(
+            ["--secret-pipe-timeout", "0.5", "--secret-pipe-fd", str(read_fd)],
+            _reporter(),
+            pass_fds=(read_fd,),
+            timeout=30,
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        os.close(write_fd)
+        with contextlib.suppress(OSError):
+            os.close(read_fd)
+
+    assert completed.returncode == SHIM_REFUSED_EXIT_STATUS
+    assert completed.stderr == b"shim_refused: secret_pipe_timeout\n"
+    assert elapsed < 30
 
 
 def test_the_package_exports_the_shim_constants_without_importing_the_shim() -> None:

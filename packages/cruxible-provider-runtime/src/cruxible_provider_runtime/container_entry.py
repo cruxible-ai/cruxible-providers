@@ -31,12 +31,21 @@ existing caller.
 
 ``--secret-pipe-fd``
     A one-shot pipe the executor wrote and left open on a numbered descriptor.
-    The shim drains it — bounded, so an oversized bundle refuses rather than
-    being copied — and re-delivers it on an anonymous memory descriptor. The
-    round trip is not ceremony: a pipe whose write end is still open somewhere
-    never reaches EOF, and the child's reader blocks forever on it. Draining
-    behind the descriptor sweep below turns that into a bounded read in the shim
-    and hands the child a descriptor that ends.
+    The shim drains it — bounded in bytes, so an oversized bundle refuses rather
+    than being copied, and bounded in time, so a write end nobody closed refuses
+    rather than hanging — and re-delivers it on an anonymous memory descriptor.
+    The round trip is not ceremony: a pipe whose write end is still open
+    somewhere never reaches EOF, and the child's reader blocks forever on it.
+    Draining behind the descriptor sweep below turns that into a bounded read in
+    the shim and hands the child a descriptor that ends.
+
+**Nothing the shim opens or reads can block indefinitely.** The path is opened
+``O_NONBLOCK`` so a FIFO planted in the delivery directory returns instead of
+waiting for a writer, and every read runs against a deadline
+(:data:`SECRET_DRAIN_TIMEOUT_SECONDS`, or ``--secret-pipe-timeout``). A run that
+hangs is worse than one that refuses: it spends the wall clock of a run that
+never started, and it is the one failure an operator cannot tell from a slow
+provider.
 
 **The descriptor number is fixed and public.** The run context has to name the
 descriptor the child actually sees, and the executor building that context is
@@ -61,10 +70,13 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import math
 import os
 import platform
+import select
 import stat
 import sys
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -75,6 +87,7 @@ from .secrets import MAX_SECRET_BUNDLE_BYTES
 __all__ = [
     "MEMORY_BACKED_FILESYSTEM_MAGICS",
     "SECRET_CHANNEL_FD",
+    "SECRET_DRAIN_TIMEOUT_SECONDS",
     "SHIM_MODULE",
     "SHIM_REFUSED_EXIT_STATUS",
     "ShimRefusal",
@@ -111,6 +124,28 @@ provider process failed", and it has only the exit status and one line of stderr
 to do it with before any envelope exists.
 """
 
+SECRET_DRAIN_TIMEOUT_SECONDS = 5.0
+"""How long the shim waits for a delivery to reach its end before refusing.
+
+A delivery that never ends is the failure this bound exists for. A pipe whose
+write end is held open outside the container never reaches EOF; the descriptor
+sweep can close a copy that leaked *into* this process and nothing else, so
+against an executor that forgot to close its own the shim has no defence except
+a deadline. Without one the run hangs rather than fails, which is strictly the
+worse outcome: it burns the wall-clock budget of a run that never started, and
+it is the one failure mode an operator cannot tell from a slow provider.
+
+Five seconds, because the bundle is capped at 64 KiB and both deliveries are
+local — a memory-backed file already written, or a pipe the executor filled
+before the container started. Anything slower than that is not a slow delivery,
+it is a missing one.
+
+Overridable by the executor with ``--secret-pipe-timeout <seconds>``, and by
+nothing else. Deliberately not an environment variable: the environment belongs
+to the provider process, a variable is inherited by everything downstream, and a
+knob that loosens a safety bound has to be visible in the argv the run recorded.
+"""
+
 _TMPFS_MAGIC = 0x01021994
 _RAMFS_MAGIC = 0x858458F6
 
@@ -141,11 +176,13 @@ class ShimRefusal(StrEnum):
 
     NO_COMMAND = "no_command"
     MISSING_OPTION_VALUE = "missing_option_value"
+    INVALID_OPTION_VALUE = "invalid_option_value"
     CONFLICTING_SECRET_DELIVERY = "conflicting_secret_delivery"
     SECRET_PATH_UNREADABLE = "secret_path_unreadable"
     SECRET_PATH_NOT_MEMORY_BACKED = "secret_path_not_memory_backed"
     SECRET_PATH_UNVERIFIABLE = "secret_path_unverifiable"
     SECRET_PIPE_FD_INVALID = "secret_pipe_fd_invalid"
+    SECRET_PIPE_TIMEOUT = "secret_pipe_timeout"
     SECRET_BUNDLE_TOO_LARGE = "secret_bundle_too_large"
     SECRET_DELIVERY_FAILED = "secret_delivery_failed"
     EXEC_FAILED = "exec_failed"
@@ -244,8 +281,10 @@ def close_stray_descriptors(keep: Iterable[int]) -> None:
     Descriptors are enumerated rather than closed by range: a range walk under a
     high ``RLIMIT_NOFILE`` is a million syscalls, and a range walk under a low
     one silently misses what is above it. Where neither ``/proc/self/fd`` nor
-    ``/dev/fd`` exists nothing is closed, which is the safe direction — the shim
-    still refuses on anything it cannot verify.
+    ``/dev/fd`` exists nothing is closed, and that is survivable rather than
+    safe: an unswept write end is a delivery that never ends, and what turns it
+    into a refusal rather than a hang is the drain's deadline
+    (:data:`SECRET_DRAIN_TIMEOUT_SECONDS`), not this sweep.
     """
 
     protected = set(keep)
@@ -307,6 +346,21 @@ class _Invocation:
     command: tuple[str, ...]
     secret_path: str | None = None
     secret_pipe_fd: int | None = None
+    drain_timeout: float = SECRET_DRAIN_TIMEOUT_SECONDS
+
+
+_DELIVERY_OPTIONS = ("--secret-path", "--secret-pipe-fd")
+_SHIM_OPTIONS = (*_DELIVERY_OPTIONS, "--secret-pipe-timeout")
+
+
+def _parse_timeout(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise ShimRefusalError(ShimRefusal.INVALID_OPTION_VALUE) from exc
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ShimRefusalError(ShimRefusal.INVALID_OPTION_VALUE)
+    return seconds
 
 
 def _parse_argv(args: Sequence[str]) -> _Invocation:
@@ -320,20 +374,23 @@ def _parse_argv(args: Sequence[str]) -> _Invocation:
 
     secret_path: str | None = None
     secret_pipe_fd: int | None = None
+    drain_timeout = SECRET_DRAIN_TIMEOUT_SECONDS
     index = 0
     while index < len(args):
         token = args[index]
         if token == "--":
             index += 1
             break
-        if token not in ("--secret-path", "--secret-pipe-fd"):
+        if token not in _SHIM_OPTIONS:
             break
         if index + 1 >= len(args):
             raise ShimRefusalError(ShimRefusal.MISSING_OPTION_VALUE)
         value = args[index + 1]
-        if secret_path is not None or secret_pipe_fd is not None:
+        if token == "--secret-pipe-timeout":
+            drain_timeout = _parse_timeout(value)
+        elif secret_path is not None or secret_pipe_fd is not None:
             raise ShimRefusalError(ShimRefusal.CONFLICTING_SECRET_DELIVERY)
-        if token == "--secret-path":
+        elif token == "--secret-path":
             secret_path = value
         else:
             secret_pipe_fd = _parse_descriptor(value)
@@ -341,30 +398,45 @@ def _parse_argv(args: Sequence[str]) -> _Invocation:
     command = tuple(args[index:])
     if not command:
         raise ShimRefusalError(ShimRefusal.NO_COMMAND)
-    return _Invocation(command=command, secret_path=secret_path, secret_pipe_fd=secret_pipe_fd)
+    return _Invocation(
+        command=command,
+        secret_path=secret_path,
+        secret_pipe_fd=secret_pipe_fd,
+        drain_timeout=drain_timeout,
+    )
 
 
 def _open_secret_path(path: str) -> int:
     """Open, verify, cap and unlink a tmpfs-backed bundle; return its descriptor.
 
-    Nothing is read. The cap is enforced from ``fstat`` before a single byte
+    Nothing is read here. The cap is enforced from ``fstat`` before a single byte
     moves, which is stricter than reading and counting: an oversized bundle never
     reaches this process's memory at all.
+
+    **The open cannot block and the file's kind is settled before anything
+    else.** ``O_NONBLOCK`` because ``open`` on a FIFO with no writer blocks
+    indefinitely — and a FIFO is something ``mknod`` can put in the delivery
+    directory on the very tmpfs this delivery requires, so a shim that opens
+    first and checks the mode afterwards never reaches the check. On a regular
+    file the flag is a no-op, which is the whole appeal. ``fstat`` then runs
+    before the filesystem check rather than after it, so anything that is not a
+    regular file — FIFO, directory, socket, device — is refused by kind on every
+    platform instead of by whichever check happens to come first.
     """
 
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     except OSError as exc:
         raise ShimRefusalError(ShimRefusal.SECRET_PATH_UNREADABLE) from exc
     try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ShimRefusalError(ShimRefusal.SECRET_PATH_UNREADABLE)
         magic = filesystem_magic(fd)
         if magic is None:
             raise ShimRefusalError(ShimRefusal.SECRET_PATH_UNVERIFIABLE)
         if magic not in MEMORY_BACKED_FILESYSTEM_MAGICS:
             raise ShimRefusalError(ShimRefusal.SECRET_PATH_NOT_MEMORY_BACKED)
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            raise ShimRefusalError(ShimRefusal.SECRET_PATH_UNREADABLE)
         if info.st_size > MAX_SECRET_BUNDLE_BYTES:
             raise ShimRefusalError(ShimRefusal.SECRET_BUNDLE_TOO_LARGE)
         try:
@@ -379,14 +451,56 @@ def _open_secret_path(path: str) -> int:
     return fd
 
 
-def _drain_secret_pipe(fd: int) -> bytes:
-    """Read at most one byte more than the cap allows, then refuse or return.
+def _drain_descriptor(fd: int, *, timeout: float) -> bytes:
+    """Read a delivery to its end, bounded in bytes and in time. Closes ``fd``.
 
-    Bounded on purpose. Reading first and measuring after would mean an executor
-    (or anything that reached the write end) could make the shim hold an
+    Two bounds, because a delivery can fail in two directions.
+
+    The byte bound is the cap plus one. Reading first and measuring after would
+    mean anything that reached the write end could make the shim hold an
     arbitrary amount of "credential" in memory before the refusal it was always
-    going to get.
+    going to get; reading exactly one byte past the cap is what tells "over the
+    cap" from "exactly at it" without a second syscall.
+
+    The time bound is :data:`SECRET_DRAIN_TIMEOUT_SECONDS`, or whatever the
+    executor named on ``--secret-pipe-timeout``. It is checked around the read
+    and again after every chunk, so neither a writer that sends nothing nor one
+    that trickles can hold the run open past the deadline.
     """
+
+    limit = MAX_SECRET_BUNDLE_BYTES
+    deadline = time.monotonic() + timeout
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        os.set_blocking(fd, False)
+        while total <= limit:
+            try:
+                chunk = os.read(fd, min(_READ_CHUNK, limit + 1 - total))
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ShimRefusalError(ShimRefusal.SECRET_PIPE_TIMEOUT) from None
+                select.select([fd], [], [], remaining)
+                continue
+            except OSError as exc:
+                raise ShimRefusalError(ShimRefusal.SECRET_DELIVERY_FAILED) from exc
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if time.monotonic() >= deadline:
+                raise ShimRefusalError(ShimRefusal.SECRET_PIPE_TIMEOUT)
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+    if total > limit:
+        raise ShimRefusalError(ShimRefusal.SECRET_BUNDLE_TOO_LARGE)
+    return b"".join(chunks)
+
+
+def _drain_secret_pipe(fd: int, *, timeout: float) -> bytes:
+    """Check the descriptor really is the pipe the executor promised, then drain."""
 
     if fd <= 2:
         raise ShimRefusalError(ShimRefusal.SECRET_PIPE_FD_INVALID)
@@ -396,23 +510,7 @@ def _drain_secret_pipe(fd: int) -> bytes:
         raise ShimRefusalError(ShimRefusal.SECRET_PIPE_FD_INVALID) from exc
     if not stat.S_ISFIFO(info.st_mode):
         raise ShimRefusalError(ShimRefusal.SECRET_PIPE_FD_INVALID)
-
-    chunks: list[bytes] = []
-    total = 0
-    limit = MAX_SECRET_BUNDLE_BYTES
-    try:
-        with os.fdopen(fd, "rb", closefd=True) as handle:
-            while total <= limit:
-                chunk = handle.read(min(_READ_CHUNK, limit + 1 - total))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                total += len(chunk)
-    except OSError as exc:
-        raise ShimRefusalError(ShimRefusal.SECRET_DELIVERY_FAILED) from exc
-    if total > limit:
-        raise ShimRefusalError(ShimRefusal.SECRET_BUNDLE_TOO_LARGE)
-    return b"".join(chunks)
+    return _drain_descriptor(fd, timeout=timeout)
 
 
 def _memory_backed_descriptor(payload: bytes) -> int:
@@ -479,7 +577,7 @@ def _run(args: Sequence[str]) -> int:
         _install_secret_channel(_open_secret_path(invocation.secret_path))
     elif invocation.secret_pipe_fd is not None:
         close_stray_descriptors((0, 1, 2, invocation.secret_pipe_fd))
-        payload = _drain_secret_pipe(invocation.secret_pipe_fd)
+        payload = _drain_secret_pipe(invocation.secret_pipe_fd, timeout=invocation.drain_timeout)
         _install_secret_channel(_memory_backed_descriptor(payload))
     else:
         # No delivery flag: the run has no secret channel and the shim is a
