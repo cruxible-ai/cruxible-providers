@@ -505,6 +505,55 @@ def test_a_command_that_cannot_be_exec_ed_refuses(
     assert capsys.readouterr().err == "shim_refused: exec_failed\n"
 
 
+def test_an_empty_first_command_token_refuses(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``execvp`` raises ``ValueError`` here, not ``OSError``. Same refusal."""
+
+    monkeypatch.setattr(container_entry, "close_stray_descriptors", lambda keep: None)
+    with _detached_secret_descriptor():
+        status = container_entry.main([""])
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: exec_failed\n"
+
+
+def test_a_descriptor_number_too_large_for_the_kernel_refuses(
+    harness: _Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An integer past a C ``int`` reaches ``fstat`` as ``OverflowError``."""
+
+    status = container_entry.main(["--secret-pipe-fd", "99999999999999999999", *COMMAND])
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: secret_pipe_fd_invalid\n"
+    assert harness.records == []
+
+
+def test_a_negative_descriptor_refuses(
+    harness: _Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status = container_entry.main(["--secret-pipe-fd", "-1", *COMMAND])
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: secret_pipe_fd_invalid\n"
+    assert harness.records == []
+
+
+def test_an_unforeseen_failure_is_still_one_typed_line(
+    harness: _Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No exception escapes as a traceback and exit 1 — a crashed child's status."""
+
+    def _boom(keep: Sequence[int]) -> None:
+        raise RuntimeError("a bug nobody foresaw")
+
+    monkeypatch.setattr(container_entry, "close_stray_descriptors", _boom)
+
+    status = container_entry.main([*COMMAND])
+
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: secret_delivery_failed\n"
+    assert harness.records == []
+
+
 # --------------------------------------------------------------------------
 # The filesystem check itself
 # --------------------------------------------------------------------------
@@ -702,6 +751,31 @@ def test_the_pass_through_writes_nothing_to_stderr() -> None:
     assert completed.returncode == 0
     assert completed.stdout == b"hi\n"
     assert completed.stderr == b""
+
+
+@pytest.mark.parametrize(
+    ("shim_args", "command", "code"),
+    [
+        (
+            ["--secret-pipe-fd", "99999999999999999999"],
+            ["/bin/echo", "hi"],
+            "secret_pipe_fd_invalid",
+        ),
+        ([], [""], "exec_failed"),
+    ],
+    ids=["descriptor-out-of-range", "empty-command-token"],
+)
+def test_an_argv_the_executor_got_wrong_exits_78_with_one_line(
+    shim_args: Sequence[str], command: Sequence[str], code: str
+) -> None:
+    """Real process, real status. Exit 1 with a traceback is a crashed child."""
+
+    completed = _run_shim(shim_args, command)
+
+    assert completed.returncode == SHIM_REFUSED_EXIT_STATUS
+    assert completed.stdout == b""
+    assert completed.stderr == f"shim_refused: {code}\n".encode()
+    assert b"Traceback" not in completed.stderr
 
 
 def test_the_package_exports_the_shim_constants_without_importing_the_shim() -> None:

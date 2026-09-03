@@ -270,6 +270,36 @@ def exec_command(argv: Sequence[str]) -> None:
     os.execvp(argv[0], list(argv))
 
 
+_FALLBACK_MAX_DESCRIPTOR = 1 << 20
+
+
+def _max_descriptor() -> int:
+    """One past the highest descriptor number this process could hold.
+
+    ``--secret-pipe-fd`` arrives as text from an executor, and an integer larger
+    than a C ``int`` reaches ``os.fstat`` as an ``OverflowError`` rather than an
+    ``OSError`` — a traceback and exit 1, which is precisely the status the shim
+    exists to keep distinct from a crashed child. Range-checking at parse time
+    turns it into the same typed refusal every other bad descriptor gets.
+    """
+
+    try:
+        limit = os.sysconf("SC_OPEN_MAX")
+    except (AttributeError, ValueError, OSError):  # pragma: no cover - platform dependent
+        return _FALLBACK_MAX_DESCRIPTOR
+    return limit if limit > 0 else _FALLBACK_MAX_DESCRIPTOR
+
+
+def _parse_descriptor(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise ShimRefusalError(ShimRefusal.SECRET_PIPE_FD_INVALID) from exc
+    if not 0 <= number < _max_descriptor():
+        raise ShimRefusalError(ShimRefusal.SECRET_PIPE_FD_INVALID)
+    return number
+
+
 @dataclass(frozen=True)
 class _Invocation:
     """The parsed command line: at most one delivery, plus the command to exec."""
@@ -306,10 +336,7 @@ def _parse_argv(args: Sequence[str]) -> _Invocation:
         if token == "--secret-path":
             secret_path = value
         else:
-            try:
-                secret_pipe_fd = int(value)
-            except ValueError as exc:
-                raise ShimRefusalError(ShimRefusal.SECRET_PIPE_FD_INVALID) from exc
+            secret_pipe_fd = _parse_descriptor(value)
         index += 2
     command = tuple(args[index:])
     if not command:
@@ -445,32 +472,58 @@ def _install_secret_channel(fd: int) -> None:
     os.set_inheritable(SECRET_CHANNEL_FD, True)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = list(sys.argv[1:] if argv is None else argv)
-    try:
-        invocation = _parse_argv(args)
-        if invocation.secret_path is not None:
-            close_stray_descriptors((0, 1, 2))
-            _install_secret_channel(_open_secret_path(invocation.secret_path))
-        elif invocation.secret_pipe_fd is not None:
-            close_stray_descriptors((0, 1, 2, invocation.secret_pipe_fd))
-            payload = _drain_secret_pipe(invocation.secret_pipe_fd)
-            _install_secret_channel(_memory_backed_descriptor(payload))
-        else:
-            # No delivery flag: the run has no secret channel and the shim is a
-            # pass-through, which is precisely what these images did before it
-            # existed. Adding the entrypoint changes nothing for such a caller.
-            close_stray_descriptors((0, 1, 2))
-    except ShimRefusalError as exc:
-        return _refuse(exc.code)
+def _run(args: Sequence[str]) -> int:
+    invocation = _parse_argv(args)
+    if invocation.secret_path is not None:
+        close_stray_descriptors((0, 1, 2))
+        _install_secret_channel(_open_secret_path(invocation.secret_path))
+    elif invocation.secret_pipe_fd is not None:
+        close_stray_descriptors((0, 1, 2, invocation.secret_pipe_fd))
+        payload = _drain_secret_pipe(invocation.secret_pipe_fd)
+        _install_secret_channel(_memory_backed_descriptor(payload))
+    else:
+        # No delivery flag: the run has no secret channel and the shim is a
+        # pass-through, which is precisely what these images did before it
+        # existed. Adding the entrypoint changes nothing for such a caller.
+        close_stray_descriptors((0, 1, 2))
 
     # stdin is never read here. The run context on it belongs to the child, and
     # a shim that consumed even one byte of it would leave the child parsing a
     # truncated document.
-    with contextlib.suppress(OSError):
+    with contextlib.suppress(OSError, ValueError):
+        # ``ValueError`` alongside ``OSError``: ``execvp`` raises it, not an
+        # ``OSError``, when the first token is empty — an argv the executor can
+        # produce by accident and the one path here that could still end in a
+        # traceback.
         exec_command(invocation.command)
     # Reached only if the exec did not happen: a successful one never returns.
     return _refuse(ShimRefusal.EXEC_FAILED)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the shim. Returns a status; a successful exec never comes back here.
+
+    The catch-all is the contract, not defensive habit. Everything before the
+    exec is driven by argv an executor wrote, and a traceback out of a process
+    that has just drained a credential bundle is both a place for bytes to land
+    and exit status 1 — the status of a crashed child, which is the one thing
+    :data:`SHIM_REFUSED_EXIT_STATUS` exists to be distinguishable from. So no
+    ``Exception`` escapes: an unforeseen one is rendered as
+    ``secret_delivery_failed``, which is true of any failure that reaches here.
+
+    ``BaseException`` is deliberately not caught — a ``KeyboardInterrupt`` or a
+    ``SystemExit`` is the caller ending the process, not a delivery to report
+    on. And nothing wraps the exec itself: after a successful handover this
+    process is the child, and a traceback from it is the child's.
+    """
+
+    args = list(sys.argv[1:] if argv is None else argv)
+    try:
+        return _run(args)
+    except ShimRefusalError as exc:
+        return _refuse(exc.code)
+    except Exception:
+        return _refuse(ShimRefusal.SECRET_DELIVERY_FAILED)
 
 
 def _refuse(code: ShimRefusal) -> int:
