@@ -56,11 +56,23 @@ recording the identity of something nobody fixed.
 
 ## Entrypoint and argv
 
-The image sets an empty `ENTRYPOINT` and carries the child-harness invocation in
-`CMD`. The `ContainerDriver` contract is that the argv the executor supplies
-**replaces** the command rather than being appended to an entrypoint; with a
-non-empty `ENTRYPOINT` the executor's argv would start the harness a second time
-inside the first, and the inner process would read an already-consumed stdin.
+`ENTRYPOINT` is the secret shim, `cruxible_provider_runtime.container_entry`, and
+the child-harness invocation stays in `CMD`. The shim runs no command of its own:
+it consumes its own leading flags, arranges the secret channel they name, and
+`execv`s the rest — `CMD` when the executor supplies no argv, the executor's argv
+when it does. What the `ContainerDriver` contract forbids is an `ENTRYPOINT` that
+starts the harness itself, because the supplied argv would then run it a second
+time inside the first and the inner process would read an already-consumed stdin.
+
+The shim exists because a fresh container is handed stdin, stdout and stderr and
+nothing else: an executor cannot pass a file descriptor across the container
+boundary, and the no-mounts law rules out bind-mounting a secret file. It accepts
+one memory-backed delivery — `--secret-path <tmpfs file>` or
+`--secret-pipe-fd <n>` — and installs it on the fixed descriptor
+`cruxible_provider_runtime.container_entry.SECRET_CHANNEL_FD`, which is the number
+the run context must name. Started with no secret flag it is a pass-through, so an
+image carrying it runs exactly as it did before it did. See "Secret delivery in
+containers" in the `cruxible-provider-runtime` README.
 
 ## Extras and the image
 

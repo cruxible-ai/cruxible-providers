@@ -12,6 +12,8 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from cruxible_provider_runtime.backends import CHILD_MODULE
+from cruxible_provider_runtime.container_entry import SHIM_MODULE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = REPO_ROOT / "packages"
@@ -249,6 +251,43 @@ def test_the_template_is_not_a_package() -> None:
     assert (template / "LICENSE").is_file()
     assert (template / "NOTICE").is_file()
     assert not list(template.rglob("*.py")), "template sources carry a .template suffix"
+
+
+CONTAINER_PACKAGES = [
+    package for package in REAL_PACKAGES if (package / "container" / "Dockerfile").is_file()
+]
+
+
+def test_every_provider_package_ships_an_image() -> None:
+    """Fail closed on the set, so a new plane inherits the image checks below.
+
+    Every package with sources except the runtime, which is the support library
+    that goes *into* those images rather than a provider with one of its own.
+    """
+
+    assert [package.name for package in CONTAINER_PACKAGES] == [
+        package.name
+        for package in REAL_PACKAGES
+        if (package / "src").is_dir() and package.name != "cruxible-provider-runtime"
+    ]
+
+
+@pytest.mark.parametrize("package", CONTAINER_PACKAGES, ids=lambda p: p.name)
+def test_every_provider_image_enters_through_the_secret_shim(package: Path) -> None:
+    """The one thing a container cannot inherit is a descriptor, so the image supplies it.
+
+    ``ENTRYPOINT`` is the shim and ``CMD`` is the harness, unchanged: the shim
+    execs whatever argv it is handed, which is ``CMD`` when nobody supplies one.
+    An image that lost the shim would run every provider with no way to receive
+    credentials at all, and would do it silently -- a run whose secrets are empty
+    refuses on an unresolved ref, which reads as a governance problem rather than
+    a missing entrypoint.
+    """
+
+    text = (package / "container" / "Dockerfile").read_text(encoding="utf-8")
+    assert f'ENTRYPOINT ["python", "-m", "{SHIM_MODULE}"]' in text
+    assert f'CMD ["python", "-m", "{CHILD_MODULE}"]' in text
+    assert "ENTRYPOINT []" not in text
 
 
 def test_no_source_file_names_a_person() -> None:

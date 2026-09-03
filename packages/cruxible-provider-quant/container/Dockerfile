@@ -77,10 +77,20 @@ USER 10001
 # on stdin, a result envelope on stdout, credential material on an inherited
 # descriptor named by the run context.
 #
-# ENTRYPOINT is deliberately EMPTY and the invocation lives in CMD. The
-# ContainerDriver contract is that the argv the executor supplies REPLACES the
-# command, not that it is appended to an entrypoint: with a non-empty ENTRYPOINT
-# here, the executor's argv would invoke the child harness a second time inside
-# the first. CMD is what a supplied argv displaces.
-ENTRYPOINT []
+# ENTRYPOINT is the secret shim; the invocation itself stays in CMD. A fresh
+# container is handed stdin, stdout and stderr and nothing else, so no executor
+# can pass a descriptor across the boundary, and the no-mounts law rules out
+# bind-mounting a secret file. The shim turns a memory-backed delivery a
+# container runtime CAN perform -- a tmpfs file or a one-shot pipe -- into the
+# descriptor the child reads, on the fixed number the run context names
+# (cruxible_provider_runtime.container_entry.SECRET_CHANNEL_FD).
+#
+# The ContainerDriver contract survives this intact. What it forbids is an
+# ENTRYPOINT that invokes the child itself, because the executor's argv would
+# then start the harness a second time inside the first. The shim runs no
+# command of its own: it execs the argv it is handed, which is CMD when the
+# executor supplies none and the executor's own argv when it does. Started with
+# no secret flag it is a pass-through, so an image built from this file behaves
+# exactly as it did before the shim existed.
+ENTRYPOINT ["python", "-m", "cruxible_provider_runtime.container_entry"]
 CMD ["python", "-m", "cruxible_provider_runtime.child"]
