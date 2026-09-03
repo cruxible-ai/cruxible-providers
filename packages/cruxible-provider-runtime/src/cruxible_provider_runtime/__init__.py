@@ -22,6 +22,7 @@ from .buckets import BucketDimension, BucketSelector, BucketVocabulary
 from .budget import ProcessOutcome, enforce_cost_budget, run_with_budget
 from .cache import MaterializationCache
 from .canonical import canonical_json, domain_digest
+from .container_entry import SECRET_CHANNEL_FD, container_secret_channel
 
 # dependency_closure_digest and CLOSURE_DOMAIN_TAG are deliberately NOT
 # re-exported here. They belong to the packaging-scope gate, not to identity: a
@@ -65,6 +66,7 @@ __all__ = [
     "IMPLEMENTATION_DOMAIN_TAG",
     "MATERIALIZATION_DOMAIN_TAG",
     "PROTOCOL_VERSION",
+    "SECRET_CHANNEL_FD",
     "ArtifactFetcher",
     "BindRequest",
     "Binding",
@@ -100,6 +102,7 @@ __all__ = [
     "bind",
     "canonical_json",
     "compare_egress",
+    "container_secret_channel",
     "domain_digest",
     "enforce_cost_budget",
     "enforce_egress",

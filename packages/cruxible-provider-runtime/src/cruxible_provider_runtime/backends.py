@@ -425,11 +425,19 @@ class UvSyncBuilder:
 class ContainerDriver(Protocol):
     """The container-engine seam. No engine is invoked by this repo's tests.
 
-    Contract for ``run``: ``argv`` **replaces** the image's entrypoint — it is
-    the complete command line, not arguments appended to one. An image whose
-    ``ENTRYPOINT`` also invokes the child harness would therefore run it twice,
-    so provider images set an empty ``ENTRYPOINT`` and carry the invocation in
-    ``CMD``, where a supplied ``argv`` displaces it.
+    Contract for ``run``: ``argv`` is the complete command the provider process
+    runs under — it displaces the image's ``CMD``, never adds to it. An image
+    whose ``ENTRYPOINT`` invoked the child harness itself would therefore run it
+    twice, with the inner process reading an already-consumed stdin.
+
+    Provider images satisfy that by putting
+    :mod:`cruxible_provider_runtime.container_entry` in ``ENTRYPOINT`` and the
+    harness in ``CMD``. The shim runs nothing of its own: it consumes its own
+    leading flags — the memory-backed secret delivery, which is the one thing a
+    container cannot inherit — and ``execv``s the rest, so ``argv`` still decides
+    what runs. A driver arranging a secret channel prepends the shim's flags to
+    ``argv``; one that does not passes ``argv`` alone and gets exactly the
+    process an image without the shim would have started.
     """
 
     def inspect(self, image_digest: str) -> ImageProvenance: ...
