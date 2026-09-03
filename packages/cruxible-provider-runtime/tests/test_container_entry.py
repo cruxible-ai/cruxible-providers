@@ -17,6 +17,7 @@ claim the shim makes is checked against the mechanism that would carry it.
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -25,7 +26,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,19 @@ class _ExecRecord:
     secret_bytes: bytes | None
     inheritable: bool | None
     watched_path_exists: bool | None
+    secret_seals: int | None = None
+
+
+def _descriptor_seals(fd: int) -> int | None:
+    """The memfd seals on ``fd``, or ``None`` where the kernel has no such thing."""
+
+    get_seals = getattr(fcntl, "F_GET_SEALS", None)
+    if get_seals is None:
+        return None
+    try:
+        return int(fcntl.fcntl(fd, get_seals))
+    except OSError:
+        return None
 
 
 @dataclass
@@ -85,11 +99,22 @@ class _Harness:
     read_secret_fd: bool = True
     """Draining the delivery is destructive, so a test that wants to read it says so."""
 
+    before_read: Callable[[], None] | None = None
+    """Runs at the moment of exec, before the delivery is read.
+
+    That instant is the whole window a race has to work in: the shim has
+    finished checking and the child has not started reading. A test that wants
+    to be the racing writer has to act here or not at all.
+    """
+
     records: list[_ExecRecord] = field(default_factory=list)
 
     def exec_command(self, argv: Sequence[str]) -> None:
+        if self.before_read is not None:
+            self.before_read()
         secret_bytes: bytes | None = None
         inheritable: bool | None = None
+        seals: int | None = None
         try:
             inheritable = os.get_inheritable(SECRET_CHANNEL_FD)
         except OSError:
@@ -97,6 +122,7 @@ class _Harness:
             inheritable = None
         else:
             open_fd = True
+            seals = _descriptor_seals(SECRET_CHANNEL_FD)
             if self.read_secret_fd:
                 with os.fdopen(os.dup(SECRET_CHANNEL_FD), "rb", closefd=True) as handle:
                     secret_bytes = handle.read()
@@ -109,6 +135,7 @@ class _Harness:
                 watched_path_exists=(
                     self.watched_path.exists() if self.watched_path is not None else None
                 ),
+                secret_seals=seals,
             )
         )
 
@@ -157,6 +184,22 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Harness]:
 
 def _pretend_filesystem(monkeypatch: pytest.MonkeyPatch, magic: int | None) -> None:
     monkeypatch.setattr(container_entry, "filesystem_magic", lambda fd: magic)
+
+
+def _clear_of_the_secret_descriptor(fd: int) -> int:
+    """Move ``fd`` above :data:`SECRET_CHANNEL_FD`, and hand back the new number.
+
+    The delivery is installed with ``dup2`` onto three, and the harness frees
+    three for the duration of a test, so a descriptor a test opens for its own
+    purposes can land exactly where the bundle is about to. Silently, and then
+    the test writes into the delivery.
+    """
+
+    if fd > SECRET_CHANNEL_FD:
+        return fd
+    moved = os.dup(fd)
+    os.close(fd)
+    return moved
 
 
 def _bundle_file(directory: Path, payload: bytes = BUNDLE_BYTES) -> Path:
@@ -391,6 +434,149 @@ def test_a_character_device_at_the_secret_path_refuses(
     assert status == SHIM_REFUSED_EXIT_STATUS
     assert capsys.readouterr().err == "shim_refused: secret_path_unreadable\n"
     assert harness.records == []
+
+
+def test_a_writer_appending_after_the_check_cannot_reach_the_child(
+    harness: _Harness, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The cap has to bound the bytes the child reads, not the bytes fstat saw.
+
+    ``fstat`` measures the file at one instant. A writer still holding a
+    descriptor on the inode — the unlink takes the name, not their handle —
+    decides where EOF is afterwards, and the child's reader has no cap of its
+    own. Probed at 263 168 bytes against a 65 536-byte cap before this closed.
+    """
+
+    _pretend_filesystem(monkeypatch, TMPFS_MAGIC)
+    path = _bundle_file(tmp_path)
+    appender = _clear_of_the_secret_descriptor(os.open(path, os.O_WRONLY | os.O_APPEND))
+    harness.before_read = lambda: os.write(appender, b"x" * 263_168)
+
+    try:
+        container_entry.main(["--secret-path", str(path), *COMMAND])
+    finally:
+        os.close(appender)
+
+    assert harness.only.secret_bytes == BUNDLE_BYTES
+
+
+def test_a_bundle_far_over_the_cap_refuses_before_the_exec(
+    harness: _Harness,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _pretend_filesystem(monkeypatch, TMPFS_MAGIC)
+    path = _bundle_file(tmp_path, b"x" * 263_168)
+
+    status = container_entry.main(["--secret-path", str(path), *COMMAND])
+
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: secret_bundle_too_large\n"
+    assert harness.records == []
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "memfd_create"), reason="anonymous memory descriptors are a Linux interface"
+)
+def test_the_delivered_copy_is_sealed_against_rewriting(
+    harness: _Harness, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _pretend_filesystem(monkeypatch, TMPFS_MAGIC)
+
+    container_entry.main(["--secret-path", str(_bundle_file(tmp_path)), *COMMAND])
+
+    seals = harness.only.secret_seals
+    assert seals is not None
+    assert seals & fcntl.F_SEAL_WRITE
+
+
+@pytest.fixture()
+def link_root(tmp_path: Path) -> Iterator[Path]:
+    """A real tmpfs directory where the host has one, the temp dir otherwise.
+
+    The hard-link gap is a property of names and inodes, not of tmpfs, so the
+    temp dir tests the same thing; running it on the real delivery filesystem
+    where one exists is what makes the answer about the mount the executor will
+    actually use.
+    """
+
+    if MEMORY_BACKED_DIR is None:
+        yield tmp_path
+        return
+    root = MEMORY_BACKED_DIR / f"cruxible-shim-links-{os.getpid()}"
+    root.mkdir(exist_ok=True)
+    try:
+        yield root
+    finally:
+        for leftover in root.iterdir():
+            leftover.unlink()
+        root.rmdir()
+
+
+def test_a_bundle_with_a_second_name_refuses(
+    harness: _Harness,
+    monkeypatch: pytest.MonkeyPatch,
+    link_root: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Unlink removes a name. A second name outlives the delivery entirely."""
+
+    _pretend_filesystem(monkeypatch, TMPFS_MAGIC)
+    path = _bundle_file(link_root)
+    link = link_root / "second-name.json"
+    try:
+        os.link(path, link)
+    except OSError as exc:  # pragma: no cover - filesystem dependent
+        pytest.skip(f"this filesystem does not support hard links: {exc}")
+
+    status = container_entry.main(["--secret-path", str(path), *COMMAND])
+
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: secret_path_not_exclusive\n"
+    assert harness.records == []
+    assert path.exists(), "a refused delivery is not consumed"
+    assert link.read_bytes() == BUNDLE_BYTES
+
+
+def test_a_name_that_appears_between_the_check_and_the_unlink_refuses(
+    harness: _Harness,
+    monkeypatch: pytest.MonkeyPatch,
+    link_root: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The window the first check cannot see, closed by asking the descriptor.
+
+    ``st_nlink`` on the held descriptor after the unlink is the only question
+    whose answer is about the inode the shim opened. It catches a link made in
+    the window, and the same reading catches the other half of the name/inode
+    gap: a rename racing the open means the name that was unlinked was some
+    other file's, and this inode still has one.
+    """
+
+    _pretend_filesystem(monkeypatch, TMPFS_MAGIC)
+    path = _bundle_file(link_root)
+    survivor = link_root / "raced.json"
+    real_unlink = os.unlink
+
+    def _racing_unlink(target: Any, *args: Any, **kwargs: Any) -> None:
+        if os.fspath(target) == str(path) and not survivor.exists():
+            os.link(path, survivor)
+        real_unlink(target, *args, **kwargs)
+
+    try:
+        os.link(path, survivor)
+        survivor.unlink()
+    except OSError as exc:  # pragma: no cover - filesystem dependent
+        pytest.skip(f"this filesystem does not support hard links: {exc}")
+    monkeypatch.setattr(os, "unlink", _racing_unlink)
+
+    status = container_entry.main(["--secret-path", str(path), *COMMAND])
+
+    assert status == SHIM_REFUSED_EXIT_STATUS
+    assert capsys.readouterr().err == "shim_refused: secret_path_not_exclusive\n"
+    assert harness.records == []
+    assert survivor.read_bytes() == BUNDLE_BYTES
 
 
 # --------------------------------------------------------------------------

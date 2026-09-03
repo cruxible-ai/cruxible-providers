@@ -26,8 +26,12 @@ existing caller.
 ``--secret-path``
     A file on a tmpfs/ramfs mount the runtime dropped into the container. The
     shim opens it, refuses unless the mount really is memory-backed, refuses a
-    bundle over the channel cap, and **unlinks it before exec**, so provider code
-    never sees a path it could read a second time or hand to something else.
+    bundle over the channel cap or carrying a second name, **unlinks it before
+    exec** — so provider code never sees a path it could read a second time or
+    hand to something else — and then reads it, bounded, into an anonymous
+    in-memory copy. The copy is what the child gets. Handing over the file's own
+    descriptor would leave the cap a snapshot that a writer still holding the
+    unlinked inode could append past.
 
 ``--secret-pipe-fd``
     A one-shot pipe the executor wrote and left open on a numbered descriptor.
@@ -70,6 +74,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import fcntl
 import math
 import os
 import platform
@@ -180,6 +185,7 @@ class ShimRefusal(StrEnum):
     CONFLICTING_SECRET_DELIVERY = "conflicting_secret_delivery"
     SECRET_PATH_UNREADABLE = "secret_path_unreadable"
     SECRET_PATH_NOT_MEMORY_BACKED = "secret_path_not_memory_backed"
+    SECRET_PATH_NOT_EXCLUSIVE = "secret_path_not_exclusive"
     SECRET_PATH_UNVERIFIABLE = "secret_path_unverifiable"
     SECRET_PIPE_FD_INVALID = "secret_pipe_fd_invalid"
     SECRET_PIPE_TIMEOUT = "secret_pipe_timeout"
@@ -439,16 +445,50 @@ def _open_secret_path(path: str) -> int:
             raise ShimRefusalError(ShimRefusal.SECRET_PATH_NOT_MEMORY_BACKED)
         if info.st_size > MAX_SECRET_BUNDLE_BYTES:
             raise ShimRefusalError(ShimRefusal.SECRET_BUNDLE_TOO_LARGE)
+        if info.st_nlink != 1:
+            # `unlink` removes a name. A bundle with a second name is a bundle
+            # that survives the delivery, readable by whoever holds the other
+            # name for as long as they like — and the shim's claim is that
+            # nothing readable is left behind, not that one name is gone.
+            raise ShimRefusalError(ShimRefusal.SECRET_PATH_NOT_EXCLUSIVE)
         try:
             os.unlink(path)
         except OSError as exc:
             # The descriptor would still work, and that is the trap: exec'ing
             # here would leave provider code a readable path to the bundle.
             raise ShimRefusalError(ShimRefusal.SECRET_DELIVERY_FAILED) from exc
+        try:
+            remaining = os.fstat(fd).st_nlink
+        except OSError as exc:  # pragma: no cover - the fd is held open above
+            raise ShimRefusalError(ShimRefusal.SECRET_DELIVERY_FAILED) from exc
+        if remaining != 0:
+            # Asked of the descriptor, so the answer is about the inode the shim
+            # holds rather than about the name it just removed. A link made in
+            # the window between the check and the unlink lands here, and so
+            # does the other half of the same gap: a rename racing the open
+            # means the name unlinked was never this inode's, and the inode
+            # still has one.
+            raise ShimRefusalError(ShimRefusal.SECRET_PATH_NOT_EXCLUSIVE)
     except BaseException:
         os.close(fd)
         raise
     return fd
+
+
+def _path_delivery(path: str, *, timeout: float) -> int:
+    """The whole ``--secret-path`` delivery: verify, unlink, copy, hand over.
+
+    The copy is the point. Handing the child the file's own descriptor made the
+    64 KiB cap a snapshot — ``fstat`` says 64 KiB, the child reads to EOF, and
+    anyone still holding a write descriptor on the unlinked inode decides what
+    EOF means. Reading the bundle here, bounded, and handing over an anonymous
+    in-memory copy makes the cap bound the bytes the child can read rather than
+    the bytes the file admitted to at one instant. It also makes the two
+    deliveries the same delivery from the child's side, which is one shape to
+    reason about instead of two.
+    """
+
+    return _memory_backed_descriptor(_drain_descriptor(_open_secret_path(path), timeout=timeout))
 
 
 def _drain_descriptor(fd: int, *, timeout: float) -> bytes:
@@ -527,12 +567,14 @@ def _memory_backed_descriptor(payload: bytes) -> int:
 
     memfd_create: Callable[..., int] | None = getattr(os, "memfd_create", None)
     if memfd_create is not None:
-        fd = memfd_create("cruxible-secret-bundle", getattr(os, "MFD_CLOEXEC", 0))
+        flags = getattr(os, "MFD_CLOEXEC", 0) | getattr(os, "MFD_ALLOW_SEALING", 0)
+        fd = memfd_create("cruxible-secret-bundle", flags)
         try:
             written = os.write(fd, payload)
             if written != len(payload):  # pragma: no cover - short write to memory
                 raise ShimRefusalError(ShimRefusal.SECRET_DELIVERY_FAILED)
             os.lseek(fd, 0, os.SEEK_SET)
+            _seal(fd)
         except BaseException:
             os.close(fd)
             raise
@@ -552,6 +594,29 @@ def _memory_backed_descriptor(payload: bytes) -> int:
         raise ShimRefusalError(ShimRefusal.SECRET_DELIVERY_FAILED)
     os.close(write_fd)
     return read_fd
+
+
+def _seal(fd: int) -> None:
+    """Freeze the anonymous copy, where the kernel offers a way to.
+
+    Defence in depth rather than a boundary: the descriptor is already anonymous
+    and reachable only from this process tree. Sealing means provider code that
+    inherits it cannot rewrite the bundle for anything downstream that reads it
+    again, and it costs one syscall. A kernel without seals is not a refusal —
+    the copy is no worse than the file it replaced — so the failure is ignored
+    rather than reported.
+    """
+
+    add_seals = getattr(fcntl, "F_ADD_SEALS", None)
+    if add_seals is None:  # pragma: no cover - platform dependent
+        return
+    seals = (
+        getattr(fcntl, "F_SEAL_WRITE", 0)
+        | getattr(fcntl, "F_SEAL_SHRINK", 0)
+        | getattr(fcntl, "F_SEAL_GROW", 0)
+    )
+    with contextlib.suppress(OSError):
+        fcntl.fcntl(fd, add_seals, seals)
 
 
 def _install_secret_channel(fd: int) -> None:
@@ -574,7 +639,9 @@ def _run(args: Sequence[str]) -> int:
     invocation = _parse_argv(args)
     if invocation.secret_path is not None:
         close_stray_descriptors((0, 1, 2))
-        _install_secret_channel(_open_secret_path(invocation.secret_path))
+        _install_secret_channel(
+            _path_delivery(invocation.secret_path, timeout=invocation.drain_timeout)
+        )
     elif invocation.secret_pipe_fd is not None:
         close_stray_descriptors((0, 1, 2, invocation.secret_pipe_fd))
         payload = _drain_secret_pipe(invocation.secret_pipe_fd, timeout=invocation.drain_timeout)
