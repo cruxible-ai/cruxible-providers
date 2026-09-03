@@ -61,7 +61,9 @@ the container runtime *can* perform into the descriptor the child expects.
 `cruxible_provider_runtime.container_entry` is that something, and it is the
 images' `ENTRYPOINT`. The harness stays in `CMD`; the shim execs whatever argv it
 is handed, so an image started with no secret flag runs exactly the process it
-ran before the shim existed.
+ran before the shim existed — and says nothing on the way, because stdout and
+stderr are billed against one `output_bytes` budget and a byte the shim writes
+is a byte the provider does not get.
 
 ```
 python -m cruxible_provider_runtime.container_entry \
@@ -101,9 +103,10 @@ started.
 
 Before either delivery is arranged the shim closes every descriptor it holds
 except the standard streams and the one it was named. That is not tidiness: a
-pipe whose write end leaked into the container never reaches EOF. It reaches
-copies inside this process only — against a write end held outside the
-container, the deadline is the whole defence.
+pipe whose write end leaked into the container never reaches EOF. The sweep
+reaches copies inside this process and nothing further, though — against a write
+end the executor still holds outside the container, the deadline is the whole
+defence.
 
 ### The fixed descriptor
 
