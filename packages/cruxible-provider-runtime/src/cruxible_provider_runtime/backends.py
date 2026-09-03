@@ -438,6 +438,17 @@ class ContainerDriver(Protocol):
     what runs. A driver arranging a secret channel prepends the shim's flags to
     ``argv``; one that does not passes ``argv`` alone and gets exactly the
     process an image without the shim would have started.
+
+    **A driver that delivers a secret owes the shim a mount private to the
+    run.** The shim verifies that the delivery is memory-backed and refuses when
+    it cannot, but memory-backed is not private: a ``/dev/shm`` shared through
+    ``--ipc=host`` or a shared IPC namespace passes the check while another
+    container reads the bundle out of it, and ``/dev`` (devtmpfs) passes it too.
+    The check is a necessary condition, not a sufficient one. The delivery must
+    be on a tmpfs mounted for this container alone, in a directory nothing else
+    can write to, and the run context's descriptor number must come from
+    :func:`~cruxible_provider_runtime.container_entry.container_secret_channel`
+    rather than a literal.
     """
 
     def inspect(self, image_digest: str) -> ImageProvenance: ...
@@ -566,6 +577,18 @@ class ContainerBackend:
         budgets: Budgets,
         pass_fds: Sequence[int] = (),
     ) -> ProcessOutcome:
+        """Run the harness in the image. ``pass_fds`` is still the *host's*.
+
+        A descriptor cannot cross the container boundary, so a container run's
+        secret channel is the driver's to arrange: the shim's delivery flags in
+        front of ``argv``, on a mount private to the run, and the run context's
+        descriptor number from
+        :func:`~cruxible_provider_runtime.container_entry.container_secret_channel`.
+        Until a driver does that, this forwards the host numbers it was given
+        and a container child finds nothing on them — which fails closed, and is
+        the seam to read before either side changes.
+        """
+
         return self._driver.run(
             image_digest,
             argv=["python", "-m", CHILD_MODULE, "--entrypoint", entrypoint],

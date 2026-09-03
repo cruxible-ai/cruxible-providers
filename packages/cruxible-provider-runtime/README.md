@@ -65,26 +65,45 @@ ran before the shim existed.
 
 ```
 python -m cruxible_provider_runtime.container_entry \
-    [--secret-path <path> | --secret-pipe-fd <n>] [--] <command> [args...]
+    [--secret-path <path> | --secret-pipe-fd <n>] \
+    [--secret-pipe-timeout <seconds>] [--] <command> [args...]
 ```
 
 ### The two deliveries
 
 | Flag | What the executor provides | What the shim does |
 |---|---|---|
-| `--secret-path <path>` | A file on a **tmpfs/ramfs** mount inside the container | Opens it (`O_NOFOLLOW`), verifies the mount really is memory-backed, refuses a bundle over the cap, **unlinks the path**, and installs the descriptor |
-| `--secret-pipe-fd <n>` | A one-shot pipe, written and left open on descriptor *n* | Drains it under the cap and re-delivers the bytes on an anonymous memory descriptor, so what the child reads has an end |
+| `--secret-path <path>` | A file on a **tmpfs/ramfs** mount inside the container | Opens it (`O_NOFOLLOW`, `O_NONBLOCK`), refuses anything that is not a regular file on a memory-backed mount with exactly one name, refuses a bundle over the cap, **unlinks the path**, then reads it bounded into an anonymous in-memory copy |
+| `--secret-pipe-fd <n>` | A one-shot pipe, written and left open on descriptor *n* | Drains it under the same bounded read and re-delivers the bytes the same way, so what the child reads has an end |
 
-Both are memory-backed by construction, and neither leaves anything readable
-behind: the path is gone before the exec, and the pipe is spent. Nothing about
-the material is on argv, in the environment, or on any listable path by the time
-provider code starts — the flags name a path or a descriptor number and the shim
-consumes both.
+Both end in the same thing: an anonymous descriptor carrying a copy of the
+bundle, which is what the child inherits on the fixed number. Path mode copies
+rather than passing the file's own descriptor on purpose — `fstat` measures the
+file at one instant, the child's reader has no cap of its own, and a writer
+still holding the unlinked inode would otherwise decide where the child's EOF
+is.
+
+Neither delivery leaves anything readable behind. The path is unlinked before
+the exec, and the shim refuses rather than exec'ing unless the inode had exactly
+one name before the unlink and none after — a second name is a bundle that
+outlives the run, and asking the descriptor afterwards is the only question
+whose answer is about the inode rather than the name. The pipe is spent.
+Nothing about the material is on argv, in the environment, or on any listable
+path by the time provider code starts.
+
+Nothing the shim opens or reads can block indefinitely. The path is opened
+`O_NONBLOCK`, so a FIFO planted where the bundle should be returns instead of
+waiting for a writer, and every read runs against a deadline —
+`SECRET_DRAIN_TIMEOUT_SECONDS`, five seconds, moved only by
+`--secret-pipe-timeout <seconds>` and never by the environment. A run that hangs
+is worse than one that refuses: it spends the wall clock of a run that never
+started.
 
 Before either delivery is arranged the shim closes every descriptor it holds
 except the standard streams and the one it was named. That is not tidiness: a
-pipe whose write end leaked into the container never reaches EOF, and a reader
-waiting for one that is not coming is a run that hangs rather than fails.
+pipe whose write end leaked into the container never reaches EOF. It reaches
+copies inside this process only — against a write end held outside the
+container, the deadline is the whole defence.
 
 ### The fixed descriptor
 
@@ -118,11 +137,18 @@ up. The line is `shim_refused: <code>`, and the codes are closed:
 |---|---|
 | `secret_path_not_memory_backed` | The path's mount is not tmpfs or ramfs |
 | `secret_path_unverifiable` | The filesystem type could not be read at all (see the platform note below) |
-| `secret_path_unreadable` | Missing, a symlink, or not a regular file |
+| `secret_path_unreadable` | Missing, a symlink, or not a regular file — a FIFO, directory, socket or device included |
+| `secret_path_not_exclusive` | The bundle had a second name before the unlink, or still had one after it |
 | `secret_bundle_too_large` | Over `MAX_SECRET_BUNDLE_BYTES` (64 KiB), the same rule `secrets` enforces, one process earlier |
-| `secret_pipe_fd_invalid` | Not an open pipe, or a standard stream |
-| `secret_delivery_failed` | The bundle could not be unlinked, or could not be re-delivered |
-| `conflicting_secret_delivery`, `missing_option_value`, `no_command`, `exec_failed` | Malformed invocation |
+| `secret_pipe_fd_invalid` | Not an open pipe, a standard stream, or a number no descriptor could have |
+| `secret_pipe_timeout` | The delivery did not reach its end inside the deadline |
+| `secret_delivery_failed` | The bundle could not be unlinked or re-delivered — and the code any unforeseen failure is rendered as, because no exception escapes as a traceback |
+| `conflicting_secret_delivery`, `missing_option_value`, `invalid_option_value`, `no_command`, `exec_failed` | Malformed invocation |
+
+Every one of these exits **78**, including the ones an executor reaches by
+getting its own argv wrong. Exit 1 with a traceback is what a crashed child
+looks like, and the executor has only the status and one line to tell the two
+apart.
 
 **Platform note.** The memory-backed check is `fstatfs` against the descriptor
 the shim already holds — `f_type` compared to `TMPFS_MAGIC` / `RAMFS_MAGIC` —
@@ -139,16 +165,33 @@ Ruled by the maintainer, 2026-09-04:
 1. **Deliver on memory, never on a mount.** A tmpfs file or a one-shot pipe. A
    bind-mounted secret file is not a delivery this shim will accept, and the
    no-mounts law rules it out before the shim ever sees it.
-2. **Unlinking is the shim's job, not the executor's.** The executor must not
+2. **Deliver on a mount private to this run, and writable by nothing else.**
+   This is the obligation the shim cannot check for you. *Memory-backed is not
+   private.* `fstatfs` answers "is this tmpfs or ramfs", and a `/dev/shm` shared
+   through `--ipc=host` or a shared IPC namespace answers yes while another
+   container reads the bundle out of it — demonstrated across two containers.
+   `/dev` is devtmpfs, whose magic is tmpfs's, and it passes too. So the check
+   is a **necessary condition, not a sufficient one**: it rejects overlayfs, a
+   volume and the container's own non-tmpfs `/tmp`, and it cannot tell a mount
+   that belongs to this run from one anybody can reach. Give the run its own
+   tmpfs, mounted for this container alone, in a directory nothing else can
+   write to — the second half matters because a writer in the delivery
+   directory can plant a FIFO or a second name where the bundle should be, and
+   the shim's answer to both is a refusal, not a run.
+3. **Unlinking is the shim's job, not the executor's.** The executor must not
    delete the path itself; it has no way to know the shim has opened it, and a
    race there is a run that starts with no credentials.
-3. **Write the descriptor number from `container_secret_channel`.** Never a
+4. **Write the descriptor number from `container_secret_channel`.** Never a
    literal in another repository.
-4. **Close the pipe's write end.** The shim's descriptor sweep will close a copy
-   that leaked into the container, but the executor's own copy is the executor's
-   to close.
-5. **Keep the bundle under 64 KiB.** The cap is enforced in three places now and
-   it is the same 64 KiB in all of them.
+5. **Close the pipe's write end.** The shim's descriptor sweep closes a copy
+   that leaked into the container; the executor's own copy is outside the
+   process and beyond its reach. An unclosed write end used to hang the run
+   forever. It now refuses `secret_pipe_timeout` after
+   `SECRET_DRAIN_TIMEOUT_SECONDS` — a bounded failure is not a working
+   delivery, and the obligation stands.
+6. **Keep the bundle under 64 KiB.** The same 64 KiB the executor's own channel
+   writer enforces, the shim's `fstat` refuses past, and the shim's bounded
+   drain stops at.
 
 
 ## What it does not own

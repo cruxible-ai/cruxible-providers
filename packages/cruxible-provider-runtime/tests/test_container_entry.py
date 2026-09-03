@@ -1222,6 +1222,44 @@ def test_the_descriptor_sweep_closes_a_write_end_leaked_into_the_container() -> 
     assert json.loads(json.loads(stdout)["bundle"]) == BUNDLE
 
 
+# --------------------------------------------------------------------------
+# The obligation the shim cannot check for the executor
+# --------------------------------------------------------------------------
+
+RUNTIME_ROOT = RUNTIME_SRC.parent
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        RUNTIME_ROOT / "README.md",
+        RUNTIME_SRC / "cruxible_provider_runtime" / "backends.py",
+        RUNTIME_SRC / "cruxible_provider_runtime" / "container_entry.py",
+    ],
+    ids=lambda path: path.name,
+)
+def test_the_delivery_mount_obligation_is_stated_where_an_executor_will_read_it(
+    document: Path,
+) -> None:
+    """ "Memory-backed" is not "private to this run", and the check cannot tell.
+
+    A ``/dev/shm`` shared through ``--ipc=host`` or a shared IPC namespace is
+    tmpfs, and a second container reads the bundle out of it in the window
+    before the unlink; ``/dev`` is devtmpfs and passes the same test. Nothing in
+    the shim can detect either. That makes it an executor obligation, and an
+    obligation nobody wrote down is one W3 gets wrong — so it is asserted in the
+    three places an executor author lands: the package README, the driver seam,
+    and the constant that does the checking.
+    """
+
+    prose = " ".join(document.read_text(encoding="utf-8").split())
+
+    assert "necessary condition, not a sufficient one" in prose
+    assert "--ipc=host" in prose
+    assert "devtmpfs" in prose
+    assert "mount private to" in prose
+
+
 def test_the_child_harness_reads_the_bundle_the_shim_installed(tmp_path: Path) -> None:
     """End to end: shim, exec, ``read_secrets`` on the named fd, result envelope.
 

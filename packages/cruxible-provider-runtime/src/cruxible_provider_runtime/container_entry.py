@@ -161,6 +161,15 @@ tmpfs and ramfs, and nothing else. The point of the check is that credential
 material must never be written to a filesystem that can persist it — an
 overlayfs upper layer, a volume, a stray writable mount — and "the executor
 promised it was tmpfs" is not a check.
+
+**Memory-backed is not private to this run, and this cannot tell the
+difference.** A ``/dev/shm`` shared through ``--ipc=host`` or a shared IPC
+namespace is tmpfs, and another container reads the bundle out of it; ``/dev``
+is devtmpfs, whose magic is tmpfs's, and it passes too. So this is a necessary
+condition, not a sufficient one: it rejects a filesystem that can persist the
+material, and it cannot say who else can reach the one it accepts. The executor
+owes the run a mount private to its own container — see the obligations in the
+package README.
 """
 
 _READ_CHUNK = 65536
@@ -261,7 +270,10 @@ def filesystem_magic(fd: int) -> int | None:
             return None
     except (OSError, AttributeError, ValueError):  # pragma: no cover - platform dependent
         return None
-    return int(ctypes.c_long.from_buffer(buffer).value)
+    # Unsigned: ``RAMFS_MAGIC`` (0x858458F6) read through a signed word comes
+    # back negative on a 32-bit Linux ABI, and a genuine ramfs would be refused.
+    # Fail-closed, but wrong, and being right costs nothing here.
+    return int(ctypes.c_ulong.from_buffer(buffer).value)
 
 
 def _open_descriptors() -> list[int]:
