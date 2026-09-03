@@ -674,6 +674,7 @@ def test_the_real_shim_delivers_the_bundle_on_the_fixed_descriptor() -> None:
             os.close(read_fd)
 
     assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    assert completed.stderr == b"", "a successful delivery says nothing at all"
     report = json.loads(completed.stdout)
     assert json.loads(report["bundle"]) == BUNDLE
 
@@ -683,6 +684,46 @@ def test_the_real_shim_without_a_flag_leaves_the_command_with_no_secret_channel(
     assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
     report = json.loads(completed.stdout)
     assert report["bundle"] is None
+
+
+def test_the_pass_through_writes_nothing_to_stderr() -> None:
+    """Byte-identical to the pre-shim process, stderr included.
+
+    stdout and stderr are billed against one ``output_bytes`` budget, so a
+    warning the shim emits on every start is a standing tax on every run and a
+    permanent line in every trace — not cosmetic noise. The regression this
+    guards is a package-level re-export of the shim module, which put it in
+    ``sys.modules`` before ``runpy`` ran it as ``__main__`` and cost 232 bytes
+    of ``RuntimeWarning`` per container start.
+    """
+
+    completed = _run_shim([], [sys.executable, "-c", "print('hi')"])
+
+    assert completed.returncode == 0
+    assert completed.stdout == b"hi\n"
+    assert completed.stderr == b""
+
+
+def test_the_package_exports_the_shim_constants_without_importing_the_shim() -> None:
+    """The lazy re-export, checked where it matters: at package import time."""
+
+    probe = (
+        "import sys, cruxible_provider_runtime as runtime\n"
+        "before = 'cruxible_provider_runtime.container_entry' in sys.modules\n"
+        "fd = runtime.SECRET_CHANNEL_FD\n"
+        "helper = runtime.container_secret_channel(['a.b']).fd\n"
+        "after = 'cruxible_provider_runtime.container_entry' in sys.modules\n"
+        "print(before, fd, helper, after)\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        env=_environment(),
+        timeout=120,
+    )
+
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    assert completed.stdout.split() == [b"False", b"3", b"3", b"True"]
 
 
 def test_nothing_of_the_material_reaches_argv_the_environment_or_the_cmdline() -> None:

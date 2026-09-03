@@ -15,6 +15,8 @@ schemas and a conformance harness against a stub registry. See
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from .artifact import ProviderArtifactPayload, artifact_digest, load_provider_artifact
 from .backends import MaterializationRequest, UvSyncBuilder, verify_environment
 from .binding import Binding, BindRequest, bind
@@ -22,7 +24,6 @@ from .buckets import BucketDimension, BucketSelector, BucketVocabulary
 from .budget import ProcessOutcome, enforce_cost_budget, run_with_budget
 from .cache import MaterializationCache
 from .canonical import canonical_json, domain_digest
-from .container_entry import SECRET_CHANNEL_FD, container_secret_channel
 
 # dependency_closure_digest and CLOSURE_DOMAIN_TAG are deliberately NOT
 # re-exported here. They belong to the packaging-scope gate, not to identity: a
@@ -57,6 +58,9 @@ from .resolution import (
     load_uv_lock,
     resolve,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - resolved lazily at runtime, see __getattr__
+    from .container_entry import SECRET_CHANNEL_FD, container_secret_channel
 
 __version__ = "0.1.0"
 
@@ -119,3 +123,29 @@ __all__ = [
     "verify_environment",
     "write_child_guard",
 ]
+
+_SHIM_EXPORTS = frozenset({"SECRET_CHANNEL_FD", "container_secret_channel"})
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve the container-shim exports without importing the shim module.
+
+    Both names live in :mod:`cruxible_provider_runtime.container_entry`, which
+    is also the module the provider images run as ``__main__``. Importing it
+    here eagerly put it in ``sys.modules`` before ``runpy`` executed it, and
+    ``runpy`` answers that with a ``RuntimeWarning`` on stderr: 232 bytes on
+    every containerised run, billed against the run's ``output_bytes`` budget —
+    which is aggregate over stdout and stderr — and a permanent line in every
+    run's trace, from the one module whose promise is that the child sees
+    exactly the process it saw before the shim existed.
+
+    Resolving lazily keeps the export and drops the double import. An executor
+    that reads either name pays the import at that point, which is what it was
+    always going to pay.
+    """
+
+    if name in _SHIM_EXPORTS:
+        from . import container_entry
+
+        return getattr(container_entry, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
