@@ -21,6 +21,7 @@ import fcntl
 import hashlib
 import json
 import os
+import resource
 import socket
 import subprocess
 import sys
@@ -62,6 +63,9 @@ BUNDLE_BYTES = json.dumps(BUNDLE, sort_keys=True, separators=(",", ":")).encode(
 
 TMPFS_MAGIC = 0x01021994
 EXT4_MAGIC = 0xEF53
+
+# The fd_set width CPython enforces on ``select.select``; the drain must not.
+_FD_SETSIZE = 1024
 
 
 # --------------------------------------------------------------------------
@@ -1111,6 +1115,82 @@ def test_a_pipe_whose_write_end_never_closes_refuses_on_the_deadline() -> None:
     assert completed.returncode == SHIM_REFUSED_EXIT_STATUS
     assert completed.stderr == b"shim_refused: secret_pipe_timeout\n"
     assert elapsed < 30
+
+
+@contextlib.contextmanager
+def _pipe_on_a_high_descriptor() -> Iterator[tuple[int, int]]:
+    """A pipe whose read end sits at or above ``FD_SETSIZE``.
+
+    Nothing about the executor's fd allocation is under this package's control:
+    a container runtime that already holds a thousand descriptors hands the shim
+    a four-figure one, and the number is the whole point of the test.
+    """
+
+    limit = _FD_SETSIZE + 76
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft < limit:
+        if hard != resource.RLIM_INFINITY and hard < limit:
+            pytest.skip("descriptor limit too low to place a pipe above FD_SETSIZE")
+        resource.setrlimit(resource.RLIMIT_NOFILE, (limit, hard))
+    read_fd, write_fd = os.pipe()
+    high_fd = limit - 1
+    try:
+        os.dup2(read_fd, high_fd, inheritable=True)
+    finally:
+        os.close(read_fd)
+    try:
+        yield high_fd, write_fd
+    finally:
+        for fd in (write_fd, high_fd):
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        if soft < limit:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+def test_a_silent_writer_on_a_high_descriptor_still_refuses_on_the_deadline() -> None:
+    """A descriptor's NUMBER decides nothing about what the delivery did.
+
+    ``select.select`` disagreed: an ``fd_set`` cannot hold a descriptor at or
+    above ``FD_SETSIZE``, so the readiness wait raised before the kernel saw it
+    and the catch-all rendered a perfectly ordinary slow writer as
+    ``secret_delivery_failed`` — immediately, rather than on the deadline the
+    executor asked for. The executor reading that refusal would look for a
+    broken pipe instead of a writer that stopped.
+    """
+
+    with _pipe_on_a_high_descriptor() as (high_fd, write_fd):
+        os.write(write_fd, b'{"provider.api_key": "dummy-credential')
+        started = time.monotonic()
+        completed = _run_shim(
+            ["--secret-pipe-timeout", "0.5", "--secret-pipe-fd", str(high_fd)],
+            _reporter(),
+            pass_fds=(high_fd,),
+            timeout=30,
+        )
+        elapsed = time.monotonic() - started
+
+    assert completed.returncode == SHIM_REFUSED_EXIT_STATUS
+    assert completed.stderr == b"shim_refused: secret_pipe_timeout\n"
+    assert elapsed >= 0.5, "the deadline, not the descriptor number, ended the drain"
+    assert elapsed < 30
+
+
+def test_a_complete_bundle_arrives_on_a_high_descriptor() -> None:
+    """The other half of the same claim: a good high-numbered delivery delivers."""
+
+    with _pipe_on_a_high_descriptor() as (high_fd, write_fd):
+        os.write(write_fd, BUNDLE_BYTES)
+        os.close(write_fd)
+        completed = _run_shim(
+            ["--secret-pipe-fd", str(high_fd)],
+            _reporter(),
+            pass_fds=(high_fd,),
+            timeout=30,
+        )
+
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    assert json.loads(json.loads(completed.stdout)["bundle"]) == BUNDLE
 
 
 def test_the_package_exports_the_shim_constants_without_importing_the_shim() -> None:

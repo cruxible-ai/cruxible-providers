@@ -78,7 +78,7 @@ import fcntl
 import math
 import os
 import platform
-import select
+import selectors
 import stat
 import sys
 import time
@@ -173,6 +173,14 @@ package README.
 """
 
 _READ_CHUNK = 65536
+
+_READINESS_FALLBACK_SLEEP_SECONDS = 0.05
+"""How long the drain waits when readiness itself cannot be asked about.
+
+Only reached if the platform's selector refuses the descriptor outright. It
+keeps the drain's own deadline the thing that ends a silent delivery, without
+turning the wait into a spin between now and that deadline.
+"""
 
 
 class ShimRefusal(StrEnum):
@@ -503,6 +511,34 @@ def _path_delivery(path: str, *, timeout: float) -> int:
     return _memory_backed_descriptor(_drain_descriptor(_open_secret_path(path), timeout=timeout))
 
 
+def _wait_readable(fd: int, timeout: float) -> None:
+    """Wait for one descriptor to become readable, or for ``timeout`` to elapse.
+
+    ``select.select`` is an ``fd_set``, and an ``fd_set`` has a fixed width:
+    CPython refuses any descriptor at or above ``FD_SETSIZE`` (1024) with a
+    ``ValueError`` before it reaches the kernel. That is not a delivery failure
+    — the pipe is perfectly good — but the shim's catch-all renders anything
+    unforeseen as ``secret_delivery_failed``, so an executor whose descriptor
+    happened to land high got the wrong refusal for a slow writer, and got it
+    immediately rather than on the deadline.
+
+    ``selectors`` carries one entry per descriptor with no such ceiling, so the
+    only refusal a writer that sends nothing can produce is the timeout one, at
+    the timeout, whatever number the descriptor has. A readiness wait that
+    itself fails is not evidence about the delivery either: the wait falls back
+    to a short sleep and the deadline decides, exactly as it would for a writer
+    that stayed silent. The sleep is what keeps that fallback from becoming a
+    spin on the descriptor until the deadline.
+    """
+
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(fd, selectors.EVENT_READ)
+            selector.select(timeout)
+    except (OSError, ValueError):  # pragma: no cover - platform dependent
+        time.sleep(min(timeout, _READINESS_FALLBACK_SLEEP_SECONDS))
+
+
 def _drain_descriptor(fd: int, *, timeout: float) -> bytes:
     """Read a delivery to its end, bounded in bytes and in time. Closes ``fd``.
 
@@ -533,7 +569,7 @@ def _drain_descriptor(fd: int, *, timeout: float) -> bytes:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise ShimRefusalError(ShimRefusal.SECRET_PIPE_TIMEOUT) from None
-                select.select([fd], [], [], remaining)
+                _wait_readable(fd, remaining)
                 continue
             except OSError as exc:
                 raise ShimRefusalError(ShimRefusal.SECRET_DELIVERY_FAILED) from exc
