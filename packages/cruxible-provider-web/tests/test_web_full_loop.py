@@ -10,6 +10,8 @@ all execute.
 
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import Path
 
 import pytest
@@ -121,8 +123,8 @@ def test_fetch_success_path(
     assert outcome.status == "ok"
     assert outcome.input_bucket == "source_kind=static_html;access=public;page_weight=light"
     assert outcome.envelope.output is not None
-    retrieved = outcome.envelope.output["retrieved"]
-    derived = outcome.envelope.output["derived"]
+    retrieved = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"]
+    derived = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"]
 
     # The split is the contract: an exchange that happened, and a reading of it.
     assert retrieved["status_code"] == 200
@@ -189,8 +191,18 @@ def test_fetch_renders_when_the_run_asks_for_a_browser(
     assert outcome.status == "ok"
     assert outcome.input_bucket == "source_kind=js_rendered;access=public;page_weight=light"
     assert outcome.envelope.output is not None
-    assert outcome.envelope.output["retrieved"]["renderer"] == "recorded:dashboard-rendered"
-    assert "3.214" in outcome.envelope.output["derived"]["text"]
+    assert (
+        json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"][
+            "renderer"
+        ]
+        == "recorded:dashboard-rendered"
+    )
+    assert (
+        "3.214"
+        in json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"][
+            "text"
+        ]
+    )
     # A recorded render is a replay too, and carries the same label on the trace.
     assert [event["kind"] for event in outcome.envelope.trace.events] == ["packaged_recording"]
 

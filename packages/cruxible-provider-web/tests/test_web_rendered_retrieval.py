@@ -15,7 +15,9 @@ other half — it asserts a real page satisfies that surface.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -199,7 +201,7 @@ def test_the_receipt_reports_the_response_the_browser_got() -> None:
 
     assert result.status == "ok"
     assert result.output is not None
-    retrieved = result.output["retrieved"]
+    retrieved = json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"]
     assert retrieved["url"] == REQUESTED
     assert retrieved["final_url"] == SETTLED
     assert retrieved["status_code"] == 200
@@ -250,8 +252,8 @@ def test_the_assembled_document_is_derived_and_the_wire_body_is_retrieved() -> N
 
     assert result.status == "ok"
     assert result.output is not None
-    retrieved = result.output["retrieved"]
-    derived = result.output["derived"]
+    retrieved = json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"]
+    derived = json.loads(base64.b64decode(result.output["content_base64"]))["derived"]
 
     wire = recording.response.body.encode("utf-8")
     assembled = recording.rendered_body.encode("utf-8")
@@ -278,8 +280,14 @@ def test_a_plain_fetch_claims_no_assembly() -> None:
 
     assert result.status == "ok"
     assert result.output is not None
-    assert "assembled_document" not in result.output["derived"]
-    assert result.output["retrieved"]["renderer"] is None
+    assert (
+        "assembled_document"
+        not in json.loads(base64.b64decode(result.output["content_base64"]))["derived"]
+    )
+    assert (
+        json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"]["renderer"]
+        is None
+    )
 
 
 def test_both_hooks_are_attached_before_the_navigation_starts() -> None:

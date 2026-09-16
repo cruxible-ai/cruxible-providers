@@ -53,7 +53,10 @@ the environment those tags describe. `docs/packaging.md` carries the rule.
 
 ## What the output claims
 
-Both implementations split their output in two, and the split is the contract:
+`web.fetch` returns the shared
+`playbill-provider-result-to-external-capture-v1` acquisition envelope. Its
+base64 content is a canonical JSON observation bundle. `search.web` retains its
+existing result shape. Both distinguish:
 
 - **`retrieved`** — what came off the wire. A record of an exchange that
   happened, and the material a CaptureContract may grade as observed-shaped.
@@ -63,7 +66,8 @@ Both implementations split their output in two, and the split is the contract:
 A rendered fetch is where that line is easiest to lose, so `web.fetch` draws it
 twice. `retrieved` describes the main-frame response the browser actually
 received — the final URL after its redirects, the status it ended on, its
-headers, and the digest of the body an origin sent. The DOM a browser assembles
+headers, and the exact body an origin sent (`body_base64`, byte count and digest).
+The DOM a browser assembles
 is script output over that body, not a body anyone sent, so it is reported under
 `derived.assembled_document` with its own byte count and digest. A page that
 redirects across origins and settles on a 404 a script repaints is a failed
@@ -76,7 +80,23 @@ across renders is comparing a different artifact than it was. And on a rendered
 run `status_code`, `byte_count` and `body_sha256` are **nullable**: a navigation
 that yields no main-frame response — a same-document navigation, a download —
 leaves nothing true to say about the wire, and `null` says so where a hopeful
-`200` used to.
+`200` used to. The acquisition interface now refuses a navigation without a
+retained origin body; it cannot produce a successful Capture result in that case.
+
+The interface declares ordinary Contract input fields and the shared acquisition
+result as its output. `logical_source` defaults to `web.response`; callers should
+name their dataset and pin that name in the CaptureContract. URLs remain in the
+observation bundle, while the source coordinate carries a request digest.
+`expected_format` accepts `auto`, `html`, `json`, `csv`, `text`, or `bytes`.
+Explicit format mismatches refuse an observation; JSON and CSV are validated
+and bypass HTML extraction. `max_bytes` is bounded at 32 MiB, including for
+structured APIs. Set the invocation output and Capture budgets large enough for
+the bundle's base64 encoding and extraction overhead as well as the origin body.
+
+The interface effect is `external_read`; the manifest declares no mutation.
+This still contacts external systems and records egress. `credential_header`
+selects a header for an admitted `credential_ref`; rendered fetches with
+credentials are refused.
 
 Neither adapter mints a Capture. They return a typed payload plus trace; the
 executor carries both to the CaptureContract, which decides the grade. A provider

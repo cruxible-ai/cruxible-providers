@@ -46,12 +46,20 @@ words.
 
 from __future__ import annotations
 
+import base64
+import csv
 import hashlib
+import io
+import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
+from cruxible_provider_runtime.acquisition import external_capture_result
+from cruxible_provider_runtime.canonical import canonical_json
 from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
@@ -65,7 +73,7 @@ from .engines import (
     TrafilaturaExtractor,
 )
 from .http import ClientFactory, ResponseTooLarge, default_client_factory
-from .interfaces import DEFAULT_MAX_BYTES, FETCH_INTERFACE_ID, page_weight_class
+from .interfaces import DEFAULT_MAX_BYTES, FETCH_INTERFACE_ID, MAX_RESPONSE_BYTES, page_weight_class
 from .recordings import is_fixture_url, recording_for
 
 __all__ = ["WebFetch"]
@@ -210,7 +218,17 @@ class WebFetch:
                 observed_weight=page_weight_class(len(document)),
             )
 
-        derived = self._derive(request, exchange)
+        if exchange.wire_body is None:
+            return ProviderResult.failed("MissingBody", "retrieval did not retain the origin body")
+        if len(exchange.wire_body) > request.max_bytes:
+            return ProviderResult.refused(
+                RefusalCode.PROVIDER_DECLINED, "origin body exceeds max_bytes"
+            )
+        try:
+            request.validate_format(exchange)
+            derived = self._derive(request, exchange)
+        except (ValueError, UnicodeError, csv.Error) as exc:
+            return ProviderResult.failed("ResponseFormat", str(exc))
         source = "packaged-recording" if exchange.from_recording else "network"
         events: list[dict[str, Any]] = []
         if source == "packaged-recording":
@@ -222,30 +240,42 @@ class WebFetch:
                     "was contacted",
                 }
             )
+        material = {
+            "input_bucket": context.input_bucket,
+            "retrieved": {
+                "url": request.url,
+                "final_url": exchange.final_url,
+                "status_code": exchange.status_code,
+                "headers": {
+                    key: value for key, value in exchange.headers.items() if key in RETAINED_HEADERS
+                },
+                # The body an origin sent, never the document this run read:
+                # on a rendered run those are two artefacts, and the second
+                # is reported under derived.assembled_document.
+                "byte_count": None if exchange.wire_body is None else len(exchange.wire_body),
+                "body_sha256": _digest(exchange.wire_body),
+                "body_base64": base64.b64encode(exchange.wire_body).decode("ascii"),
+                "source": source,
+                # Which client performed the exchange, in the sense a
+                # user-agent names one. What it built is derived.
+                "renderer": exchange.renderer,
+            },
+            "derived": derived,
+        }
         return ProviderResult.ok(
-            {
-                "input_bucket": context.input_bucket,
-                "retrieved": {
-                    "url": request.url,
-                    "final_url": exchange.final_url,
-                    "status_code": exchange.status_code,
-                    "headers": {
-                        key: value
-                        for key, value in exchange.headers.items()
-                        if key in RETAINED_HEADERS
-                    },
-                    # The body an origin sent, never the document this run read:
-                    # on a rendered run those are two artefacts, and the second
-                    # is reported under derived.assembled_document.
-                    "byte_count": None if exchange.wire_body is None else len(exchange.wire_body),
+            external_capture_result(
+                canonical_json(material),
+                source_identity=request.logical_source,
+                coordinate_type="http-response-v1",
+                selector_type="whole-response-v1",
+                coordinate={
+                    "request_digest": _digest(request.url.encode()),
+                    "status": exchange.status_code,
                     "body_sha256": _digest(exchange.wire_body),
                     "source": source,
-                    # Which client performed the exchange, in the sense a
-                    # user-agent names one. What it built is derived.
-                    "renderer": exchange.renderer,
                 },
-                "derived": derived,
-            },
+                observed_at=datetime.now(UTC),
+            ),
             metrics={"byte_count": float(len(document))},
             events=events,
         )
@@ -319,7 +349,7 @@ class WebFetch:
     def _extraction(self, request: _Request, exchange: _Exchange) -> dict[str, Any]:
         if not request.extract:
             return {"kind": "none", "engine": None, "text": None, "metadata": {}}
-        if request.source_kind in {"api_json", "binary"}:
+        if request.expected_format != "html" and not request.render:
             # Extraction is for documents. A structured endpoint is carried
             # through verbatim rather than run through a main-content heuristic
             # that would find "main content" in a JSON array.
@@ -349,7 +379,16 @@ def _digest(payload: bytes | None) -> str | None:
 class _Request:
     """The validated run input."""
 
-    __slots__ = ("extract", "headers", "max_bytes", "render", "source_kind", "url")
+    __slots__ = (
+        "expected_format",
+        "extract",
+        "headers",
+        "logical_source",
+        "max_bytes",
+        "render",
+        "source_kind",
+        "url",
+    )
 
     def __init__(
         self,
@@ -360,6 +399,8 @@ class _Request:
         extract: bool,
         headers: Mapping[str, str],
         source_kind: str,
+        expected_format: str,
+        logical_source: str,
     ) -> None:
         self.url = url
         self.render = render
@@ -367,10 +408,20 @@ class _Request:
         self.extract = extract
         self.headers = dict(headers)
         self.source_kind = source_kind
+        self.expected_format = expected_format
+        self.logical_source = logical_source
 
     @classmethod
     def parse(cls, context: ProviderRunContext) -> _Request:
         payload = context.input
+        logical_source = payload.get("logical_source", "web.response")
+        if not isinstance(logical_source, str) or not re.fullmatch(
+            r"[a-z][a-z0-9_.-]{0,255}", logical_source
+        ):
+            raise refuse(
+                RefusalCode.PROVIDER_DECLINED,
+                "logical_source must be a logical name, not a locator",
+            )
         url = payload.get("url")
         if not isinstance(url, str) or urlsplit(url).scheme not in {"http", "https"}:
             raise refuse(
@@ -379,9 +430,19 @@ class _Request:
                 url=url if isinstance(url, str) else None,
             )
         max_bytes = payload.get("max_bytes", DEFAULT_MAX_BYTES)
-        if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes <= 0:
-            raise refuse(RefusalCode.PROVIDER_DECLINED, "max_bytes must be a positive integer")
+        if (
+            not isinstance(max_bytes, int)
+            or isinstance(max_bytes, bool)
+            or not 0 < max_bytes <= MAX_RESPONSE_BYTES
+        ):
+            raise refuse(RefusalCode.PROVIDER_DECLINED, "max_bytes must be between 1 and 33554432")
 
+        for flag in ("render", "extract", "paced"):
+            if flag in payload and not isinstance(payload[flag], bool):
+                raise refuse(RefusalCode.PROVIDER_DECLINED, f"{flag} must be a bool")
+        expected_format = payload.get("expected_format", "auto")
+        if expected_format not in {"auto", "html", "json", "csv", "text", "bytes"}:
+            raise refuse(RefusalCode.PROVIDER_DECLINED, "unsupported expected_format")
         headers: dict[str, str] = {}
         credential_ref = payload.get("credential_ref")
         if credential_ref is not None:
@@ -395,8 +456,18 @@ class _Request:
                     ref=credential_ref,
                 )
             header = payload.get("credential_header", "authorization")
-            if not isinstance(header, str) or not header:
+            if not isinstance(header, str) or not re.fullmatch(
+                r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", header
+            ):
                 raise refuse(RefusalCode.PROVIDER_DECLINED, "credential_header must be a string")
+            if "\r" in material or "\n" in material:
+                raise refuse(
+                    RefusalCode.PROVIDER_DECLINED, "credential must be a single header value"
+                )
+            if payload.get("render", False):
+                raise refuse(
+                    RefusalCode.PROVIDER_DECLINED, "rendered retrieval does not support credentials"
+                )
             headers[header] = material
 
         # The bucket the run was admitted into is the executor's classification
@@ -412,4 +483,43 @@ class _Request:
             extract=bool(payload.get("extract", True)),
             headers=headers,
             source_kind=source_kind,
+            expected_format=expected_format,
+            logical_source=logical_source,
         )
+
+    def validate_format(self, exchange: _Exchange) -> None:
+        if exchange.wire_body is None:
+            raise ValueError("retrieval did not retain the origin body")
+        media = exchange.content_type.partition(";")[0].strip().lower()
+        actual = (
+            "json"
+            if media.endswith("json") or media.endswith("+json")
+            else "csv"
+            if media in {"text/csv", "application/csv"}
+            else "html"
+            if media in {"text/html", "application/xhtml+xml"}
+            else "text"
+            if media.startswith("text/")
+            else "bytes"
+        )
+        if self.expected_format == "auto":
+            self.expected_format = actual
+        elif self.expected_format != "bytes" and self.expected_format != actual:
+            raise ValueError(
+                f"expected {self.expected_format}, received {media or 'unknown content type'}"
+            )
+        if self.expected_format == "json":
+
+            def invalid_constant(value: str) -> None:
+                raise ValueError(f"non-canonical JSON number: {value}")
+
+            json.loads(exchange.wire_body, parse_constant=invalid_constant)
+        elif self.expected_format == "csv":
+            text = exchange.wire_body.decode("utf-8-sig")
+            rows = csv.reader(io.StringIO(text), strict=True)
+            width = None
+            for row in rows:
+                if width is None:
+                    width = len(row)
+                elif len(row) != width:
+                    raise ValueError("CSV rows have inconsistent field counts")

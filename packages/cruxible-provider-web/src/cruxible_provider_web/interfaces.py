@@ -55,23 +55,33 @@ SEARCH_INTERFACE_ID = "search.web"
 
 FETCH_PREIMAGE: dict[str, Any] = {
     "interface_id": FETCH_INTERFACE_ID,
-    "version": 1,
-    "input": {
-        "url": {"type": "string", "required": True},
-        "render": {"type": "boolean", "required": False, "default": False},
-        "max_bytes": {"type": "integer", "required": False, "default": 262144},
-        "credential_ref": {"type": "string", "required": False},
-        "paced": {"type": "boolean", "required": False, "default": False},
-        "extract": {"type": "boolean", "required": False, "default": True},
-    },
-    "output": {
-        "input_bucket": {"type": "string"},
-        # Two sub-objects, and the split is the contract rather than a
-        # convenience: what came off the wire is retrieval material a
-        # CaptureContract may grade as observed-shaped; what an extractor
-        # produced from it is derived, whatever the extractor's confidence.
-        "retrieved": {"type": "object"},
-        "derived": {"type": "object"},
+    "version": 2,
+    "effect_class": "external_read",
+    "contracts": {
+        "input": {
+            "fields": {
+                "url": {"type": "string"},
+                "logical_source": {"type": "string", "optional": True, "default": "web.response"},
+                "render": {"type": "bool", "optional": True, "default": False},
+                "max_bytes": {"type": "integer", "optional": True, "default": 262144},
+                "credential_ref": {"type": "string", "optional": True},
+                "credential_header": {
+                    "type": "string",
+                    "optional": True,
+                    "default": "authorization",
+                },
+                "paced": {"type": "bool", "optional": True, "default": False},
+                "extract": {"type": "bool", "optional": True, "default": True},
+                "expected_format": {
+                    "type": "string",
+                    "optional": True,
+                    "default": "auto",
+                    "enum": ["auto", "html", "json", "csv", "text", "bytes"],
+                },
+            },
+            "allow_extra": False,
+        },
+        "output": "playbill-provider-result-to-external-capture-v1",
     },
     "refusals": [
         "provider_declined",
@@ -106,13 +116,14 @@ SEARCH_PREIMAGE: dict[str, Any] = {
     ],
 }
 
-FETCH_INTERFACE_DIGEST = "sha256:997888c143ed1f7905c88af55e7d29d1dd6c064026c183f12ce6989a7d5dc187"
+FETCH_INTERFACE_DIGEST = "sha256:9769f47abc5ac2dae6d6c623a9f9abf01afde699de48768a755f40a0334a1ade"
 SEARCH_INTERFACE_DIGEST = "sha256:346827bfeeeabe10cd9655f73025ad77a717ad1bac6a8f828551b3fd9b506b9d"
 
 FETCH_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "web.fetch.yaml")
 SEARCH_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "search.web.yaml")
 
 DEFAULT_MAX_BYTES = 262_144
+MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 LIGHT_CEILING_BYTES = 262_144
 MEDIUM_CEILING_BYTES = 2 * 1024 * 1024
 
@@ -186,11 +197,14 @@ def classify_web_fetch(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
     path = _path_of(url)
     suffix = path[path.rfind(".") :] if "." in path.rsplit("/", 1)[-1] else ""
 
+    expected_format = payload.get("expected_format", "auto")
+    if expected_format not in {"auto", "html", "json", "csv", "text", "bytes"}:
+        return None
     if bool(payload.get("render", False)):
         source_kind = "js_rendered"
-    elif suffix in _BINARY_SUFFIXES:
+    elif expected_format == "bytes" or suffix in _BINARY_SUFFIXES:
         source_kind = "binary"
-    elif suffix in _STRUCTURED_SUFFIXES or "/api/" in path:
+    elif expected_format in {"json", "csv"} or suffix in _STRUCTURED_SUFFIXES or "/api/" in path:
         source_kind = "api_json"
     else:
         source_kind = "static_html"
@@ -203,7 +217,11 @@ def classify_web_fetch(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
         access = "public"
 
     max_bytes = payload.get("max_bytes", DEFAULT_MAX_BYTES)
-    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes <= 0:
+    if (
+        not isinstance(max_bytes, int)
+        or isinstance(max_bytes, bool)
+        or not 0 < max_bytes <= MAX_RESPONSE_BYTES
+    ):
         return None
     return {
         "source_kind": source_kind,

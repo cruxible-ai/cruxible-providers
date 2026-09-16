@@ -23,7 +23,7 @@ implementations:
   - interface_id: web.fetch
     # STUB digest, minted under cruxible.interface.stub.v1 until core registers
     # this interface. interfaces.py carries the preimage and a drift test.
-    interface_digest: "sha256:997888c143ed1f7905c88af55e7d29d1dd6c064026c183f12ce6989a7d5dc187"
+    interface_digest: "sha256:9769f47abc5ac2dae6d6c623a9f9abf01afde699de48768a755f40a0334a1ade"
     entrypoint: "cruxible_provider_web.fetch:WebFetch"
     backends: [local_env, container]
     # The js_rendered bucket needs a browser, and a browser is a heavy engine,
@@ -35,19 +35,19 @@ implementations:
     # the cube, and light structured endpoints. Deliberately UNCLAIMED, so that
     # an input reaching for them refuses at admission rather than being served
     # badly: binary payloads (this adapter extracts text, and a PDF is the
-    # document plane's work), heavy pages, and authenticated rendered pages
+    # document plane's work), heavy HTML pages, and authenticated rendered pages
     # (a credential handed to a browser context is a different security story
     # and has no fixture).
     declared_input_buckets:
       - "source_kind=static_html;access=*;page_weight=light"
       - "source_kind=static_html;access=*;page_weight=medium"
       - "source_kind=js_rendered;access=public;page_weight=*"
-      - "source_kind=api_json;access=*;page_weight=light"
+      - "source_kind=api_json;access=*;page_weight=*"
     bucket_conformance:
       "source_kind=static_html;access=*;page_weight=light": web-fetch-static-light
       "source_kind=static_html;access=*;page_weight=medium": web-fetch-static-medium
       "source_kind=js_rendered;access=public;page_weight=*": web-fetch-rendered
-      "source_kind=api_json;access=*;page_weight=light": web-fetch-api-json
+      "source_kind=api_json;access=*;page_weight=*": web-fetch-api-json
     # EXPERIMENTAL declaration form. This implementation's target IS the run
     # input: enumerating endpoints at acceptance time could only ever be wrong,
     # and declaring [] and then contacting things would be a lie. What governs
@@ -65,7 +65,7 @@ implementations:
     # A fetch of a live resource is not reproducible and the network is a side
     # effect the caller cannot undo. Both flags say so.
     deterministic: false
-    side_effects: true
+    side_effects: false
 
   - interface_id: search.web
     interface_digest: "sha256:346827bfeeeabe10cd9655f73025ad77a717ad1bac6a8f828551b3fd9b506b9d"

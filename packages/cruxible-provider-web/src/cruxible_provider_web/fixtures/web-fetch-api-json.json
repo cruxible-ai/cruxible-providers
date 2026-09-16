@@ -2,7 +2,7 @@
   "id": "web-fetch-api-json",
   "note": "A structured endpoint carried through verbatim, with no extraction engine involved.",
   "interface_id": "web.fetch",
-  "bucket_selector": "source_kind=api_json;access=*;page_weight=light",
+  "bucket_selector": "source_kind=api_json;access=*;page_weight=*",
   "bucket_id": "source_kind=api_json;access=public;page_weight=light",
   "recording_id": "measurements-api",
   "input": {

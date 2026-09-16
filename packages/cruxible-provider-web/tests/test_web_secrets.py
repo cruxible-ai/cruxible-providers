@@ -47,7 +47,7 @@ class _CapturingClient:
         return HttpResponse(
             status_code=200,
             headers={"content-type": self.content_type},
-            body=self.body.encode("utf-8"),
+            body=self.body if isinstance(self.body, bytes) else self.body.encode("utf-8"),
             final_url=url,
         )
 

@@ -17,6 +17,8 @@ the adapter's behaviour per bucket.
 
 from __future__ import annotations
 
+import base64
+import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -105,8 +107,13 @@ def test_the_fixture_passes(fixture: BucketFixture, manifest: ProviderManifest) 
     expect = fixture.expect
     assert result.status == expect["status"], result.refusal or result.error
     assert result.output is not None
-    retrieved: Mapping[str, Any] = result.output["retrieved"]
-    derived: Mapping[str, Any] = result.output["derived"]
+    material = (
+        json.loads(base64.b64decode(result.output["content_base64"]))
+        if fixture.interface_id == FETCH_INTERFACE_ID
+        else result.output
+    )
+    retrieved: Mapping[str, Any] = material["retrieved"]
+    derived: Mapping[str, Any] = material["derived"]
 
     if "status_code" in expect:
         assert retrieved["status_code"] == expect["status_code"]
