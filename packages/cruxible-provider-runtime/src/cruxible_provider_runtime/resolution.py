@@ -467,6 +467,7 @@ def resolve(
     *,
     extras: Sequence[str] = (),
     allow_editable_dev_sources: bool = False,
+    local_wheels: Mapping[str, ResolvedDistribution] | None = None,
 ) -> ResolvedSet:
     """Resolve ``lock`` for ``env``, starting from ``root_name``.
 
@@ -477,10 +478,11 @@ def resolve(
     engine through three of them, and dropping those edges would produce an
     environment pin that does not cover the environment.
 
-    Every non-root dependency must come from a registry. A path, git, editable,
-    or direct-URL dependency has no artifact hash, so it cannot be pinned, and
-    silently dropping it — the original behaviour — produced an environment pin
-    that did not cover part of the environment. Such a source now refuses with
+    Non-root dependencies come from a registry or an explicit ``local_wheels``
+    mapping. A supplied wheel must match the locked name, version and target
+    platform; its byte digest enters the same resolved closure as a registry
+    wheel. This supports unpublished packages without admitting a mutable path.
+    A non-registry dependency without an exact wheel still refuses with
     ``unresolvable_source``.
 
     ``allow_editable_dev_sources`` is a **development-only** escape hatch, false
@@ -529,6 +531,30 @@ def resolve(
             # root identity rather than as a resolved entry.
             continue
         if not _is_registry(package):
+            pinned = (local_wheels or {}).get(name)
+            if pinned is not None:
+                if (
+                    pinned.name != name
+                    or pinned.version != str(package["version"])
+                    or pinned.kind != "wheel"
+                ):
+                    raise refuse(
+                        RefusalCode.LOCK_MISMATCH,
+                        "local wheel does not match its locked dependency",
+                        package=name,
+                    )
+                wheel = _WHEEL_RE.fullmatch(pinned.filename)
+                if wheel is None or not (
+                    _expand_wheel_tags(wheel["py"], wheel["abi"], wheel["plat"])
+                    & env.tag_ranks().keys()
+                ):
+                    raise refuse(
+                        RefusalCode.NO_COMPATIBLE_ARTIFACT,
+                        "local wheel is incompatible with the target environment",
+                        package=name,
+                    )
+                resolved[name] = pinned
+                continue
             if not allow_editable_dev_sources:
                 raise refuse(
                     RefusalCode.UNRESOLVABLE_SOURCE,

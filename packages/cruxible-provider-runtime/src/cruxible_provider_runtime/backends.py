@@ -244,35 +244,13 @@ def verify_environment(
 
 
 class UvSyncBuilder:
-    """The production local builder: dependencies by sync, the root by artifact.
+    """Build from the resolved, hash-checked wheel closure.
 
-    An environment is two things and they arrive by two paths, deliberately:
-
-    * **the closure** comes from ``uv export`` into hash-pinned requirements and
-      ``uv pip sync --require-hashes``, so **every entry's** artifact hash is
-      asserted by the installer. ``uv sync --locked`` alone asserts that the lock
-      is current, which is a different claim. The export selects exactly the
-      extras the resolution selected — an environment built without the engine
-      an implementation declared would still verify against a closure that never
-      contained it;
-    * **the root** is fetched through the :class:`~.index.ArtifactFetcher`, from
-      the pinned index and at the sha256 the accepted artifact pins, and
-      installed from those exact bytes. That sha256 is what the *implementation
-      digest* covers, so installing the root any other way would seal a tree
-      under a digest describing an artifact the tree never contained. The export
-      passes ``--no-emit-project`` because of this, not despite it: the root is
-      not the sync's business.
-
-    Two smaller choices, each closing a hole the first cut of this class had:
-    the project and lock come from the :class:`MaterializationRequest`, so the
-    tree that gets sealed is built from the lock the bind actually verified; and
-    indexes are pinned as explicit command-line flags rather than the legacy
-    ``UV_INDEX_URL``/``UV_EXTRA_INDEX_URL`` environment variables, which a
-    project's own ``[[tool.uv.index]]`` table overrides. ``--no-config`` keeps
-    ambient configuration out.
-
-    Nothing seals unchecked: the finished tree is verified against the resolution
-    *and* against the root pin before the cache seals it.
+    Repository and transferred local packages share the resolver, fetcher,
+    environment verification and seals. Installing uses no source checkout,
+    editable dependency, build hook or second dependency resolution. Every
+    dependency and the root distribution are fetched and checked before uv
+    installs them with indexes disabled.
     """
 
     def __init__(self, uv_executable: str = "uv") -> None:
@@ -281,43 +259,18 @@ class UvSyncBuilder:
     # -- argument construction (pure, and therefore testable) ---------------
 
     @staticmethod
-    def export_argv(
-        uv: str, project_dir: Path, requirements: Path, extras: Sequence[str] = ()
-    ) -> list[str]:
-        argv = [
-            uv,
-            "export",
-            "--locked",
-            "--no-dev",
-            "--no-emit-project",
-            "--no-config",
-            "--directory",
-            str(project_dir),
-        ]
-        for extra in sorted(set(extras)):
-            argv += ["--extra", extra]
-        argv += ["--format", "requirements-txt", "--output-file", str(requirements)]
-        return argv
-
-    @staticmethod
-    def sync_argv(
-        uv: str, interpreter: Path, requirements: Path, index_urls: Sequence[str]
-    ) -> list[str]:
-        argv = [
+    def sync_argv(uv: str, interpreter: Path, requirements: Path) -> list[str]:
+        return [
             uv,
             "pip",
             "sync",
             "--require-hashes",
+            "--no-index",
             "--no-config",
             "--python",
             str(interpreter),
-            "--index-url",
-            index_urls[0],
+            str(requirements),
         ]
-        for extra in index_urls[1:]:
-            argv += ["--extra-index-url", extra]
-        argv.append(str(requirements))
-        return argv
 
     @staticmethod
     def install_root_argv(uv: str, interpreter: Path, artifact: Path) -> list[str]:
@@ -351,10 +304,10 @@ class UvSyncBuilder:
                 "air-gapped mode is cache-only; refusing to materialize a new environment",
                 materialization=request.resolved.marker_environment.id,
             )
-        if request.project_dir is None or request.lock_path is None:
+        if request.lock_path is None:
             raise refuse(
                 RefusalCode.LOCK_MISMATCH,
-                "a uv-synced environment needs the project and lock the bind verified",
+                "a uv-synced environment needs the lock the bind verified",
             )
         if request.distribution is None:
             raise refuse(
@@ -386,21 +339,26 @@ class UvSyncBuilder:
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_bytes(request.fetcher.fetch_url(pin.url, pin.sha256, pin.name))
 
-        exported = run_with_budget(
-            self.export_argv(
-                executable, request.project_dir, requirements, request.resolved.extras
-            ),
-            stdin_bytes=b"",
-            budgets=budgets,
-            env=env,
-        )
-        if exported.returncode != 0:
-            raise refuse(
-                RefusalCode.LOCK_MISMATCH,
-                "uv export --locked refused the recorded lock",
-                returncode=exported.returncode,
-                stderr=exported.stderr.decode("utf-8", "replace")[-2000:],
+        pinned_requirements: list[str] = []
+        for dependency in request.resolved.distributions:
+            if (
+                dependency.kind != "wheel"
+                or not dependency.filename
+                or Path(dependency.filename).name != dependency.filename
+            ):
+                raise refuse(
+                    RefusalCode.UNRESOLVABLE_SOURCE,
+                    "local execution requires exact dependency wheels",
+                    package=dependency.name,
+                )
+            destination = target / "dependencies" / dependency.filename
+            destination.parent.mkdir(exist_ok=True)
+            destination.write_bytes(request.fetcher.fetch(dependency))
+            pinned_requirements.append(
+                f"{dependency.name} @ {destination.resolve().as_uri()} "
+                f"--hash={dependency.artifact_id}"
             )
+        requirements.write_text("\n".join(pinned_requirements) + "\n", encoding="utf-8")
 
         created = run_with_budget(
             [executable, "venv", "--no-config", str(target / ".venv")],
@@ -421,7 +379,6 @@ class UvSyncBuilder:
                 executable,
                 self.interpreter(target),
                 requirements,
-                request.fetcher.config.index_urls,
             ),
             stdin_bytes=b"",
             budgets=budgets,

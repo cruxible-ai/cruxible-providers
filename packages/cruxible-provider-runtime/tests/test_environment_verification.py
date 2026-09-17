@@ -249,10 +249,10 @@ def test_a_matching_builder_seals(
     assert cache.verify(digest) == path
 
 
-def test_uv_sync_builder_needs_the_project_from_the_bind(
+def test_uv_sync_builder_needs_the_lock_from_the_bind(
     tmp_path: Path, golden_lock: UvLock, linux_env: MarkerEnvironment
 ) -> None:
-    """No constructor-held project dir to drift away from the verified lock."""
+    """No constructor-held lock to drift away from the verified resolution."""
 
     builder = UvSyncBuilder()
     with pytest.raises(RefusalError) as exc:
@@ -287,23 +287,6 @@ def test_uv_sync_builder_refuses_to_materialize_when_air_gapped(
     assert exc.value.code is RefusalCode.AIR_GAPPED_CACHE_MISS
 
 
-def test_export_argv_asks_for_a_locked_hash_pinned_export() -> None:
-    argv = UvSyncBuilder.export_argv("uv", Path("/p"), Path("/p/req.txt"))
-    assert "--locked" in argv
-    assert "--no-dev" in argv
-    assert "--no-config" in argv
-    assert "--extra" not in argv
-    assert argv[argv.index("--format") + 1] == "requirements-txt"
-
-
-def test_export_argv_names_every_selected_extra() -> None:
-    """An environment built for an extra has to contain the extra's packages."""
-
-    argv = UvSyncBuilder.export_argv("uv", Path("/p"), Path("/p/req.txt"), ("paddleocr", "docling"))
-    named = [argv[index + 1] for index, part in enumerate(argv) if part == "--extra"]
-    assert named == ["docling", "paddleocr"]
-
-
 def test_install_root_argv_installs_the_artifact_and_reaches_no_index() -> None:
     """The bytes were hash-checked already; an index could only add unpinned ones."""
 
@@ -317,17 +300,15 @@ def test_install_root_argv_installs_the_artifact_and_reaches_no_index() -> None:
     assert argv[-1] == "/env/artifact/provider-1.0-py3-none-any.whl"
 
 
-def test_sync_argv_requires_hashes_and_pins_every_index() -> None:
-    """The gap this closes: --locked asserts a current lock, not per-entry hashes."""
+def test_sync_argv_requires_hashes_and_consults_no_index() -> None:
+    """The fetcher already verified every wheel; installation cannot re-resolve."""
 
     argv = UvSyncBuilder.sync_argv(
         "uv",
         Path("/env/bin/python"),
         Path("/p/req.txt"),
-        ("https://a.example/simple", "https://b.example/simple"),
     )
     assert "--require-hashes" in argv
     assert "--no-config" in argv
-    assert argv[argv.index("--index-url") + 1] == "https://a.example/simple"
-    assert argv[argv.index("--extra-index-url") + 1] == "https://b.example/simple"
+    assert "--no-index" in argv
     assert argv[-1] == "/p/req.txt"

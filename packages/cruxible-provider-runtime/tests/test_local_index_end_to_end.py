@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -53,7 +54,10 @@ from cruxible_provider_runtime.resolution import (
     MarkerEnvironment,
     ResolvedDistribution,
     ResolvedSet,
+    load_uv_lock,
+    resolve,
 )
+from cruxible_provider_runtime.wheels import wheel_pin
 
 pytestmark = pytest.mark.skipif(
     shutil.which("uv") is None, reason="the production local builder shells out to uv"
@@ -251,7 +255,10 @@ def test_the_pinned_root_is_fetched_hash_verified_and_installed(
 ) -> None:
     transport = _build(local_index, tmp_path, linux_env)
 
-    assert transport.requested == [local_index.pin().url]
+    assert transport.requested == [
+        local_index.pin().url,
+        *[item.url for item in _resolved(local_index, linux_env).distributions],
+    ]
     kept = tmp_path / "artifact" / local_index.root_wheel.name
     assert kept.read_bytes() == local_index.root_wheel.read_bytes()
 
@@ -301,6 +308,62 @@ def test_the_sealed_interpreter_imports_and_invokes_the_pinned_entrypoint(
         "echo": "hello",
         "module": "sample_provider.provider",
     }
+
+
+def test_transferred_local_dependency_installs_without_a_source_checkout(
+    local_index: LocalIndex, linux_env: MarkerEnvironment, tmp_path: Path
+) -> None:
+    from urllib.parse import unquote, urlsplit
+
+    lock_path = tmp_path / "transferred.lock"
+    lock_path.write_text(
+        re.sub(
+            r'source = \{ registry = "[^"]+" \}',
+            'source = { editable = "../absent-checkout" }',
+            local_index.lock_path.read_text(),
+        )
+    )
+    dependency = _resolved(local_index, linux_env).distributions[0]
+    wheel = wheel_pin(Path(unquote(urlsplit(dependency.url).path)))
+    lock = load_uv_lock(lock_path)
+    with pytest.raises(RefusalError, match="non-registry source"):
+        resolve(lock, "sample-provider", linux_env)
+    resolved = resolve(lock, "sample-provider", linux_env, local_wheels={wheel.name: wheel})
+    assert resolved.distributions[0].artifact_id == wheel.artifact_id
+    target = tmp_path / "environment"
+    target.mkdir()
+    UvSyncBuilder().build(
+        MaterializationRequest(
+            target=target,
+            resolved=resolved,
+            distribution=local_index.pin(),
+            lock_path=lock_path,
+            fetcher=ArtifactFetcher(
+                IndexConfig(index_urls=(local_index.index_url,)), FilesystemTransport()
+            ),
+        )
+    )
+    assert installed_distributions(find_site_packages(target))[wheel.name] == wheel.version
+    with pytest.raises(RefusalError, match="locked dependency"):
+        resolve(
+            lock,
+            "sample-provider",
+            linux_env,
+            local_wheels={wheel.name: wheel.model_copy(update={"version": "9.0"})},
+        )
+    with pytest.raises(RefusalError, match="incompatible"):
+        resolve(
+            lock,
+            "sample-provider",
+            linux_env,
+            local_wheels={
+                wheel.name: wheel.model_copy(
+                    update={
+                        "filename": "sample_dep-0.1.0-cp311-cp311-win_amd64.whl",
+                    }
+                )
+            },
+        )
 
 
 def test_the_selected_extra_reaches_the_environment(

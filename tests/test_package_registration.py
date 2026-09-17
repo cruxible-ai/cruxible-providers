@@ -9,7 +9,6 @@ import json
 import os
 import shutil
 import subprocess
-from importlib.metadata import Distribution
 from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
@@ -23,8 +22,8 @@ from cruxible_provider_runtime.provider_api import ProviderRunContext
 from cruxible_provider_runtime.registration import (
     INTERFACE_DOMAIN,
     load_registration,
-    registration_from_distribution,
 )
+from cruxible_provider_runtime.wheels import wheel_registration
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -202,10 +201,8 @@ def test_built_wheels_are_discoverable_without_imports(tmp_path: Path) -> None:
         with ZipFile(wheel) as archive:
             if not any(name.endswith("/registration.json") for name in archive.namelist()):
                 continue
-            archive.extractall(tmp_path)
-        info = next(tmp_path.glob(wheel.name.split("-", 1)[0] + "-*.dist-info"))
-        bundle = registration_from_distribution(Distribution.at(info))
-        seen.add(bundle.manifest.distribution.name)
+        with wheel_registration(wheel) as bundle:
+            seen.add(bundle.manifest.distribution.name)
     assert seen == {load_registration(p.parent).manifest.distribution.name for p in PACKAGES}
 
 
