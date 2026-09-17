@@ -21,6 +21,7 @@ against a fake driver.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ from .artifact import DistributionPin, ImageProvenance, ProviderArtifactPayload,
 from .budget import ProcessOutcome, minimal_env, run_with_budget
 from .cache import MaterializationCache
 from .canonical import canonical_json
+from .digests import materialization_digest
 from .errors import RefusalCode, refuse
 from .index import ArtifactFetcher
 from .protocol import Budgets
@@ -50,7 +52,51 @@ __all__ = [
     "find_site_packages",
     "installed_distributions",
     "verify_environment",
+    "write_execution_seal",
 ]
+
+
+def write_execution_seal(env_path: Path, resolved: ResolvedSet, *, root: DistributionPin) -> Path:
+    """Export the exact file commitments consumed by Core's existing binder.
+
+    The cache seal continues to protect the whole cache entry. This execution
+    seal supplies the file closure, lock and distribution versions Core verifies
+    before every child spawn; it does not grant execution authority.
+    """
+    seal = env_path / "execution-seal.json"
+    files = []
+    for path in sorted(
+        env_path.rglob("*"), key=lambda p: p.relative_to(env_path).as_posix().encode()
+    ):
+        if path == seal:
+            continue
+        if not path.resolve().is_relative_to(env_path.resolve()):
+            raise refuse(
+                RefusalCode.ENVIRONMENT_DIVERGENCE, "execution seal cannot pin an external link"
+            )
+        if path.is_file():
+            files.append(
+                {
+                    "path": path.relative_to(env_path).as_posix(),
+                    "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+    seal.write_bytes(
+        canonical_json(
+            {
+                "tag": "cruxible.provider.seal.v2",
+                "materialization_digest": materialization_digest(
+                    resolved, distribution_sha256=root.sha256
+                ),
+                "lock_sha256": "sha256:"
+                + hashlib.sha256((env_path / "uv.lock").read_bytes()).hexdigest(),
+                "installed_distributions": installed_distributions(find_site_packages(env_path)),
+                "files": files,
+            }
+        )
+    )
+    return seal
+
 
 CHILD_MODULE = "cruxible_provider_runtime.child"
 
@@ -406,6 +452,25 @@ class UvSyncBuilder:
 
         # Nothing seals unchecked.
         verify_environment(target, request.resolved, root=pin)
+        # Core requires the interpreter itself to be inside the pinned closure.
+        # A normal venv links it to an unretained, mutable host executable.
+        interpreter = self.interpreter(target)
+        executable_source = interpreter.resolve(strict=True)
+        if not executable_source.is_relative_to(target.resolve()):
+            interpreter.unlink()
+            shutil.copy2(executable_source, interpreter)
+            # Standalone Python distributions locate libpython relative to the
+            # executable. Retain that library alongside the copied interpreter.
+            for library in (executable_source.parent.parent / "lib").glob("libpython*"):
+                if library.is_file():
+                    destination = interpreter.parent.parent / "lib" / library.name
+                    destination.parent.mkdir(exist_ok=True)
+                    shutil.copy2(library.resolve(), destination)
+        for alias in interpreter.parent.glob("python*"):
+            if alias.is_symlink() and not alias.resolve().is_relative_to(target.resolve()):
+                alias.unlink()
+                alias.symlink_to(interpreter.name)
+        write_execution_seal(target, request.resolved, root=pin)
 
     def interpreter(self, env_path: Path) -> Path:
         return env_path / ".venv" / "bin" / "python"

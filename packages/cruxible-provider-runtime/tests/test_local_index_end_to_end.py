@@ -45,6 +45,8 @@ from cruxible_provider_runtime.backends import (
     installed_distributions,
 )
 from cruxible_provider_runtime.cache import MaterializationCache
+from cruxible_provider_runtime.canonical import canonical_json
+from cruxible_provider_runtime.digests import materialization_digest
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.index import ArtifactFetcher, IndexConfig, TransportResponse
 from cruxible_provider_runtime.resolution import (
@@ -256,6 +258,27 @@ def test_the_pinned_root_is_fetched_hash_verified_and_installed(
     installed = installed_distributions(find_site_packages(tmp_path))
     assert installed["sample-provider"] == VERSION
     assert installed["sample-dep"] == VERSION
+    raw_seal = (tmp_path / "execution-seal.json").read_bytes()
+    seal = json.loads(raw_seal)
+    assert raw_seal == canonical_json(seal)
+    assert seal["tag"] == "cruxible.provider.seal.v2"
+    assert seal["materialization_digest"] == materialization_digest(
+        _resolved(local_index, linux_env), distribution_sha256=local_index.pin().sha256
+    )
+    assert (
+        seal["lock_sha256"]
+        == "sha256:" + hashlib.sha256(local_index.lock_path.read_bytes()).hexdigest()
+    )
+    assert seal["installed_distributions"] == installed
+    assert UvSyncBuilder().interpreter(tmp_path).resolve().is_relative_to(tmp_path.resolve())
+    paths = [entry["path"] for entry in seal["files"]]
+    assert paths == sorted(set(paths), key=str.encode)
+    assert ".venv/bin/python" in paths
+    for entry in seal["files"]:
+        assert (
+            entry["sha256"]
+            == "sha256:" + hashlib.sha256((tmp_path / entry["path"]).read_bytes()).hexdigest()
+        )
 
 
 def test_the_sealed_interpreter_imports_and_invokes_the_pinned_entrypoint(
