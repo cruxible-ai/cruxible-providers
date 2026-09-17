@@ -12,14 +12,14 @@ schema_version: 1
 provider_id: cruxible-provider-workspace
 distribution:
   name: cruxible-provider-workspace
-  version: 0.1.0
+  version: 0.2.0
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [1]
 implementations:
   - interface_id: workspace.file
-    # STUB digest, minted under cruxible.interface.stub.v1 until core registers
-    # this interface. interface.py carries the preimage and a drift test.
-    interface_digest: "sha256:372bc808d6bd77627bdda7bc67586300e2eb812bf0a4fb3769283a26cc021f88"
+    # Exact interface digest under its retained historical domain.
+    # The bundled contracts/ definition is shared with registration metadata.
+    interface_digest: "sha256:faa92552bd6032d3280753881ce991501013b2eaa2005e0f974820f01248d866"
     entrypoint: "cruxible_provider_workspace.file:WorkspaceFile"
     backends: [local_env, container]
     # No engine. The base install is the whole install.

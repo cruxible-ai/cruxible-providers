@@ -1,0 +1,80 @@
+{
+  "interface_id": "score.rank",
+  "version": 1,
+  "input": {
+    "mode": {
+      "type": "string",
+      "required": true,
+      "enum": [
+        "weighted",
+        "pinned_model"
+      ]
+    },
+    "objective": {
+      "type": "string",
+      "required": true
+    },
+    "items": {
+      "type": "array<object>",
+      "required": true,
+      "items": {
+        "id": "string",
+        "signals": "object",
+        "label": "number|null"
+      }
+    },
+    "weights": {
+      "type": "object",
+      "required": false
+    },
+    "model_ref": {
+      "type": "object",
+      "required": false,
+      "items": {
+        "kind": "string",
+        "path": "string",
+        "sha256": "string",
+        "feature_order": "array<string>",
+        "score_kind": "string"
+      }
+    }
+  },
+  "output": {
+    "mode": {
+      "type": "string"
+    },
+    "objective": {
+      "type": "string"
+    },
+    "score_kind": {
+      "type": "string"
+    },
+    "tie_break": {
+      "type": "string"
+    },
+    "signals_used": {
+      "type": "array<string>"
+    },
+    "ranking": {
+      "type": "array<object>",
+      "items": {
+        "rank": "integer",
+        "id": "string",
+        "score": "number",
+        "tied_with": "array<string>"
+      }
+    },
+    "engine": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "unknown_method",
+    "malformed_model_ref",
+    "unknown_column",
+    "invalid_parameter",
+    "non_finite_input",
+    "non_finite_result",
+    "artifact_hash_mismatch"
+  ]
+}

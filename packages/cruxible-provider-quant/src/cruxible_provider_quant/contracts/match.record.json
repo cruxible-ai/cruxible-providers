@@ -1,0 +1,301 @@
+{
+  "interface_id": "match.record",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "records": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "unique_id_field": {
+          "type": "string",
+          "optional": true
+        },
+        "comparisons": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "m_probability": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "u_probability": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "m_probability",
+                "u_probability"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "blocking_fields": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "optional": true
+        },
+        "prior_match_probability": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "threshold_match_probability": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "optional": true
+        },
+        "known_matches": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "link_type": {
+          "type": "string"
+        },
+        "prior_match_probability": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "threshold_match_probability": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "blocking_fields": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "candidate_pair_count": {
+          "type": "integer"
+        },
+        "pairs": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "left_id": {
+                  "type": "string"
+                },
+                "right_id": {
+                  "type": "string"
+                },
+                "match_weight": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "match_probability": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "comparison_vector": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "left_id",
+                "right_id",
+                "match_weight",
+                "match_probability",
+                "comparison_vector"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "review_required": {
+          "type": "bool"
+        },
+        "engine": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "undeclared_match_parameters",
+    "unknown_column",
+    "invalid_parameter",
+    "non_finite_result"
+  ]
+}

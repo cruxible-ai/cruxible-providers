@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "manifest": {
+    "path": "manifest.yaml",
+    "digest": "sha256:1f9cd6fe40e76b1dfc093c9f08a7aaa7f3bf2013854961fa7e108439042cf6eb"
+  },
+  "interfaces": [
+    {
+      "interface_id": "noop.echo",
+      "interface_digest": "sha256:0e524e363162c688dc393a224464739daeb9ff1053e095d18614a900da322e6b",
+      "definition": {
+        "path": "contracts/noop.echo.json",
+        "digest": "sha256:602222e912f961648f7530409bd78927e0ec20ba9aa1c1facfca5625656d7b1a"
+      },
+      "vocabulary": {
+        "path": "vocab/noop.echo.yaml",
+        "digest": "sha256:3f0544b02c80aca71dc27fc56113e6bc8e19fee754e4e92363f7fbdb57901f0d"
+      },
+      "classifier": {
+        "identity": "noop.echo.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_noop.interface:classify",
+        "source": {
+          "path": "interface.py",
+          "digest": "sha256:c2d0bcf4e3c76cfa96aede1f5e1f836c668c17f93b616068b885744712053062"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/noop.echo.json",
+        "digest": "sha256:1ac47ee9b25d887108dd48c4c1bd98b6bb1b1ed968a67c48a35f976686c0fb89"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/noop.echo.v1.json",
+            "digest": "sha256:7cb3c77bb300cb84908c9f961aa239bd8985cc734c6925e5d1b092e32ca2be3f"
+          },
+          "interface_digest": "sha256:e72546b97fdcb8875c4fa3d8828909db60809d98d55e7a2450d0c6043113cb87"
+        }
+      ]
+    }
+  ],
+  "runtime_requirements": [],
+  "governed_definitions": []
+}

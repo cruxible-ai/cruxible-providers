@@ -1,0 +1,62 @@
+{
+  "interface_id": "doc.to_markdown",
+  "version": 1,
+  "input": {
+    "source": {
+      "kind": {
+        "type": "string",
+        "required": true,
+        "enum": [
+          "inline",
+          "packaged_fixture"
+        ]
+      },
+      "filename": {
+        "type": "string",
+        "required": false
+      },
+      "media_type": {
+        "type": "string",
+        "required": false
+      },
+      "content_base64": {
+        "type": "string",
+        "required": false
+      },
+      "id": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "page_count": {
+      "type": "integer",
+      "required": false,
+      "default": 1
+    },
+    "scanned": {
+      "type": "string",
+      "required": false,
+      "default": "born_digital"
+    },
+    "layout": {
+      "type": "string",
+      "required": false,
+      "default": "linear"
+    }
+  },
+  "output": {
+    "input_bucket": {
+      "type": "string"
+    },
+    "document": {
+      "type": "object"
+    },
+    "derived": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "provider_declined",
+    "environment_divergence"
+  ]
+}

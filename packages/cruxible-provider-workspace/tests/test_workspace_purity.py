@@ -62,7 +62,12 @@ def _imports(module: ModuleType) -> set[str]:
 
 @pytest.mark.parametrize("module", ADAPTER_MODULES, ids=lambda module: module.__name__)
 def test_every_import_is_on_the_allowlist(module: ModuleType) -> None:
-    assert _imports(module) <= ALLOWED_IMPORTS, _imports(module) - ALLOWED_IMPORTS
+    allowed = ALLOWED_IMPORTS
+    if module.__name__ == "cruxible_provider_workspace.interface":
+        # Load bundled definitions at import time; the adapter still cannot read
+        # arbitrary workspace files during classification or invocation.
+        allowed = allowed | {"pathlib", "cruxible_provider_runtime.registration"}
+    assert _imports(module) <= allowed, _imports(module) - allowed
 
 
 @pytest.mark.parametrize("module", ADAPTER_MODULES, ids=lambda module: module.__name__)

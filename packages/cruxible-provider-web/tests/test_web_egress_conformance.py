@@ -6,8 +6,8 @@ and what it was observed to request line up.
 
 The plane is the first one where the two declaration forms meet:
 
-* ``search.web`` declares a concrete origin, so the lane asserts observed ⊆
-  declared, and that an origin outside the declaration refuses;
+* ``search.web`` declares a configuration-derived target; the exact instance
+  is supplied by the run, and omitting it refuses before any request;
 * ``web.fetch`` declares the experimental ``dynamic:target-from-run-input``
   form, so there is no list to be inside of and the lane asserts the other
   half — that the request was **recorded**, and that the receipt says the
@@ -26,7 +26,11 @@ from pathlib import Path
 import pytest
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding, BindRequest, bind
-from cruxible_provider_runtime.egress import DYNAMIC_TARGET_FROM_RUN_INPUT, no_network
+from cruxible_provider_runtime.egress import (
+    DYNAMIC_TARGET_FROM_CONFIGURATION,
+    DYNAMIC_TARGET_FROM_RUN_INPUT,
+    no_network,
+)
 from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.execute import invoke, observed_vs_declared
 from cruxible_provider_runtime.manifest import BackendKind, ProviderManifest
@@ -94,7 +98,9 @@ def test_the_manifest_declares_what_each_implementation_actually_needs(
     assert manifest.implementation("web.fetch").declared_endpoints == (
         DYNAMIC_TARGET_FROM_RUN_INPUT,
     )
-    assert manifest.implementation("search.web").declared_endpoints == ("https://fixture.invalid",)
+    assert manifest.implementation("search.web").declared_endpoints == (
+        DYNAMIC_TARGET_FROM_CONFIGURATION,
+    )
 
 
 @pytest.mark.parametrize("backend_kind", BACKENDS)
@@ -127,7 +133,7 @@ def test_search_observed_is_inside_declared(
     comparison = observed_vs_declared(binding, outcome.envelope)
     assert comparison.observed == ("https://fixture.invalid",)
     assert comparison.undeclared == ()
-    assert comparison.dynamic_forms == ()
+    assert comparison.dynamic_forms == (DYNAMIC_TARGET_FROM_CONFIGURATION,)
     assert comparison.conformant
 
 
@@ -203,7 +209,7 @@ def test_the_lane_would_notice_an_unrecorded_socket(
     assert outcome.egress.observed == ("https://not-a-fixture.invalid",)
 
 
-def test_an_instance_outside_the_declaration_refuses_before_the_request(
+def test_a_missing_instance_binding_refuses_before_the_request(
     registry: StubRegistry,
     manifest_path: Path,
     lock_path: Path,
@@ -223,12 +229,12 @@ def test_an_instance_outside_the_declaration_refuses_before_the_request(
         binding,
         registry=registry,
         payload={"query": "tide gauge"},
-        coordinates={"instance_url": "https://elsewhere.example"},
+        coordinates={},
         budgets=BUDGETS,
         local_backend=local_backend,
         container_backend=container_backend,
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.UNDECLARED_EGRESS
+    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
     assert outcome.egress.observed == ()

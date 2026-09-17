@@ -28,10 +28,18 @@ decides the grade.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from cruxible_provider_runtime.egress import normalize_endpoint, partition_declared
+from cruxible_provider_runtime.acquisition import external_capture_result
+from cruxible_provider_runtime.canonical import canonical_json
+from cruxible_provider_runtime.egress import (
+    DYNAMIC_TARGET_FROM_CONFIGURATION,
+    normalize_endpoint,
+    partition_declared,
+)
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
@@ -126,31 +134,49 @@ class SearxngSearch:
         kept, dropped = _filter_by_recency(results, max_age_hours, as_of)
         truncated = kept[:limit]
 
-        return ProviderResult.ok(
-            {
-                "input_bucket": context.input_bucket,
-                "retrieved": {
-                    "instance": instance,
-                    "query_submitted": query,
-                    "parameters": parameters,
-                    "number_of_results": document.get("number_of_results"),
-                    "result_count": len(results),
-                    "results": results,
-                    "source": "packaged-recording" if response.from_recording else "network",
-                },
-                "derived": {
-                    "kind": "recency_filtered_ranking",
-                    "engine": "adapter",
-                    "results": truncated,
-                    "dropped_by_recency": dropped,
-                    "truncated_to": limit,
-                    # Recorded because the filter is a function of it. A
-                    # derivation whose input is an implicit wall clock cannot be
-                    # checked afterwards, and "cannot be checked afterwards" is
-                    # the property this whole layer exists to remove.
-                    "as_of": as_of.isoformat(),
-                },
+        material: dict[str, Any] = {
+            "input_bucket": context.input_bucket,
+            "retrieved": {
+                "instance": instance,
+                "query_submitted": query,
+                "parameters": parameters,
+                "number_of_results": document.get("number_of_results"),
+                "body_base64": base64.b64encode(response.body).decode("ascii"),
+                "body_sha256": "sha256:" + hashlib.sha256(response.body).hexdigest(),
+                "status_code": response.status_code,
+                "final_url": response.final_url,
+                "result_count": len(results),
+                "results": results,
+                "source": "packaged-recording" if response.from_recording else "network",
             },
+            "derived": {
+                "kind": "recency_filtered_ranking",
+                "engine": "adapter",
+                "results": truncated,
+                "dropped_by_recency": dropped,
+                "truncated_to": limit,
+                # Recorded because the filter is a function of it. A
+                # derivation whose input is an implicit wall clock cannot be
+                # checked afterwards, and "cannot be checked afterwards" is
+                # the property this whole layer exists to remove.
+                "as_of": as_of.isoformat(),
+            },
+        }
+        return ProviderResult.ok(
+            external_capture_result(
+                canonical_json(material),
+                source_identity="search.response",
+                coordinate_type="http-response-v1",
+                selector_type="whole-response-v1",
+                coordinate={
+                    "request_digest": "sha256:"
+                    + hashlib.sha256(_with_query(endpoint, parameters).encode()).hexdigest(),
+                    "status": response.status_code,
+                    "body_sha256": material["retrieved"]["body_sha256"],
+                    "source": material["retrieved"]["source"],
+                },
+                observed_at=datetime.now(UTC),
+            ),
             metrics={"result_count": float(len(results)), "returned": float(len(truncated))},
         )
 
@@ -165,7 +191,7 @@ class SearxngSearch:
             )
         origin = normalize_endpoint(instance)
         declared, dynamic = partition_declared(context.declared_endpoints)
-        if origin not in declared:
+        if origin not in declared and DYNAMIC_TARGET_FROM_CONFIGURATION not in dynamic:
             raise refuse(
                 RefusalCode.UNDECLARED_EGRESS,
                 "the run names an instance this implementation does not declare",

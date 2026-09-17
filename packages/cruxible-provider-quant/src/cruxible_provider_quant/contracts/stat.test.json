@@ -1,0 +1,301 @@
+{
+  "interface_id": "stat.test",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "test": {
+          "type": "string"
+        },
+        "test_family": {
+          "type": "string"
+        },
+        "design": {
+          "type": "string"
+        },
+        "alpha": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "alternative": {
+          "type": "string",
+          "optional": true
+        },
+        "declared_assumptions": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "samples": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "test": {
+          "type": "string"
+        },
+        "test_family": {
+          "type": "string"
+        },
+        "alternative": {
+          "type": "string"
+        },
+        "alpha": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "statistic": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "statistic_kind": {
+          "type": "string"
+        },
+        "p_value": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "degrees_of_freedom": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "$decimal": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                      }
+                    },
+                    "required": [
+                      "$decimal"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optional": true
+        },
+        "reject_null": {
+          "type": "bool"
+        },
+        "effect": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optional": true
+        },
+        "assumptions": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "declared": {
+                  "type": "boolean"
+                },
+                "checked": {
+                  "type": "boolean"
+                },
+                "check": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "p_value": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "holds": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "declared",
+                "checked",
+                "check",
+                "p_value",
+                "holds"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "assumptions_satisfied": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optional": true
+        },
+        "engine": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "unknown_test_name",
+    "declared_family_mismatch",
+    "invalid_parameter",
+    "mismatched_lengths",
+    "non_finite_input",
+    "non_finite_result"
+  ]
+}

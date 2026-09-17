@@ -102,6 +102,13 @@ Neither adapter mints a Capture. They return a typed payload plus trace; the
 executor carries both to the CaptureContract, which decides the grade. A provider
 that graded its own output would be certifying itself.
 
+`search.web` now returns that same acquisition envelope. The captured material
+retains the exact HTTP body separately from normalized results and the derived
+recency-filtered ranking. Its logical source is `search.response`; the explicit
+`instance_url` configuration chooses the search service, rather than a test host
+being embedded in the package's endpoint declaration. `as_of`, when supplied,
+is the evaluation instant for filtering; observation time is recorded separately.
+
 ## Egress
 
 `web.fetch` declares the **experimental** `dynamic:target-from-run-input` form.
@@ -110,6 +117,11 @@ only ever be wrong; what governs instead is the recording. Every request the
 client issues — redirect hops included — reaches the run's egress recorder
 through an httpx event hook, and the receipt records that the declaration was
 dynamic so an empty `undeclared` set is not misread as an allowlist that held.
+
+`search.web` declares `dynamic:target-from-configuration`. The exact service
+origin comes from retained invocation configuration; it is recorded like other
+dynamic egress. This is not a network allowlist or a hosted containment policy.
+The adapter continues to enforce an explicit static allowlist when one is supplied.
 
 A **rendered** fetch does not go through that client: a browser opens its own
 sockets and pulls whatever the markup names. It gets its own hooks, on the page's

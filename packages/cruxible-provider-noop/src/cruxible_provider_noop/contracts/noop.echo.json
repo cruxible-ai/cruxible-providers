@@ -1,0 +1,35 @@
+{
+  "interface_id": "noop.echo",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "text": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "default": "echo",
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "echo": {
+          "type": "string"
+        },
+        "input_bucket": {
+          "type": "string"
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "provider_declined",
+    "unresolved_secret_ref"
+  ]
+}

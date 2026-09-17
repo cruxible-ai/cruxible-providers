@@ -9,6 +9,8 @@ query string, where it would end up in the instance's access log.
 
 from __future__ import annotations
 
+import base64
+import json
 from typing import Any
 
 import pytest
@@ -110,7 +112,10 @@ def test_a_run_served_by_a_real_transport_is_not_labelled_as_a_replay() -> None:
     )
     assert result.status == "ok"
     assert result.output is not None
-    assert result.output["retrieved"]["source"] == "network"
+    assert (
+        json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"]["source"]
+        == "network"
+    )
     assert not [event for event in result.events if event.get("kind") == "packaged_recording"]
 
 
@@ -127,6 +132,23 @@ def test_the_credential_reaches_neither_the_output_nor_the_trace() -> None:
     )
     rendered = repr(result.output) + repr(result.events) + repr(result.metrics)
     assert CREDENTIAL not in rendered
+    assert result.output is not None
+    assert CREDENTIAL.encode() not in base64.b64decode(result.output["content_base64"])
+
+
+def test_explicit_static_declaration_still_refuses_a_different_service() -> None:
+    client = _CapturingClient(INSTANCE_ANSWER, "application/json")
+    provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]
+    context = _context(
+        "search.web",
+        input={"query": "tide gauge"},
+        coordinates={"instance_url": "https://other.example"},
+    )
+    result = provider(context)
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.code is RefusalCode.UNDECLARED_EGRESS
+    assert not client.urls
 
 
 def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
@@ -142,7 +164,9 @@ def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
         )
     )
     assert result.output is not None
-    parameters = result.output["retrieved"]["parameters"]
+    parameters = json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"][
+        "parameters"
+    ]
     for key, value in parameters.items():
         assert f"{key}={value}".replace(" ", "+") in client.urls[0].replace("%20", "+")
 

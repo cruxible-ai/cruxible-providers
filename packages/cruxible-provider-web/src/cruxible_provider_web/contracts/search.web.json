@@ -1,0 +1,47 @@
+{
+  "interface_id": "search.web",
+  "version": 2,
+  "effect_class": "external_read",
+  "contracts": {
+    "input": {
+      "fields": {
+        "query": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 10,
+          "optional": true
+        },
+        "max_age_hours": {
+          "type": "integer",
+          "optional": true
+        },
+        "language": {
+          "type": "string",
+          "default": "en",
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": "playbill-provider-result-to-external-capture-v1"
+  },
+  "refusals": [
+    "provider_declined",
+    "undeclared_egress"
+  ],
+  "configuration": {
+    "fields": {
+      "instance_url": {
+        "type": "string"
+      },
+      "as_of": {
+        "type": "datetime",
+        "optional": true,
+        "description": "Explicit evaluation instant for recency filtering; defaults to observation time."
+      }
+    },
+    "allow_extra": false
+  }
+}

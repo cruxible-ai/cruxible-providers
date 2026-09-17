@@ -1,0 +1,114 @@
+{
+  "interface_id": "workspace.file",
+  "version": 1,
+  "effect_class": "pure",
+  "input": {
+    "logical_source": {
+      "type": "string",
+      "required": true
+    },
+    "commitment_digest": {
+      "type": "string",
+      "required": true,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "content_encoding": {
+      "type": "string",
+      "required": true,
+      "enum": [
+        "base64"
+      ]
+    },
+    "bytes": {
+      "type": "string",
+      "required": true
+    },
+    "byte_length": {
+      "type": "integer",
+      "required": true,
+      "minimum": 0
+    },
+    "bytes_digest": {
+      "type": "string",
+      "required": true,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "output": {
+    "input_bucket": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "logical_source": {
+          "type": "string"
+        },
+        "commitment_digest": {
+          "type": "string"
+        },
+        "bytes_digest": {
+          "type": "string"
+        },
+        "byte_length": {
+          "type": "integer"
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "one_of": [
+        {
+          "kind": "text",
+          "encoding": "utf-8",
+          "bom": {
+            "type": "boolean"
+          },
+          "newline": {
+            "type": "string",
+            "enum": [
+              "lf",
+              "crlf",
+              "cr",
+              "mixed",
+              "none"
+            ]
+          },
+          "trailing_newline": {
+            "type": "boolean"
+          },
+          "line_count": {
+            "type": "integer"
+          },
+          "character_count": {
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "kind": "bytes",
+          "encoding": "base64",
+          "byte_length": {
+            "type": "integer"
+          },
+          "bytes": {
+            "type": "string"
+          }
+        }
+      ]
+    }
+  },
+  "refusals": [
+    "invalid_parameter",
+    "mismatched_lengths",
+    "provider_declined"
+  ]
+}

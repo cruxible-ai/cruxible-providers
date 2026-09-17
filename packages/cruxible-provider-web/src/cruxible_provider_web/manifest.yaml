@@ -12,7 +12,7 @@ schema_version: 1
 provider_id: cruxible-provider-web
 distribution:
   name: cruxible-provider-web
-  version: 0.1.0
+  version: 0.2.0
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [1]
 implementations:
@@ -21,8 +21,8 @@ implementations:
   # and a second implementation of the same interface is terminal
   # (ambiguous_implementation) rather than something to disambiguate here.
   - interface_id: web.fetch
-    # STUB digest, minted under cruxible.interface.stub.v1 until core registers
-    # this interface. interfaces.py carries the preimage and a drift test.
+    # Exact interface digest under its retained historical domain.
+    # The bundled contracts/ definition is shared with registration metadata.
     interface_digest: "sha256:9769f47abc5ac2dae6d6c623a9f9abf01afde699de48768a755f40a0334a1ade"
     entrypoint: "cruxible_provider_web.fetch:WebFetch"
     backends: [local_env, container]
@@ -62,13 +62,13 @@ implementations:
     capture_contract_families:
       - web.fetch.retrieval.v1
       - web.fetch.extraction.v1
-    # A fetch of a live resource is not reproducible and the network is a side
-    # effect the caller cannot undo. Both flags say so.
+    # A live fetch is not deterministic. External reads are explicit in the
+    # interface effect class; side_effects here denotes external mutation.
     deterministic: false
     side_effects: false
 
   - interface_id: search.web
-    interface_digest: "sha256:346827bfeeeabe10cd9655f73025ad77a717ad1bac6a8f828551b3fd9b506b9d"
+    interface_digest: "sha256:fea1d32087a65259d93586a9d582a5112d08f051c59d97e8737d10ad5bc295bb"
     entrypoint: "cruxible_provider_web.search:SearxngSearch"
     backends: [local_env, container]
     # No engine: an HTTP client to somebody else's instance is the whole
@@ -88,20 +88,10 @@ implementations:
       "query_form=*;recency=any_time;result_depth=shallow": search-web-shallow
       "query_form=*;recency=any_time;result_depth=standard": search-web-standard
       "query_form=*;recency=recent;result_depth=shallow": search-web-recent
-    # A concrete declaration, because this implementation's target is
-    # configuration rather than input: the instance is named by a coordinate and
-    # refused unless it is one of these origins.
-    #
-    # As shipped, the declared instance is the reserved conformance host. That is
-    # not an oversight and it is not deployable as-is: under manifest-verbatim
-    # transcription, WHICH instance a deployment queries is part of what the
-    # accepted artifact says, so pointing this adapter at a real instance means
-    # publishing a distribution whose manifest declares that instance. Whether
-    # that is the intended cost -- it makes the instance part of the
-    # implementation's identity, and therefore of its track record -- is an open
-    # question for the artifact vocabulary, recorded with the batch.
+    # The exact instance URL is supplied as retained run configuration. The
+    # package is reusable across instances; egress remains recorded per run.
     declared_endpoints:
-      - "https://fixture.invalid"
+      - "dynamic:target-from-configuration"
     capture_contract_families:
       - search.web.instance_answer.v1
     # A ranking is a fact about an instance at a moment, not a reproducible

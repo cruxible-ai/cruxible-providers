@@ -12,12 +12,12 @@ schema_version: 1
 provider_id: cruxible-provider-noop
 distribution:
   name: cruxible-provider-noop
-  version: 0.1.0
+  version: 0.2.0
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [1]
 implementations:
   - interface_id: noop.echo
-    interface_digest: "sha256:e72546b97fdcb8875c4fa3d8828909db60809d98d55e7a2450d0c6043113cb87"
+    interface_digest: "sha256:0e524e363162c688dc393a224464739daeb9ff1053e095d18614a900da322e6b"
     entrypoint: "cruxible_provider_noop.provider:NoopEcho"
     backends: [local_env, container]
     # payload_size=large is deliberately unclaimed, so that an oversized input

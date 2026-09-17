@@ -69,11 +69,17 @@ def test_the_vendored_fixture_is_byte_identical_to_what_core_pins() -> None:
     assert "sha256:" + hashlib.sha256(raw).hexdigest() == CORE_PINNED_FIXTURE_DIGEST
 
 
-def test_the_fixture_names_this_runtime_and_its_closed_vocabulary() -> None:
+def test_current_vocabulary_extends_the_frozen_fixture_explicitly() -> None:
     fixture = _fixture()
     assert fixture["provider_commit"] == CORE_PINNED_PROVIDER_COMMIT
     assert fixture["protocol_version"] == PROTOCOL_VERSION.render()
-    assert tuple(fixture["dynamic_endpoint_forms"]) == tuple(sorted(DYNAMIC_ENDPOINT_FORMS))
+    # Keep the old Core-pinned fixture byte-identical. The package-registration
+    # successor adds a configuration-derived endpoint; old forms remain valid.
+    assert fixture["dynamic_endpoint_forms"] == ["dynamic:target-from-run-input"]
+    assert (
+        frozenset({*fixture["dynamic_endpoint_forms"], "dynamic:target-from-configuration"})
+        == DYNAMIC_ENDPOINT_FORMS
+    )
     assert fixture["refusal_codes"] == sorted(
         (code.value for code in RefusalCode), key=lambda value: value.encode("utf-8")
     )

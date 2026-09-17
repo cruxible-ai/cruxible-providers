@@ -1,0 +1,1 @@
+[{"fixture_id": "noop-echo-tiny", "canonical_input": {"text": "hello"}, "measured_bucket_id": "payload_size=tiny;charset=ascii"}, {"fixture_id": "noop-echo-small", "canonical_input": {"text": "xxxxxxxxxxxxxxxxxxxx"}, "measured_bucket_id": "payload_size=small;charset=ascii"}]

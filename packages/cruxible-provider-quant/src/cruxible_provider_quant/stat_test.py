@@ -41,6 +41,7 @@ from typing import Any
 from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .numeric import canonical_call
 from .outputs import ok_if_finite
 from .refusals import decline
 
@@ -90,6 +91,7 @@ class StatTest:
 
     interface_id = "stat.test"
 
+    @canonical_call
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         payload = context.input
 

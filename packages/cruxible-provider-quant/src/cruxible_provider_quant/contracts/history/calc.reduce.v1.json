@@ -1,0 +1,57 @@
+{
+  "interface_id": "calc.reduce",
+  "version": 1,
+  "input": {
+    "rows": {
+      "type": "array<object>",
+      "required": true
+    },
+    "group_by": {
+      "type": "array<string>",
+      "required": false
+    },
+    "aggregations": {
+      "type": "array<object>",
+      "required": false,
+      "items": {
+        "column": "string",
+        "function": "string",
+        "alias": "string"
+      }
+    },
+    "window": {
+      "type": "object",
+      "required": false,
+      "items": {
+        "column": "string",
+        "function": "string",
+        "size": "integer",
+        "order_by": "string",
+        "alias": "string"
+      }
+    }
+  },
+  "output": {
+    "reduction_kind": {
+      "type": "string"
+    },
+    "input_row_count": {
+      "type": "integer"
+    },
+    "columns": {
+      "type": "array<string>"
+    },
+    "rows": {
+      "type": "array<object>"
+    },
+    "engine": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "non_finite_result",
+    "unknown_column",
+    "unsupported_aggregation",
+    "invalid_parameter"
+  ]
+}

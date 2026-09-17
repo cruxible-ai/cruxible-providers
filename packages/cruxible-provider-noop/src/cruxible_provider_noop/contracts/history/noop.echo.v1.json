@@ -1,0 +1,27 @@
+{
+  "interface_id": "noop.echo",
+  "version": 1,
+  "input": {
+    "text": {
+      "type": "string",
+      "required": true
+    },
+    "mode": {
+      "type": "string",
+      "required": false,
+      "default": "echo"
+    }
+  },
+  "output": {
+    "echo": {
+      "type": "string"
+    },
+    "input_bucket": {
+      "type": "string"
+    }
+  },
+  "refusals": [
+    "provider_declined",
+    "unresolved_secret_ref"
+  ]
+}

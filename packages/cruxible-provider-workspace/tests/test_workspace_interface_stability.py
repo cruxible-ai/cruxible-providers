@@ -28,7 +28,7 @@ def test_the_preimage_declares_the_pure_effect_class() -> None:
 def test_the_preimage_names_every_run_input_field_and_nothing_else() -> None:
     from cruxible_provider_workspace.file import INPUT_FIELDS
 
-    assert tuple(interface.INTERFACE_PREIMAGE["input"]) == INPUT_FIELDS
+    assert tuple(interface.INTERFACE_PREIMAGE["contracts"]["input"]["fields"]) == INPUT_FIELDS
 
 
 def test_the_manifest_pins_the_same_interface_digest(manifest_path: Path) -> None:

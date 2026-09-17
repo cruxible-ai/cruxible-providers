@@ -1,0 +1,84 @@
+{
+  "interface_id": "ts.forecast",
+  "version": 1,
+  "input": {
+    "series": {
+      "type": "array",
+      "required": true,
+      "items": {
+        "timestamp": "iso8601|epoch_seconds",
+        "value": "number|null"
+      }
+    },
+    "season_length": {
+      "type": "integer|array<integer>",
+      "required": false
+    },
+    "value_kind": {
+      "type": "string",
+      "required": false,
+      "enum": [
+        "categorical_encoded"
+      ]
+    },
+    "value_bounds": {
+      "type": "array<number>[2]",
+      "required": false
+    },
+    "horizon": {
+      "type": "integer",
+      "required": true
+    },
+    "model": {
+      "type": "string",
+      "required": true,
+      "enum": [
+        "auto_arima",
+        "auto_ets"
+      ]
+    },
+    "interval_levels": {
+      "type": "array<number>",
+      "required": false
+    },
+    "covariates": {
+      "type": "object",
+      "required": false
+    }
+  },
+  "output": {
+    "model": {
+      "type": "string"
+    },
+    "model_selected": {
+      "type": "string"
+    },
+    "horizon": {
+      "type": "integer"
+    },
+    "season_length": {
+      "type": "integer"
+    },
+    "point_forecast": {
+      "type": "array<number>"
+    },
+    "prediction_intervals": {
+      "type": "array<object>",
+      "items": {
+        "level": "number",
+        "lower": "array<number>",
+        "upper": "array<number>"
+      }
+    },
+    "engine": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "insufficient_series_length",
+    "non_finite_input",
+    "non_finite_result",
+    "unknown_method",
+    "invalid_parameter"
+  ]
+}

@@ -1,0 +1,48 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+# Quantitative slots carry the most detailed vocabularies: these are the
+# interfaces where narrow-ML implementations will later compete with classical
+# baselines on the same track-record key, and a bucket that is too coarse hides
+# exactly the competence difference the comparison is for.
+interface_id: calc.reduce
+version: 1
+status: draft
+description: >-
+  Reduce a tabular dataset to aggregates. Buckets track the shape of the input,
+  the shape of the reduction, and whether the data fits in memory at all.
+dimensions:
+  - name: row_count
+    description: rows in the input relation
+    classes:
+      - id: small
+        description: at most 10 thousand rows
+      - id: medium
+        description: more than 10 thousand and at most 1 million rows
+      - id: large
+        description: more than 1 million and at most 100 million rows
+      - id: very_large
+        description: more than 100 million rows
+  - name: column_count
+    description: columns in the input relation
+    classes:
+      - id: narrow
+        description: at most 10 columns
+      - id: moderate
+        description: more than 10 and at most 100 columns
+      - id: wide
+        description: more than 100 columns
+  - name: reduction_kind
+    description: the shape of the reduction requested
+    classes:
+      - id: scalar_aggregate
+        description: one row out, regardless of input size
+      - id: grouped_aggregate
+        description: one row per group
+      - id: windowed
+        description: one row per input row, computed over a window
+  - name: memory_fit
+    description: whether the input fits in working memory
+    classes:
+      - id: in_memory
+        description: the whole relation fits in memory
+      - id: out_of_core
+        description: the reduction must stream or spill

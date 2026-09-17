@@ -1,0 +1,78 @@
+{
+  "interface_id": "match.record",
+  "version": 1,
+  "input": {
+    "records": {
+      "type": "array<object>",
+      "required": true
+    },
+    "unique_id_field": {
+      "type": "string",
+      "required": false
+    },
+    "comparisons": {
+      "type": "array<object>",
+      "required": true,
+      "items": {
+        "field": "string",
+        "m_probability": "number",
+        "u_probability": "number"
+      }
+    },
+    "blocking_fields": {
+      "type": "array<string>",
+      "required": false
+    },
+    "prior_match_probability": {
+      "type": "number",
+      "required": true
+    },
+    "threshold_match_probability": {
+      "type": "number",
+      "required": false
+    },
+    "known_matches": {
+      "type": "array<object>",
+      "required": false
+    }
+  },
+  "output": {
+    "link_type": {
+      "type": "string"
+    },
+    "prior_match_probability": {
+      "type": "number"
+    },
+    "threshold_match_probability": {
+      "type": "number"
+    },
+    "blocking_fields": {
+      "type": "array<string>"
+    },
+    "candidate_pair_count": {
+      "type": "integer"
+    },
+    "pairs": {
+      "type": "array<object>",
+      "items": {
+        "left_id": "string",
+        "right_id": "string",
+        "match_weight": "number",
+        "match_probability": "number",
+        "comparison_vector": "object"
+      }
+    },
+    "review_required": {
+      "type": "boolean"
+    },
+    "engine": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "undeclared_match_parameters",
+    "unknown_column",
+    "invalid_parameter",
+    "non_finite_result"
+  ]
+}

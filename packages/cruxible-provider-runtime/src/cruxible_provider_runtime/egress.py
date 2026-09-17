@@ -40,6 +40,7 @@ from .errors import RefusalCode, refuse
 
 __all__ = [
     "DYNAMIC_ENDPOINT_FORMS",
+    "DYNAMIC_TARGET_FROM_CONFIGURATION",
     "DYNAMIC_TARGET_FROM_RUN_INPUT",
     "SITECUSTOMIZE_GUARD",
     "EgressComparison",
@@ -70,18 +71,29 @@ records every endpoint actually contacted, and the receipt says the declaration
 was dynamic so that nobody reads an empty ``unused`` set as an allowlist that
 held.
 
-This is a **pre-decided disposition, and an open vocabulary item**: the spelling
+This is an explicit recording declaration: the spelling
 is a reserved string in ``declared_endpoints`` rather than a separate manifest
 field, so the field stays homogeneous (``tuple[str, ...]``) for the run context,
-the comparison, and the cloud allowlist reader. It is deliberately the ONLY
-dynamic form; anything else under the ``dynamic:`` prefix refuses at manifest
+the comparison, and the cloud allowlist reader. The configuration-target form is declared
+separately; anything else under
+the ``dynamic:`` prefix refuses at manifest
 load. Its cloud-backend consequence is unresolved and belongs to whoever ratifies
 the vocabulary: a default-deny policy cannot be built from this declaration, so a
 dynamically-targeted adapter needs either a per-run allowlist derived from the
 run input or an egress proxy that records without allowlisting.
 """
 
-DYNAMIC_ENDPOINT_FORMS = frozenset({DYNAMIC_TARGET_FROM_RUN_INPUT})
+DYNAMIC_TARGET_FROM_CONFIGURATION = "dynamic:target-from-configuration"
+"""Endpoint supplied through exact run-bound provider configuration.
+
+This has the same recording-only semantics as a target from run input. It does
+not grant network authority or imply containment. The host must validate and
+retain the configuration at admission; deployed-compute policy remains separate.
+"""
+
+DYNAMIC_ENDPOINT_FORMS = frozenset(
+    {DYNAMIC_TARGET_FROM_RUN_INPUT, DYNAMIC_TARGET_FROM_CONFIGURATION}
+)
 
 
 def partition_declared(declared: Iterable[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:

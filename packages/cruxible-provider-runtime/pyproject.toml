@@ -1,6 +1,6 @@
 [project]
 name = "cruxible-provider-runtime"
-version = "0.1.0"
+version = "0.2.0"
 description = "Support library for Cruxible provider packages: manifest and protocol schemas, identity digests, fetch-on-bind resolution, cache integrity, secret delivery, budgets and egress instrumentation."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,7 +35,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.1"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

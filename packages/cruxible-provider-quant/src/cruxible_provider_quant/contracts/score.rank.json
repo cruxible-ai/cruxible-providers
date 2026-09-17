@@ -1,0 +1,204 @@
+{
+  "interface_id": "score.rank",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "weighted",
+            "pinned_model"
+          ]
+        },
+        "objective": {
+          "type": "string"
+        },
+        "items": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "signals": {
+                  "type": "object"
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "signals"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "weights": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          },
+          "optional": true
+        },
+        "model_ref": {
+          "type": "json",
+          "json_schema": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "feature_order": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "score_kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "path",
+              "sha256",
+              "feature_order",
+              "score_kind"
+            ],
+            "additionalProperties": true
+          },
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "mode": {
+          "type": "string"
+        },
+        "objective": {
+          "type": "string"
+        },
+        "score_kind": {
+          "type": "string"
+        },
+        "tie_break": {
+          "type": "string"
+        },
+        "signals_used": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "ranking": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rank": {
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "score": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "tied_with": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "rank",
+                "id",
+                "score",
+                "tied_with"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "engine": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "unknown_method",
+    "malformed_model_ref",
+    "unknown_column",
+    "invalid_parameter",
+    "non_finite_input",
+    "non_finite_result",
+    "artifact_hash_mismatch"
+  ]
+}

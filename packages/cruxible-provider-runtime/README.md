@@ -22,6 +22,7 @@ contract, plus the small provider-facing surface in
 | `budget` | Out-of-process wall-clock and output-size enforcement |
 | `egress` | Endpoints declared versus endpoints actually contacted |
 | `buckets` | The bucket vocabulary format, ids, and selectors |
+| `registration` | Data-only package descriptor reader; verifies bundled resources and exports without executing provider code |
 | `registry` | A **stub** registry standing in for core |
 | `backends` | The two backend kinds and their injected drivers |
 | `binding`, `execute` | Bind and invoke |

@@ -1,0 +1,71 @@
+{
+  "interface_id": "calc.calibrate",
+  "version": 1,
+  "input": {
+    "predictions": {
+      "type": "array<object>",
+      "required": true,
+      "items": {
+        "prediction": "number|object",
+        "outcome": "number",
+        "made_at": "number",
+        "settled_at": "number"
+      }
+    },
+    "bin_edges": {
+      "type": "array<number>",
+      "required": false
+    },
+    "bin_count": {
+      "type": "integer",
+      "required": false
+    }
+  },
+  "output": {
+    "outcome_type": {
+      "type": "string"
+    },
+    "sample_size": {
+      "type": "integer"
+    },
+    "base_rate": {
+      "type": "number"
+    },
+    "brier_score": {
+      "type": "number"
+    },
+    "brier_decomposition": {
+      "type": "object",
+      "items": {
+        "reliability": "number",
+        "resolution": "number",
+        "uncertainty": "number"
+      }
+    },
+    "expected_calibration_error": {
+      "type": "number"
+    },
+    "bin_edges": {
+      "type": "array<number>"
+    },
+    "reliability_bins": {
+      "type": "array<object>",
+      "items": {
+        "lower": "number",
+        "upper": "number",
+        "count": "integer",
+        "mean_prediction": "number|null",
+        "observed_frequency": "number|null"
+      }
+    },
+    "engine": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "mismatched_lengths",
+    "non_finite_input",
+    "invalid_parameter",
+    "non_finite_result"
+  ]
+}

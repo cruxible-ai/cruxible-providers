@@ -1,0 +1,45 @@
+{
+  "interface_id": "search.web",
+  "version": 1,
+  "input": {
+    "query": {
+      "type": "string",
+      "required": true
+    },
+    "limit": {
+      "type": "integer",
+      "required": false,
+      "default": 10
+    },
+    "max_age_hours": {
+      "type": "integer",
+      "required": false
+    },
+    "language": {
+      "type": "string",
+      "required": false,
+      "default": "en"
+    }
+  },
+  "coordinates": {
+    "instance_url": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "output": {
+    "input_bucket": {
+      "type": "string"
+    },
+    "retrieved": {
+      "type": "object"
+    },
+    "derived": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "provider_declined",
+    "undeclared_egress"
+  ]
+}

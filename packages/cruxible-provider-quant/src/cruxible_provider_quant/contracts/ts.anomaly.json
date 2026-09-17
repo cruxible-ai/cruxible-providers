@@ -1,0 +1,243 @@
+{
+  "interface_id": "ts.anomaly",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "series": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "timestamp",
+                "value"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "season_length": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            ]
+          },
+          "optional": true
+        },
+        "value_kind": {
+          "type": "string",
+          "enum": [
+            "categorical_encoded"
+          ],
+          "optional": true
+        },
+        "value_bounds": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "$decimal": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                    }
+                  },
+                  "required": [
+                    "$decimal"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "optional": true
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "stl_mad",
+            "changepoint"
+          ]
+        },
+        "threshold_modified_z": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "optional": true
+        },
+        "changepoint_count": {
+          "type": "integer",
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "method": {
+          "type": "string"
+        },
+        "scale_estimate": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        },
+        "threshold": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        },
+        "points": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "flagged_indices": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "changepoints": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "segments": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "engine": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        },
+        "season_length": {
+          "type": "integer"
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "insufficient_series_length",
+    "non_finite_input",
+    "non_finite_result",
+    "degenerate_scale",
+    "unknown_method",
+    "invalid_parameter"
+  ]
+}

@@ -168,11 +168,17 @@ seven. None of them requests a credential — no implementation reads
 behaviourally by checking that a run with a credential present produces output
 identical to a run without one.
 
-## Where the classifiers live, and where they belong
+## Registration and numerical transport
 
-`classifiers.py` derives every bucket from the actual input. Those functions
-belong to **core**, registered with their interfaces, because two
-implementations of one slot have to be measured the same way or the comparison
-they exist for is meaningless. Core's interface-registration surface does not
-exist yet, so they live here against the stub registry, exactly as the reference
-no-op provider's stub interface does. They move when the registry lands.
+The package supplies operation contracts, classifier exports, vocabularies and
+canonical fixture sets through `registration.json`. Core reads these definitions;
+it need not contain a quantitative-provider catalog. The same interface contract
+and request classification must apply to competing implementations.
+
+Quantitative engines compute with native numbers. At the invocation boundary,
+finite fractional values use canonical `{"$decimal": "0.125"}` objects so accepted
+inputs and outputs contain no binary JSON floats. Integers stay integers. The
+`numeric` helpers encode and decode this representation; the adapter encodes its
+output before returning. This does not increase the numerical precision of the
+underlying engines. Noncanonical decimals and values outside engine range refuse.
+Contracts and their predecessors are bundled, with exact version and digest pins.

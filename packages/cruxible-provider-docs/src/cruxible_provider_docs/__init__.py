@@ -30,7 +30,7 @@ from .ocr import PaddleOcrExtract
 from .recordings import load_fixtures, load_recordings
 from .to_markdown import DoclingToMarkdown
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = PACKAGE_ROOT / "manifest.yaml"

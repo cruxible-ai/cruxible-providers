@@ -1,0 +1,131 @@
+{
+  "interface_id": "calc.reduce",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "rows": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "group_by": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "optional": true
+        },
+        "aggregations": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "column": {
+                  "type": "string"
+                },
+                "function": {
+                  "type": "string"
+                },
+                "alias": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "column",
+                "function",
+                "alias"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "optional": true
+        },
+        "window": {
+          "type": "json",
+          "json_schema": {
+            "type": "object",
+            "properties": {
+              "column": {
+                "type": "string"
+              },
+              "function": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "order_by": {
+                "type": "string"
+              },
+              "alias": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "column",
+              "function",
+              "size",
+              "order_by",
+              "alias"
+            ],
+            "additionalProperties": true
+          },
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "reduction_kind": {
+          "type": "string"
+        },
+        "input_row_count": {
+          "type": "integer"
+        },
+        "columns": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "rows": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "engine": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "non_finite_result",
+    "unknown_column",
+    "unsupported_aggregation",
+    "invalid_parameter"
+  ]
+}

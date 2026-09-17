@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "manifest": {
+    "path": "manifest.yaml",
+    "digest": "sha256:5e1098983ac29b29e7d2a2b3e1d8442fb2ac6989dcdee0de55e3655dfce78a97"
+  },
+  "interfaces": [
+    {
+      "interface_id": "calc.reduce",
+      "interface_digest": "sha256:eb3af17ce73448162d8ca7374c9d97b0e3b240feb1148a8b3525903bddc13fcd",
+      "definition": {
+        "path": "contracts/calc.reduce.json",
+        "digest": "sha256:0f99022fff90285cf6d27c4707b63f924e70da7a469e28cf376f92121fe3be0e"
+      },
+      "vocabulary": {
+        "path": "vocab/calc.reduce.yaml",
+        "digest": "sha256:17fba69b6f0092c6d4ac8f60ec63b6298d3e19209080bb3ecda9f2d0674e4f2b"
+      },
+      "classifier": {
+        "identity": "calc.reduce.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_quant.classifiers:classify_calc_reduce",
+        "source": {
+          "path": "classifiers.py",
+          "digest": "sha256:5c27b9ad2cbeb6f1d7df11f9f8926afcdae4271e3581dde91e4c38f830feba5e"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/calc.reduce.json",
+        "digest": "sha256:95b1a28df8243ccbda826b0b342332887e8aef0a84d4735845a2bd77d801ffb1"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/calc.reduce.v1.json",
+            "digest": "sha256:eeb3641a977c6550c6519989cb013cc36867c3575b8753266bc022ff1008b68a"
+          },
+          "interface_digest": "sha256:148c0044ea289d8014b2223f5bd269248972e6213bca046ed476f426642e586e"
+        }
+      ]
+    },
+    {
+      "interface_id": "ts.anomaly",
+      "interface_digest": "sha256:5db32340ce1f143443552ead5ac6de1d70187640689b584b11ca40fd133bf2b2",
+      "definition": {
+        "path": "contracts/ts.anomaly.json",
+        "digest": "sha256:d6db56d6eea2a7e59b296e3a7b47b00c4a8d61ec96fe327b6e9ecc02d806262f"
+      },
+      "vocabulary": {
+        "path": "vocab/ts.anomaly.yaml",
+        "digest": "sha256:59212521977a588fe3c60fd137b6629cbd05f5a1ec190f2634553a7eb15e54d5"
+      },
+      "classifier": {
+        "identity": "ts.anomaly.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_quant.classifiers:classify_ts_anomaly",
+        "source": {
+          "path": "classifiers.py",
+          "digest": "sha256:5c27b9ad2cbeb6f1d7df11f9f8926afcdae4271e3581dde91e4c38f830feba5e"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/ts.anomaly.json",
+        "digest": "sha256:1c2f30f11cfc994c2460e8577d27dc9fdd934a059ac7ae688a97feb9372a6ed8"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/ts.anomaly.v1.json",
+            "digest": "sha256:8a0adfd80bb89b9c14df6afc1daff5d029dc83a561b5fbbfc035ef62d345e495"
+          },
+          "interface_digest": "sha256:c9dcccbecdfb991df310853aa4b1193032f58480ddfe26d9f065ddc7557736e0"
+        }
+      ]
+    },
+    {
+      "interface_id": "ts.forecast",
+      "interface_digest": "sha256:ef8f0bed68b4283b3d74381cd64c293eab8d8deb7ee5cf21c07f44766b3a8b80",
+      "definition": {
+        "path": "contracts/ts.forecast.json",
+        "digest": "sha256:ed3a5db94c074eec6e14c1f10144c2ad2c769b70ad9c511bb4eea5f0b50cd238"
+      },
+      "vocabulary": {
+        "path": "vocab/ts.forecast.yaml",
+        "digest": "sha256:e2499af0cc858c870358ad7a8b8fdc158ee8e3593628702a79f51610275ac1f9"
+      },
+      "classifier": {
+        "identity": "ts.forecast.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_quant.classifiers:classify_ts_forecast",
+        "source": {
+          "path": "classifiers.py",
+          "digest": "sha256:5c27b9ad2cbeb6f1d7df11f9f8926afcdae4271e3581dde91e4c38f830feba5e"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/ts.forecast.json",
+        "digest": "sha256:6aea8dda8ad251038982c58cea5396f5abdc0e137a80317c698282d6767291c9"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/ts.forecast.v1.json",
+            "digest": "sha256:e54190f81f545d9dbb0a539642b87dd7784f5d2ec51dbbdaf8fd5f098431dbee"
+          },
+          "interface_digest": "sha256:a350e46acd787ad8eebfcc6242f8fd99cd0a1a47bf4e9d5cf6930b0a8cdd4baa"
+        }
+      ]
+    },
+    {
+      "interface_id": "stat.test",
+      "interface_digest": "sha256:99835a41b6b8ccc61dc8d36468fcd111b7e890f595983184dcfc488d9014d998",
+      "definition": {
+        "path": "contracts/stat.test.json",
+        "digest": "sha256:cef4717a929719ade216d3051f6ca39d30d7a23e0ececdefcbc57b9f8afbc304"
+      },
+      "vocabulary": {
+        "path": "vocab/stat.test.yaml",
+        "digest": "sha256:f99ffd3a408db9cf0ca463e30db223585232fd35646f94d8236061b944a0b230"
+      },
+      "classifier": {
+        "identity": "stat.test.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_quant.classifiers:classify_stat_test",
+        "source": {
+          "path": "classifiers.py",
+          "digest": "sha256:5c27b9ad2cbeb6f1d7df11f9f8926afcdae4271e3581dde91e4c38f830feba5e"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/stat.test.json",
+        "digest": "sha256:d15652f23679608f747fa9f6446591c7abb4a35a824db27530bd5c37daa5e494"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/stat.test.v1.json",
+            "digest": "sha256:69b7b40d14203f01ded67334182fa464681e567374da195c78bddeb17a7c2a33"
+          },
+          "interface_digest": "sha256:ed085bcc3fbda9dea5005432f2f0be723f165b2804df71e3e20bb69c43cec937"
+        }
+      ]
+    },
+    {
+      "interface_id": "score.rank",
+      "interface_digest": "sha256:6cdf784479702b0df2b513746f6bd4ab0127644ec80bba2c70c28c7119dbd906",
+      "definition": {
+        "path": "contracts/score.rank.json",
+        "digest": "sha256:d77f4edfb5e08569f1f38d475b0eed2484ae7a8b26208842370bce241cf991df"
+      },
+      "vocabulary": {
+        "path": "vocab/score.rank.yaml",
+        "digest": "sha256:1016f87545a8d5db99803b4a3bbf3a1d078c9b9944470eee088066253321e004"
+      },
+      "classifier": {
+        "identity": "score.rank.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_quant.classifiers:classify_score_rank",
+        "source": {
+          "path": "classifiers.py",
+          "digest": "sha256:5c27b9ad2cbeb6f1d7df11f9f8926afcdae4271e3581dde91e4c38f830feba5e"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/score.rank.json",
+        "digest": "sha256:0d1f691e148babec2a1248175d0238f0e950c0807b50ef2c838cf69644d63ae9"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/score.rank.v1.json",
+            "digest": "sha256:84c110855d9196ef678d37b3f771204cdfe4faa8397b7443ab21e41ae3e2d0fb"
+          },
+          "interface_digest": "sha256:96d0ff67eac67537d304273de990221b1342c2e637e393e472dc7abf644b2c80"
+        }
+      ]
+    },
+    {
+      "interface_id": "match.record",
+      "interface_digest": "sha256:144dee9499e89fc2504bf1b9a47e98033582efbc592b789ffb9c377cd530c2dd",
+      "definition": {
+        "path": "contracts/match.record.json",
+        "digest": "sha256:2d95f6590bc9adae85eed4ba88f3aed66be68bc227649da9576b629f846568db"
+      },
+      "vocabulary": {
+        "path": "vocab/match.record.yaml",
+        "digest": "sha256:21066f10cb1ecef3c60e80fc704a9af987ba2cfb57d42068c116bfca2448270d"
+      },
+      "classifier": {
+        "identity": "match.record.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_quant.classifiers:classify_match_record",
+        "source": {
+          "path": "classifiers.py",
+          "digest": "sha256:5c27b9ad2cbeb6f1d7df11f9f8926afcdae4271e3581dde91e4c38f830feba5e"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/match.record.json",
+        "digest": "sha256:a5a535b584e8aad3fbb33ef9c9fff99057f7a8f313906618223c36673386e188"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/match.record.v1.json",
+            "digest": "sha256:1d42fea2281b2a3d3278747f616ff3bc68b65b1522fe8e46b9059f5c7cc726ae"
+          },
+          "interface_digest": "sha256:a0f902bdb0bf13ede311b32808c36124e85d0fb5a639398c512135ffec66fd4e"
+        }
+      ]
+    },
+    {
+      "interface_id": "calc.calibrate",
+      "interface_digest": "sha256:d8cfaf2528fe8abc5da1142f54e73d6faad86ab93f87d3eca821298e797dc6a5",
+      "definition": {
+        "path": "contracts/calc.calibrate.json",
+        "digest": "sha256:e03079f8e0ec206c7a317858a5d0fcf5be5169da73945f5db2d39d878faec1dd"
+      },
+      "vocabulary": {
+        "path": "vocab/calc.calibrate.yaml",
+        "digest": "sha256:935016695693fccb0c7a09f51eeec60dfb273de4376eee58adff8b144654236b"
+      },
+      "classifier": {
+        "identity": "calc.calibrate.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_quant.classifiers:classify_calc_calibrate",
+        "source": {
+          "path": "classifiers.py",
+          "digest": "sha256:5c27b9ad2cbeb6f1d7df11f9f8926afcdae4271e3581dde91e4c38f830feba5e"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/calc.calibrate.json",
+        "digest": "sha256:87d6504ca84670489ad5ab9820614db2f3d969a5af77f0d225b133faf038a59b"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/calc.calibrate.v1.json",
+            "digest": "sha256:fda5cca56ff60770c79f780c38157b36f9d6a737ece43bd5b3abe052a6a79591"
+          },
+          "interface_digest": "sha256:68ed76a4d56a0ccaf0dd80380d20b84072bdd3bee2424ede0ec519cfb0d559a8"
+        }
+      ]
+    }
+  ],
+  "runtime_requirements": [],
+  "governed_definitions": []
+}

@@ -370,7 +370,7 @@ wheels = [
 
 [[package]]
 name = "cruxible-provider-docs"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/cruxible-provider-docs" }
 dependencies = [
     { name = "cruxible-provider-runtime" },
@@ -395,7 +395,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-noop"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/cruxible-provider-noop" }
 dependencies = [
     { name = "cruxible-provider-runtime" },
@@ -414,7 +414,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-quant"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/cruxible-provider-quant" }
 dependencies = [
     { name = "cruxible-provider-runtime" },
@@ -455,7 +455,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-runtime"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/cruxible-provider-runtime" }
 dependencies = [
     { name = "packaging" },
@@ -480,7 +480,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-web"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/cruxible-provider-web" }
 dependencies = [
     { name = "cruxible-provider-runtime" },
@@ -507,7 +507,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-workspace"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/cruxible-provider-workspace" }
 dependencies = [
     { name = "cruxible-provider-runtime" },
@@ -539,6 +539,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "jsonschema" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
@@ -557,6 +558,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "jsonschema", specifier = ">=4.23" },
     { name = "mypy", specifier = ">=1.11" },
     { name = "pytest", specifier = ">=8.2" },
     { name = "ruff", specifier = ">=0.6" },

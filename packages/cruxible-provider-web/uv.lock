@@ -282,7 +282,7 @@ wheels = [
 
 [[package]]
 name = "cruxible-provider-runtime"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "../cruxible-provider-runtime" }
 dependencies = [
     { name = "packaging" },
@@ -307,7 +307,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-web"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "cruxible-provider-runtime" },

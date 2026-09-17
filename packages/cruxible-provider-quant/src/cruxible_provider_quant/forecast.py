@@ -42,6 +42,7 @@ from typing import Any
 from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .numeric import canonical_call
 from .outputs import ok_if_finite
 from .refusals import decline
 from .series import Series, parse_series
@@ -59,6 +60,7 @@ class Forecast:
 
     interface_id = "ts.forecast"
 
+    @canonical_call
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         payload = context.input
         series = parse_series(payload)

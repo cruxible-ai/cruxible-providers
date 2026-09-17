@@ -233,6 +233,10 @@ deliberate, separate act.
 | `pyproject.toml` | Distribution metadata, dependencies, `cruxible.providers` entry points |
 | `uv.lock` | The identity source. Committed, and compared byte-for-byte at bind against what the accepted artifact pinned. |
 | `src/<module>/manifest.yaml` | The package-side manifest. A transcription source, **never** authority. |
+| `src/<module>/registration.json` | Versioned registration descriptor: hashed manifest, interface definitions, vocabularies, classifier sources, fixture sets, and runtime requirements |
+| `src/<module>/contracts/*.json` | Current operation contracts; the Python interface helpers read these same files |
+| `src/<module>/contracts/history/*.json` | Frozen predecessor definitions; retain their original digest domain and bytes |
+| `src/<module>/registration-fixtures/*.json` | Self-contained canonical request-classification fixtures, usable without the test tree |
 | `src/<module>/py.typed` | Typing marker |
 | `LICENSE`, `NOTICE` | Apache-2.0, per package |
 | `container/Dockerfile` | The container backend's build, when the package declares that backend |
@@ -240,6 +244,32 @@ deliberate, separate act.
 | `src/<module>/vocab/*.yaml` | The bucket vocabularies the package classifies against, copied from `vocab/interfaces/`; a repository test asserts the copies do not fork |
 | `src/<module>/recordings/`, `fixtures/` | Recorded exchanges or engine responses, and the per-bucket conformance fixtures that replay them |
 | `tests/` | The conformance suite, which every plane package inherits. No `__init__.py` |
+
+### Reading registration metadata
+
+`cruxible_provider_runtime.registration.load_registration(package_root)` verifies
+all package-relative resource hashes and interface/manifest/fixture cross-links
+without importing provider code. `registration_from_distribution(distribution)`
+locates that descriptor through installed wheel metadata and additionally checks
+the package name, version, entry points and extras. Neither function installs,
+authorizes, or accepts a provider. Metadata remains a source for an ordinary
+Core proposal. The host must pin the complete wheel before loading a classifier,
+validate operation contracts under its selected compiler, and verify fixtures.
+
+Node-type contracts use `contracts.input` and `contracts.output`, plus explicit
+`effect_class`. Package dependencies and operator configuration remain separate.
+Local Python installation does not imply a container deployment. Runtime resource
+requirements, such as Playwright's browser executable, are declared separately
+from Python extras and must not be reported ready merely because a wheel exists.
+
+The interface digest domain retains its historical `stub.v1` spelling. It is an
+identity rule, not a statement that current contracts are provisional. A changed
+contract increments its version and retains the predecessor definition and digest.
+
+The cross-repository check accepts `CRUXIBLE_CORE_PYTHON`; the built-wheel check
+accepts `CRUXIBLE_PROVIDER_WHEEL_DIR`. These are explicit test inputs, not developer
+paths. Run `tests/test_package_registration.py` with them to check actual provider
+outputs against Core and descriptors from built distributions.
 
 ### Test packages carry no `__init__.py`
 

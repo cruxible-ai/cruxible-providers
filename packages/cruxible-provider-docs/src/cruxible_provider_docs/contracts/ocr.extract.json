@@ -1,0 +1,92 @@
+{
+  "interface_id": "ocr.extract",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "source": {
+          "type": "json",
+          "json_schema": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "inline",
+                  "packaged_fixture"
+                ]
+              },
+              "filename": {
+                "type": "string"
+              },
+              "media_type": {
+                "type": "string"
+              },
+              "content_base64": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "page_count": {
+          "type": "integer",
+          "default": 1,
+          "optional": true
+        },
+        "script": {
+          "type": "string",
+          "default": "latin",
+          "optional": true
+        },
+        "scan_quality": {
+          "type": "string",
+          "default": "clean",
+          "optional": true
+        },
+        "layout": {
+          "type": "string",
+          "default": "linear",
+          "optional": true
+        },
+        "language": {
+          "type": "string",
+          "default": "en",
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "input_bucket": {
+          "type": "string"
+        },
+        "document": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        },
+        "derived": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "provider_declined",
+    "environment_divergence"
+  ]
+}

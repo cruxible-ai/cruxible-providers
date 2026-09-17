@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "manifest": {
+    "path": "manifest.yaml",
+    "digest": "sha256:82ece664573f7a1dcd05c2865ce001f0415ab580c08c5368a0dae892db446773"
+  },
+  "interfaces": [
+    {
+      "interface_id": "doc.to_markdown",
+      "interface_digest": "sha256:59f720f2e924e61dfd4272cc0e03838c8c5374de3cc35b4cf2993ce6e2a08c71",
+      "definition": {
+        "path": "contracts/doc.to_markdown.json",
+        "digest": "sha256:76645482f256ae32d6def3fec482f9097a7c3e9ba3cd1ed209463a37ab65149a"
+      },
+      "vocabulary": {
+        "path": "vocab/doc.to_markdown.yaml",
+        "digest": "sha256:652b5b80f700d2d1e7e60cd322493281b867b48554fa1cda132ecc74a7eb5ed6"
+      },
+      "classifier": {
+        "identity": "doc.to_markdown.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_docs.interfaces:classify_to_markdown",
+        "source": {
+          "path": "interfaces.py",
+          "digest": "sha256:b912aefd1b8fad39380d445199dc727bfe2901b5e9e5fc4ef558dc254202cd03"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/doc.to_markdown.json",
+        "digest": "sha256:9ef594e0924ce5589d0def80d0625e5316c89cc4935af7d29c493fef6219604f"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/doc.to_markdown.v1.json",
+            "digest": "sha256:50372c4ac989032b05f3f8cbfb2a9c455aed53d75e083530e2dcb2b740b3949c"
+          },
+          "interface_digest": "sha256:e33e09a19024a719282cdc36ba808bfce64e2ffe2b6fa5a9705852b52cc8e0ca"
+        }
+      ]
+    },
+    {
+      "interface_id": "ocr.extract",
+      "interface_digest": "sha256:358515d19aa14f7459f23854ef511b4c2bb349e1ded95104487fca0a6f9b199f",
+      "definition": {
+        "path": "contracts/ocr.extract.json",
+        "digest": "sha256:59472c45d72b6768eaf9e6cd8586569de37dfc28bd2fb7b8ab376e6433c1304a"
+      },
+      "vocabulary": {
+        "path": "vocab/ocr.extract.yaml",
+        "digest": "sha256:8e282b15fa4128543946fc3af111bb1edc40cc912a411340215f44f38b5aec5c"
+      },
+      "classifier": {
+        "identity": "ocr.extract.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_docs.interfaces:classify_ocr",
+        "source": {
+          "path": "interfaces.py",
+          "digest": "sha256:b912aefd1b8fad39380d445199dc727bfe2901b5e9e5fc4ef558dc254202cd03"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/ocr.extract.json",
+        "digest": "sha256:54df2b646c5399b484e8325e1da6a4ddef4c3ecc99c16f3be3d9348c4491aef2"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/ocr.extract.v1.json",
+            "digest": "sha256:2b8c63f504be2e582d25fa44894603485d9eaf39a55f91bbe2c35b236802dcc4"
+          },
+          "interface_digest": "sha256:602020c2032b8162876db4f592d9b46f523e96f1a342c908707afc3150272ae9"
+        }
+      ]
+    }
+  ],
+  "runtime_requirements": [
+    {
+      "interface_id": "doc.to_markdown",
+      "kind": "python_extra",
+      "name": "docling",
+      "description": "Required Python extra for this implementation."
+    },
+    {
+      "interface_id": "ocr.extract",
+      "kind": "python_extra",
+      "name": "paddleocr",
+      "description": "Required Python extra for this implementation."
+    }
+  ],
+  "governed_definitions": []
+}

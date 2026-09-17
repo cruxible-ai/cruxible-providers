@@ -1,21 +1,7 @@
-"""Stub interface registrations for the document plane.
+"""Package-owned operation contracts and request classifiers.
 
-**These are stubs**, minted under the ``cruxible.interface.stub.v1`` domain tag
-until core registers the real interfaces; a drift test asserts each literal still
-matches its preimage. The bucket vocabularies ship as the same YAML the
-repository publishes under ``vocab/interfaces/``, copied into the distribution so
-an installed package can classify without a repository to read, and a test
-asserts the two copies are one document.
-
-A note on what the classifiers can honestly measure. A document plane's buckets
-describe things that are only knowable by opening the document — how many pages
-it has, whether it carries a text layer, whether its layout is tabular. The run
-input therefore carries them as the caller's description, and the adapter
-**checks** rather than trusts: a conversion that recovers no text from a document
-declared born-digital refuses instead of returning an empty Markdown file, and a
-document whose real page count exceeds the declared bucket refuses instead of
-being silently truncated. Measured-not-claimed is a property of the pair, not of
-the classifier alone.
+Exact definitions live in bundled contracts/*.json; their frozen predecessors
+remain in contracts/history for historical digest verification.
 """
 
 from __future__ import annotations
@@ -26,6 +12,7 @@ from typing import Any
 
 from cruxible_provider_runtime.buckets import BucketVocabulary
 from cruxible_provider_runtime.canonical import domain_digest
+from cruxible_provider_runtime.registration import read_interface_definition
 from cruxible_provider_runtime.registry import InterfaceRegistration, load_bucket_vocabulary
 
 __all__ = [
@@ -48,63 +35,16 @@ VOCAB_DIR = Path(__file__).resolve().parent / "vocab"
 MARKDOWN_INTERFACE_ID = "doc.to_markdown"
 OCR_INTERFACE_ID = "ocr.extract"
 
-_SOURCE_SCHEMA = {
-    "kind": {"type": "string", "required": True, "enum": ["inline", "packaged_fixture"]},
-    "filename": {"type": "string", "required": False},
-    "media_type": {"type": "string", "required": False},
-    "content_base64": {"type": "string", "required": False},
-    "id": {"type": "string", "required": False},
-}
+MARKDOWN_PREIMAGE: dict[str, Any] = read_interface_definition(
+    Path(__file__).parent, "doc.to_markdown"
+)
 
-MARKDOWN_PREIMAGE: dict[str, Any] = {
-    "interface_id": MARKDOWN_INTERFACE_ID,
-    "version": 1,
-    "input": {
-        "source": _SOURCE_SCHEMA,
-        "page_count": {"type": "integer", "required": False, "default": 1},
-        "scanned": {"type": "string", "required": False, "default": "born_digital"},
-        "layout": {"type": "string", "required": False, "default": "linear"},
-    },
-    "output": {
-        "input_bucket": {"type": "string"},
-        # No "retrieved" block: this plane retrieves nothing. The document is
-        # supplied by the caller, so everything the adapter produces is derived,
-        # and the output says so structurally rather than in a comment.
-        "document": {"type": "object"},
-        "derived": {"type": "object"},
-    },
-    "refusals": [
-        "provider_declined",
-        "environment_divergence",
-    ],
-}
-
-OCR_PREIMAGE: dict[str, Any] = {
-    "interface_id": OCR_INTERFACE_ID,
-    "version": 1,
-    "input": {
-        "source": _SOURCE_SCHEMA,
-        "page_count": {"type": "integer", "required": False, "default": 1},
-        "script": {"type": "string", "required": False, "default": "latin"},
-        "scan_quality": {"type": "string", "required": False, "default": "clean"},
-        "layout": {"type": "string", "required": False, "default": "linear"},
-        "language": {"type": "string", "required": False, "default": "en"},
-    },
-    "output": {
-        "input_bucket": {"type": "string"},
-        "document": {"type": "object"},
-        "derived": {"type": "object"},
-    },
-    "refusals": [
-        "provider_declined",
-        "environment_divergence",
-    ],
-}
+OCR_PREIMAGE: dict[str, Any] = read_interface_definition(Path(__file__).parent, "ocr.extract")
 
 MARKDOWN_INTERFACE_DIGEST = (
-    "sha256:e33e09a19024a719282cdc36ba808bfce64e2ffe2b6fa5a9705852b52cc8e0ca"
+    "sha256:59f720f2e924e61dfd4272cc0e03838c8c5374de3cc35b4cf2993ce6e2a08c71"
 )
-OCR_INTERFACE_DIGEST = "sha256:602020c2032b8162876db4f592d9b46f523e96f1a342c908707afc3150272ae9"
+OCR_INTERFACE_DIGEST = "sha256:358515d19aa14f7459f23854ef511b4c2bb349e1ded95104487fca0a6f9b199f"
 
 MARKDOWN_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "doc.to_markdown.yaml")
 OCR_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "ocr.extract.yaml")

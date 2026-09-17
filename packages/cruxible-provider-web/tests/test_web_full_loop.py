@@ -18,7 +18,10 @@ import pytest
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding, BindRequest, bind
 from cruxible_provider_runtime.digests import implementation_digest
-from cruxible_provider_runtime.egress import DYNAMIC_TARGET_FROM_RUN_INPUT
+from cruxible_provider_runtime.egress import (
+    DYNAMIC_TARGET_FROM_CONFIGURATION,
+    DYNAMIC_TARGET_FROM_RUN_INPUT,
+)
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
@@ -349,40 +352,43 @@ def test_search_success_path(
     assert outcome.status == "ok"
     assert outcome.input_bucket == "query_form=keyword;recency=any_time;result_depth=shallow"
     assert outcome.envelope.output is not None
-    assert outcome.envelope.output["retrieved"]["result_count"] == 3
-    assert outcome.envelope.output["derived"]["kind"] == "recency_filtered_ranking"
-    # A concrete declaration, satisfied: observed is inside declared, and no
-    # dynamic form was in force.
+    assert (
+        json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"][
+            "result_count"
+        ]
+        == 3
+    )
+    assert (
+        json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"]["kind"]
+        == "recency_filtered_ranking"
+    )
+    # A configuration-derived target is recorded, not mistaken for an allowlist.
     assert outcome.egress.observed == ("https://fixture.invalid",)
-    assert outcome.egress.dynamic_forms == ()
+    assert outcome.egress.dynamic_forms == (DYNAMIC_TARGET_FROM_CONFIGURATION,)
     assert outcome.egress.conformant
 
 
 @pytest.mark.parametrize("search_binding", BACKENDS, indirect=True)
-def test_search_refuses_an_instance_the_declaration_does_not_carry(
+def test_search_requires_an_explicit_instance_binding(
     search_binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    """Which instance a run queries is governed, so an undeclared one refuses.
-
-    And it refuses *before* the request, which is the point: a check performed
-    after the fact would be a report of a violation rather than a refusal of one.
-    """
+    """A reusable search package does not invent a default search service."""
 
     outcome = invoke(
         search_binding,
         registry=registry,
         payload={"query": "tide gauge recalibration"},
-        coordinates={"instance_url": "https://someone-elses-instance.example"},
+        coordinates={},
         budgets=BUDGETS,
         local_backend=local_backend,
         container_backend=container_backend,
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.UNDECLARED_EGRESS
+    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
     assert outcome.egress.observed == ()
 
 

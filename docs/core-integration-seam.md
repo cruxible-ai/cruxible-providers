@@ -1,12 +1,17 @@
 # The core-integration seam
 
-**Nothing in this repository touches core.** The core-side registry does not
-exist yet; every integration point here runs against
-`cruxible_provider_runtime.registry.StubRegistry`, and this document is the
-specification of what has to replace it.
+Core already has governed Provider and interface artifacts and its own execution
+driver. This repository now exports package-owned registration data through
+`cruxible_provider_runtime.registration`; it does not install into an instance or
+write Core state. `StubRegistry` remains the standalone runtime conformance
+harness, not the production authority.
 
-The seam is deliberately narrow. Three things must come from core, and nothing
-else.
+The next Core integration consumes `registration.json` generically, verifies
+package-owned classifier fixtures, and lowers ordinary proposals. It must also
+understand configuration-derived search endpoints and distinguish advertised
+backends from actually installed implementations. The historical RP-0 payload
+below still requires every advertised backend pin; do not use that requirement
+to force container preparation during local Python installation.
 
 ---
 
@@ -19,8 +24,8 @@ must provide:
 `cruxible_provider_runtime.artifact` is the RP-0 spelling: `provider_id`,
 `status`, the transcribed `manifest`, its `manifest_digest`, the
 `distribution` pin, and one pin per declared backend kind (`local_env`,
-`container`). The laws are firm; the serialised spelling stays experimental
-until this batch's files are reviewed.
+`container`). This is the historical runtime harness format; the Core integration must
+represent installation availability separately.
 
 **Acceptance as an ordinary change-set proposal.** Registration is not a special
 path. A provider becomes bindable when its artifact is accepted, and until then

@@ -1,0 +1,79 @@
+{
+  "interface_id": "ts.anomaly",
+  "version": 1,
+  "input": {
+    "series": {
+      "type": "array",
+      "required": true,
+      "items": {
+        "timestamp": "iso8601|epoch_seconds",
+        "value": "number|null"
+      }
+    },
+    "season_length": {
+      "type": "integer|array<integer>",
+      "required": false
+    },
+    "value_kind": {
+      "type": "string",
+      "required": false,
+      "enum": [
+        "categorical_encoded"
+      ]
+    },
+    "value_bounds": {
+      "type": "array<number>[2]",
+      "required": false
+    },
+    "method": {
+      "type": "string",
+      "required": true,
+      "enum": [
+        "stl_mad",
+        "changepoint"
+      ]
+    },
+    "threshold_modified_z": {
+      "type": "number",
+      "required": false
+    },
+    "changepoint_count": {
+      "type": "integer",
+      "required": false
+    }
+  },
+  "output": {
+    "method": {
+      "type": "string"
+    },
+    "scale_estimate": {
+      "type": "object"
+    },
+    "threshold": {
+      "type": "object"
+    },
+    "points": {
+      "type": "array<object>"
+    },
+    "flagged_indices": {
+      "type": "array<integer>"
+    },
+    "changepoints": {
+      "type": "array<integer>"
+    },
+    "segments": {
+      "type": "array<object>"
+    },
+    "engine": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "insufficient_series_length",
+    "non_finite_input",
+    "non_finite_result",
+    "degenerate_scale",
+    "unknown_method",
+    "invalid_parameter"
+  ]
+}

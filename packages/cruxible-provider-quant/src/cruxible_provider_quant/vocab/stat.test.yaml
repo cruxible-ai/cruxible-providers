@@ -1,0 +1,57 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+# Quantitative slots carry the most detailed vocabularies; see calc.reduce for why.
+interface_id: stat.test
+version: 1
+status: draft
+description: >-
+  Run a statistical test and return its statistic, its p-value, and the
+  assumptions it rests on. The assumptions travel with the result: a test result
+  whose design assumptions were violated is not a weaker result, it is a
+  different result.
+dimensions:
+  - name: test_family
+    description: the inferential question being asked
+    classes:
+      - id: location
+        description: comparison of means, medians, or other central tendencies
+      - id: proportion
+        description: comparison of proportions or rates
+      - id: variance
+        description: comparison of dispersion
+      - id: association
+        description: correlation, contingency, or independence
+      - id: distributional
+        description: goodness of fit or two-sample distributional equality
+      - id: count_model
+        description: tests on counts under a Poisson or negative-binomial model
+  - name: sample_size
+    description: observations in the smallest compared group
+    classes:
+      - id: tiny
+        description: fewer than 30 observations
+      - id: small
+        description: 30 to 199 observations
+      - id: moderate
+        description: 200 to 4999 observations
+      - id: large
+        description: 5000 or more observations
+  - name: design
+    description: the dependence structure of the observations
+    classes:
+      - id: independent
+        description: independent observations across groups
+      - id: paired
+        description: matched or repeated measurements
+      - id: clustered
+        description: observations nested within clusters
+      - id: time_ordered
+        description: observations autocorrelated in time
+  - name: dimensionality
+    description: how many variables the test ranges over
+    classes:
+      - id: univariate
+        description: one outcome variable
+      - id: low_multivariate
+        description: 2 to 10 outcome variables
+      - id: high_multivariate
+        description: more than 10 outcome variables; multiplicity dominates

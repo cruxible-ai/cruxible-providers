@@ -33,6 +33,7 @@ from collections.abc import Mapping, Sequence
 from itertools import pairwise
 from typing import Any
 
+from .numeric import numeric_classifier
 from .series import parse_series, spacing_seconds
 
 __all__ = [
@@ -175,6 +176,7 @@ def _declared_periods(payload: Mapping[str, Any]) -> list[int] | None:
 # --------------------------------------------------------------------------
 
 
+@numeric_classifier
 def classify_calc_reduce(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
     rows = _sequence(payload, "rows")
     if rows is None or not rows or not all(isinstance(row, Mapping) for row in rows):
@@ -239,6 +241,7 @@ def _gap_profile(missing: Sequence[int], length: int) -> str:
     return "heavy_gaps"
 
 
+@numeric_classifier
 def classify_ts_anomaly(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
     series = parse_series(payload)
     if series is None:
@@ -267,6 +270,7 @@ def classify_ts_anomaly(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
 # --------------------------------------------------------------------------
 
 
+@numeric_classifier
 def classify_ts_forecast(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
     series = parse_series(payload)
     if series is None:
@@ -310,6 +314,7 @@ _TEST_FAMILIES = frozenset(
 )
 
 
+@numeric_classifier
 def classify_stat_test(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
     family = payload.get("test_family")
     if family not in _TEST_FAMILIES:
@@ -370,6 +375,7 @@ def classify_stat_test(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
 # --------------------------------------------------------------------------
 
 
+@numeric_classifier
 def classify_score_rank(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
     items = _sequence(payload, "items")
     if items is None or not items or not all(isinstance(item, Mapping) for item in items):
@@ -432,6 +438,7 @@ def classify_score_rank(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
 # --------------------------------------------------------------------------
 
 
+@numeric_classifier
 def classify_match_record(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
     records = _sequence(payload, "records")
     comparisons = _sequence(payload, "comparisons")
@@ -494,6 +501,7 @@ def classify_match_record(payload: Mapping[str, Any]) -> Mapping[str, str] | Non
 # --------------------------------------------------------------------------
 
 
+@numeric_classifier
 def classify_calc_calibrate(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
     raw = _sequence(payload, "predictions")
     if raw is None or not raw or not all(isinstance(record, Mapping) for record in raw):

@@ -1,0 +1,318 @@
+{
+  "interface_id": "ts.forecast",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "series": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "timestamp",
+                "value"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "season_length": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            ]
+          },
+          "optional": true
+        },
+        "value_kind": {
+          "type": "string",
+          "enum": [
+            "categorical_encoded"
+          ],
+          "optional": true
+        },
+        "value_bounds": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "$decimal": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                    }
+                  },
+                  "required": [
+                    "$decimal"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "optional": true
+        },
+        "horizon": {
+          "type": "integer"
+        },
+        "model": {
+          "type": "string",
+          "enum": [
+            "auto_arima",
+            "auto_ets"
+          ]
+        },
+        "interval_levels": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "$decimal": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                    }
+                  },
+                  "required": [
+                    "$decimal"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "optional": true
+        },
+        "covariates": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          },
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "model": {
+          "type": "string"
+        },
+        "model_selected": {
+          "type": "string"
+        },
+        "horizon": {
+          "type": "integer"
+        },
+        "season_length": {
+          "type": "integer"
+        },
+        "point_forecast": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "$decimal": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                    }
+                  },
+                  "required": [
+                    "$decimal"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "prediction_intervals": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "level": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "lower": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "$decimal": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                          }
+                        },
+                        "required": [
+                          "$decimal"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "upper": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "$decimal": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                          }
+                        },
+                        "required": [
+                          "$decimal"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "level",
+                "lower",
+                "upper"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "engine": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "insufficient_series_length",
+    "non_finite_input",
+    "non_finite_result",
+    "unknown_method",
+    "invalid_parameter"
+  ]
+}

@@ -8,7 +8,7 @@
 # `uv run pytest` therefore downloads no browser and opens no socket.
 [project]
 name = "cruxible-provider-web"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cruxible provider adapters for the web plane: page retrieval and web search."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,7 +25,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "cruxible-provider-runtime",
+  "cruxible-provider-runtime>=0.2.0",
   # The HTTP client is base, not an extra: it is how both implementations reach
   # anything at all, and it is how egress gets recorded. An adapter that could
   # not make a request would have no adapter logic left to test.
@@ -60,7 +60,7 @@ dev = [
 cruxible-provider-runtime = { path = "../cruxible-provider-runtime", editable = true }
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.1"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

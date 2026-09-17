@@ -186,7 +186,7 @@ def test_a_shipped_vocabulary_copy_matches_the_published_one(path: Path) -> None
     formatting is not the thing that must agree.
     """
 
-    published = INTERFACES / path.name
+    published = (VOCAB_DIR / "stub" if path.stem == "noop.echo" else INTERFACES) / path.name
     assert published.is_file(), f"{path.name} is shipped by a package but is not published here"
     assert load_bucket_vocabulary(path) == load_bucket_vocabulary(published)
 

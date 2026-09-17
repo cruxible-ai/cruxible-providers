@@ -1,24 +1,7 @@
-"""Stub interface registrations for the web plane.
+"""Package-owned operation contracts and request classifiers.
 
-**These are stubs.** Real slot interfaces are registered in core, with a digest
-over their input/output/refusal schema; core does not exist yet, so this module
-mints the same shape under the ``cruxible.interface.stub.v1`` domain tag the
-reference provider uses, and a drift test asserts each literal still matches its
-preimage. When core registers ``web.fetch`` and ``search.web``, the literals
-here and the digests in ``manifest.yaml`` are replaced with the registered ones
-and nothing else changes.
-
-The bucket vocabularies are **not** rewritten in Python. They ship as the same
-YAML the repository publishes under ``vocab/interfaces/``, copied into the
-distribution so that an installed package can classify without reaching for a
-repository it is not part of; a repository test asserts the two copies are one
-document.
-
-Classification is measured from the actual run input, never read from a
-manifest. What the input can honestly support is the point of the notes on each
-classifier: a fetcher cannot know a page's weight before fetching it, so the
-weight dimension is derived from the **cap the caller declared**, and the
-adapter refuses when the response contradicts it.
+Exact definitions live in bundled contracts/*.json; their frozen predecessors
+remain in contracts/history for historical digest verification.
 """
 
 from __future__ import annotations
@@ -29,6 +12,7 @@ from typing import Any
 
 from cruxible_provider_runtime.buckets import BucketVocabulary
 from cruxible_provider_runtime.canonical import domain_digest
+from cruxible_provider_runtime.registration import read_interface_definition
 from cruxible_provider_runtime.registry import InterfaceRegistration, load_bucket_vocabulary
 
 __all__ = [
@@ -53,71 +37,12 @@ VOCAB_DIR = Path(__file__).resolve().parent / "vocab"
 FETCH_INTERFACE_ID = "web.fetch"
 SEARCH_INTERFACE_ID = "search.web"
 
-FETCH_PREIMAGE: dict[str, Any] = {
-    "interface_id": FETCH_INTERFACE_ID,
-    "version": 2,
-    "effect_class": "external_read",
-    "contracts": {
-        "input": {
-            "fields": {
-                "url": {"type": "string"},
-                "logical_source": {"type": "string", "optional": True, "default": "web.response"},
-                "render": {"type": "bool", "optional": True, "default": False},
-                "max_bytes": {"type": "integer", "optional": True, "default": 262144},
-                "credential_ref": {"type": "string", "optional": True},
-                "credential_header": {
-                    "type": "string",
-                    "optional": True,
-                    "default": "authorization",
-                },
-                "paced": {"type": "bool", "optional": True, "default": False},
-                "extract": {"type": "bool", "optional": True, "default": True},
-                "expected_format": {
-                    "type": "string",
-                    "optional": True,
-                    "default": "auto",
-                    "enum": ["auto", "html", "json", "csv", "text", "bytes"],
-                },
-            },
-            "allow_extra": False,
-        },
-        "output": "playbill-provider-result-to-external-capture-v1",
-    },
-    "refusals": [
-        "provider_declined",
-        "unresolved_secret_ref",
-        "environment_divergence",
-        "cross_origin_credentialed_redirect",
-        "unsupported_redirect_scheme",
-        "redirect_limit",
-    ],
-}
+FETCH_PREIMAGE: dict[str, Any] = read_interface_definition(Path(__file__).parent, "web.fetch")
 
-SEARCH_PREIMAGE: dict[str, Any] = {
-    "interface_id": SEARCH_INTERFACE_ID,
-    "version": 1,
-    "input": {
-        "query": {"type": "string", "required": True},
-        "limit": {"type": "integer", "required": False, "default": 10},
-        "max_age_hours": {"type": "integer", "required": False},
-        "language": {"type": "string", "required": False, "default": "en"},
-    },
-    "coordinates": {
-        "instance_url": {"type": "string", "required": True},
-    },
-    "output": {
-        "input_bucket": {"type": "string"},
-        "retrieved": {"type": "object"},
-        "derived": {"type": "object"},
-    },
-    "refusals": [
-        "provider_declined",
-        "undeclared_egress",
-    ],
-}
+SEARCH_PREIMAGE: dict[str, Any] = read_interface_definition(Path(__file__).parent, "search.web")
 
 FETCH_INTERFACE_DIGEST = "sha256:9769f47abc5ac2dae6d6c623a9f9abf01afde699de48768a755f40a0334a1ade"
-SEARCH_INTERFACE_DIGEST = "sha256:346827bfeeeabe10cd9655f73025ad77a717ad1bac6a8f828551b3fd9b506b9d"
+SEARCH_INTERFACE_DIGEST = "sha256:fea1d32087a65259d93586a9d582a5112d08f051c59d97e8737d10ad5bc295bb"
 
 FETCH_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "web.fetch.yaml")
 SEARCH_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "search.web.yaml")

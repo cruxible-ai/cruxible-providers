@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "manifest": {
+    "path": "manifest.yaml",
+    "digest": "sha256:257cb77fc2648ad5e61f645d65e06ea2266ea2c5c3ef8b9df7f911c115a54033"
+  },
+  "interfaces": [
+    {
+      "interface_id": "workspace.file",
+      "interface_digest": "sha256:faa92552bd6032d3280753881ce991501013b2eaa2005e0f974820f01248d866",
+      "definition": {
+        "path": "contracts/workspace.file.json",
+        "digest": "sha256:fe0762d929330c30a3c307d645cfd08ef0f87038a1bc826945ce2fd8f317c9eb"
+      },
+      "vocabulary": {
+        "path": "vocab/workspace.file.yaml",
+        "digest": "sha256:944da50a068d827270c4ffe69afb6cb7cad45f86f4a5ebf447b4bbf86033fb4a"
+      },
+      "classifier": {
+        "identity": "workspace.file.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_workspace.interface:classify",
+        "source": {
+          "path": "interface.py",
+          "digest": "sha256:fab5c2d04670146f828772dcedffe661b0075aa04e76aaba36c80db078406299"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/workspace.file.json",
+        "digest": "sha256:3f97a8a669fa64a13820d40ef5f08b77be6c0618fab44b0485d845e3d62c8256"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/workspace.file.v1.json",
+            "digest": "sha256:1be55f3d95de4d2b2e24e5de1c06a67e752dabfddc0191e807e759541e204c87"
+          },
+          "interface_digest": "sha256:372bc808d6bd77627bdda7bc67586300e2eb812bf0a4fb3769283a26cc021f88"
+        }
+      ]
+    }
+  ],
+  "runtime_requirements": [],
+  "governed_definitions": []
+}

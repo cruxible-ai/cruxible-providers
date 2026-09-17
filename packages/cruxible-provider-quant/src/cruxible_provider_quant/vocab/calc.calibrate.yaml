@@ -1,0 +1,50 @@
+# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+# Quantitative slots carry the most detailed vocabularies; see calc.reduce for why.
+interface_id: calc.calibrate
+version: 1
+status: draft
+description: >-
+  Assess or correct the calibration of a set of settled predictions. Calibration
+  is computed from settled outcomes, never asserted: this interface consumes
+  resolved Claims and produces a reading over them.
+dimensions:
+  - name: outcome_type
+    description: the form of the settled outcome
+    classes:
+      - id: binary
+        description: two-outcome events
+      - id: categorical
+        description: more than two mutually exclusive outcomes
+      - id: continuous
+        description: a real-valued outcome
+      - id: interval
+        description: an interval or quantile forecast assessed for coverage
+  - name: sample_size
+    description: settled predictions available
+    classes:
+      - id: tiny
+        description: fewer than 30 settled predictions
+      - id: small
+        description: 30 to 199 settled predictions
+      - id: moderate
+        description: 200 to 4999 settled predictions
+      - id: large
+        description: 5000 or more settled predictions
+  - name: resolution_lag
+    description: how long predictions take to settle
+    classes:
+      - id: immediate
+        description: settles within the same period it was made
+      - id: bounded
+        description: settles within a known bounded horizon
+      - id: long_horizon
+        description: settlement horizon exceeds the assessment window
+  - name: base_rate
+    description: the outcome distribution being assessed
+    classes:
+      - id: balanced
+        description: no outcome below roughly a fifth of the sample
+      - id: moderate_imbalance
+        description: the rarest outcome between roughly 1 and 20 percent
+      - id: rare_event
+        description: the rarest outcome below roughly 1 percent

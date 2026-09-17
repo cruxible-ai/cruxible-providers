@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "manifest": {
+    "path": "manifest.yaml",
+    "digest": "sha256:d15fcd8db97f5390625ad34a26e032e1524ddec336f3319ac7cf3d9b9be5ecd9"
+  },
+  "interfaces": [
+    {
+      "interface_id": "web.fetch",
+      "interface_digest": "sha256:9769f47abc5ac2dae6d6c623a9f9abf01afde699de48768a755f40a0334a1ade",
+      "definition": {
+        "path": "contracts/web.fetch.json",
+        "digest": "sha256:4a2b3cc05db31139a240104e073666a0f2568db4557ee8b617d593ff3c3a493d"
+      },
+      "vocabulary": {
+        "path": "vocab/web.fetch.yaml",
+        "digest": "sha256:0150379074a6129175a76e6f803f325790b53bde10206d50b1f36e200ce095e6"
+      },
+      "classifier": {
+        "identity": "web.fetch.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_web.interfaces:classify_web_fetch",
+        "source": {
+          "path": "interfaces.py",
+          "digest": "sha256:508615dcdbab8a104781aa9db927ea40dbcff24a4df53e5028b702c355ee59fc"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/web.fetch.json",
+        "digest": "sha256:2130ac87802483d6400d887b287bc0b4335e5c5fa87e8644618ad24a907a88fa"
+      },
+      "predecessors": []
+    },
+    {
+      "interface_id": "search.web",
+      "interface_digest": "sha256:fea1d32087a65259d93586a9d582a5112d08f051c59d97e8737d10ad5bc295bb",
+      "definition": {
+        "path": "contracts/search.web.json",
+        "digest": "sha256:e04c9833b06488dac28a0e886381a0585c519d414ce0785d38718d1b275e44ba"
+      },
+      "vocabulary": {
+        "path": "vocab/search.web.yaml",
+        "digest": "sha256:61a78f52d917fef17779b492e9754378a2ffe3409859dd1c30105814633b8d77"
+      },
+      "classifier": {
+        "identity": "search.web.input",
+        "version": 1,
+        "entrypoint": "cruxible_provider_web.interfaces:classify_search",
+        "source": {
+          "path": "interfaces.py",
+          "digest": "sha256:508615dcdbab8a104781aa9db927ea40dbcff24a4df53e5028b702c355ee59fc"
+        }
+      },
+      "fixtures": {
+        "path": "registration-fixtures/search.web.json",
+        "digest": "sha256:6358abad92bd1654b1dae39c0e77ee97b3bab720195893c19d61be78382aca85"
+      },
+      "predecessors": [
+        {
+          "definition": {
+            "path": "contracts/history/search.web.v1.json",
+            "digest": "sha256:3bbd46aa5d0b37629d263094d7fe2727cc304ddfba027c44586675c83aa69d36"
+          },
+          "interface_digest": "sha256:346827bfeeeabe10cd9655f73025ad77a717ad1bac6a8f828551b3fd9b506b9d"
+        }
+      ]
+    }
+  ],
+  "runtime_requirements": [
+    {
+      "interface_id": "web.fetch",
+      "kind": "python_extra",
+      "name": "browser",
+      "description": "Required Python extra for this implementation."
+    },
+    {
+      "interface_id": "web.fetch",
+      "kind": "runtime_resource",
+      "name": "playwright.chromium",
+      "description": "Rendered fetches require a Chromium browser matching the installed Playwright version; installing the Python extra alone is insufficient."
+    }
+  ],
+  "governed_definitions": []
+}

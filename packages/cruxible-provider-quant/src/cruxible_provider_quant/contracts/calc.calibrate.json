@@ -1,0 +1,456 @@
+{
+  "interface_id": "calc.calibrate",
+  "version": 2,
+  "effect_class": "pure",
+  "contracts": {
+    "input": {
+      "fields": {
+        "predictions": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "prediction": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "object"
+                    }
+                  ]
+                },
+                "outcome": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "made_at": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "settled_at": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "prediction",
+                "outcome",
+                "made_at",
+                "settled_at"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "bin_edges": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "$decimal": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                    }
+                  },
+                  "required": [
+                    "$decimal"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "optional": true
+        },
+        "bin_count": {
+          "type": "integer",
+          "optional": true
+        }
+      },
+      "allow_extra": false
+    },
+    "output": {
+      "fields": {
+        "outcome_type": {
+          "type": "string"
+        },
+        "sample_size": {
+          "type": "integer"
+        },
+        "base_rate": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "brier_score": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "brier_decomposition": {
+          "type": "json",
+          "json_schema": {
+            "type": "object",
+            "properties": {
+              "reliability": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "$decimal": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                      }
+                    },
+                    "required": [
+                      "$decimal"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "resolution": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "$decimal": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                      }
+                    },
+                    "required": [
+                      "$decimal"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "uncertainty": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "$decimal": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                      }
+                    },
+                    "required": [
+                      "$decimal"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "reliability",
+              "resolution",
+              "uncertainty"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "expected_calibration_error": {
+          "type": "json",
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$decimal": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                  }
+                },
+                "required": [
+                  "$decimal"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "bin_edges": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "$decimal": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                    }
+                  },
+                  "required": [
+                    "$decimal"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "reliability_bins": {
+          "type": "json",
+          "json_schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lower": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "upper": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "$decimal": {
+                          "type": "string",
+                          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                        }
+                      },
+                      "required": [
+                        "$decimal"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "count": {
+                  "type": "integer"
+                },
+                "mean_prediction": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "observed_frequency": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$decimal": {
+                              "type": "string",
+                              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+                            }
+                          },
+                          "required": [
+                            "$decimal"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "lower",
+                "upper",
+                "count",
+                "mean_prediction",
+                "observed_frequency"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "engine": {
+          "type": "json",
+          "json_schema": {
+            "type": "object"
+          }
+        }
+      },
+      "allow_extra": false
+    }
+  },
+  "refusals": [
+    "mismatched_lengths",
+    "non_finite_input",
+    "invalid_parameter",
+    "non_finite_result"
+  ]
+}

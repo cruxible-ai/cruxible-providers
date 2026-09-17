@@ -107,11 +107,7 @@ def test_the_fixture_passes(fixture: BucketFixture, manifest: ProviderManifest) 
     expect = fixture.expect
     assert result.status == expect["status"], result.refusal or result.error
     assert result.output is not None
-    material = (
-        json.loads(base64.b64decode(result.output["content_base64"]))
-        if fixture.interface_id == FETCH_INTERFACE_ID
-        else result.output
-    )
+    material = json.loads(base64.b64decode(result.output["content_base64"]))
     retrieved: Mapping[str, Any] = material["retrieved"]
     derived: Mapping[str, Any] = material["derived"]
 

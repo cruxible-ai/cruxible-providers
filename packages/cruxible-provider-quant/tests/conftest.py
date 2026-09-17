@@ -17,12 +17,14 @@ second copy of the vocabularies, because it does not own them.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import cruxible_provider_quant
 import pytest
 from cruxible_provider_quant.interfaces import INTERFACE_IDS, registration
+from cruxible_provider_quant.numeric import decode_numbers
 from cruxible_provider_runtime.artifact import (
     ContainerBackendPin,
     DistributionPin,
@@ -343,4 +345,5 @@ def run_in_process(
         secrets=dict(secrets or {}),
         egress=EgressRecorder(),
     )
-    return entrypoint(interface_id)(context)
+    result = entrypoint(interface_id)(context)
+    return replace(result, output=decode_numbers(result.output))

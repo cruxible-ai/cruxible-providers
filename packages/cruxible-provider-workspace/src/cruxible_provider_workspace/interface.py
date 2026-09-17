@@ -1,30 +1,19 @@
-"""The ``workspace.file`` interface: identity, vocabulary, and classifier.
+"""Package-owned operation contracts and request classifiers.
 
-This is the interface vocabulary the built-in Source adapter speaks. Core
-registers the interface (B4 seed bundle); what ships here is the preimage core
-transcribes, the bucket vocabulary as the same document the repository publishes
-under ``vocab/interfaces/``, and the reference classifier that core's own
-classifier is re-proved against over the committed fixtures.
-
-The digest is a **stub**, minted under ``cruxible.interface.stub.v1`` like every
-other interface in this repository until core registers the real one. It is a
-literal, not a value recomputed at import time: an identity that recomputes
-itself is an identity that can drift silently, and a test asserts the literal
-still matches the preimage below.
-
-Nothing in this module reads a file or opens a socket. The vocabulary is built in
-code and asserted equal to the shipped YAML by a test, so that importing the
-adapter touches nothing but the interpreter.
+Exact definitions live in bundled contracts/*.json; their frozen predecessors
+remain in contracts/history for historical digest verification.
 """
 
 from __future__ import annotations
 
 import base64
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from cruxible_provider_runtime.buckets import BucketClass, BucketDimension, BucketVocabulary
 from cruxible_provider_runtime.canonical import domain_digest
+from cruxible_provider_runtime.registration import read_interface_definition
 from cruxible_provider_runtime.registry import InterfaceRegistration
 
 __all__ = [
@@ -49,74 +38,11 @@ STUB_INTERFACE_DOMAIN_TAG = "cruxible.interface.stub.v1"
 CONTENT_ENCODING = "base64"
 """The only content encoding the interface admits: RFC 4648 section 4, padded, no line breaks."""
 
-_DIGEST_SCHEMA = {"type": "string", "required": True, "pattern": "^sha256:[0-9a-f]{64}$"}
+INTERFACE_PREIMAGE: dict[str, Any] = read_interface_definition(
+    Path(__file__).parent, "workspace.file"
+)
 
-INTERFACE_PREIMAGE: dict[str, Any] = {
-    "interface_id": INTERFACE_ID,
-    "version": 1,
-    # RAT-9: the built-in is PURE. It reads nothing, contacts nothing, and its
-    # output is a function of its input alone. The manifest spells the same fact
-    # as declared_endpoints=[], deterministic=true, side_effects=false.
-    "effect_class": "pure",
-    "input": {
-        # The logical source id core resolved the read for. Opaque here: the
-        # locator ban keeps host paths out of governed state, and this adapter
-        # is on the governed side of that line.
-        "logical_source": {"type": "string", "required": True},
-        # G4: the derived-request commitment the read was bound to before spawn.
-        "commitment_digest": _DIGEST_SCHEMA,
-        "content_encoding": {"type": "string", "required": True, "enum": [CONTENT_ENCODING]},
-        "bytes": {"type": "string", "required": True},
-        "byte_length": {"type": "integer", "required": True, "minimum": 0},
-        "bytes_digest": _DIGEST_SCHEMA,
-    },
-    "output": {
-        "input_bucket": {"type": "string"},
-        # What was structured, with the source digest echoed back after it was
-        # verified against the decoded bytes.
-        "source": {
-            "type": "object",
-            "properties": {
-                "logical_source": {"type": "string"},
-                "commitment_digest": {"type": "string"},
-                "bytes_digest": {"type": "string"},
-                "byte_length": {"type": "integer"},
-            },
-        },
-        # The structured capture body: one of two shapes, selected by
-        # content_kind. Text carries the decoded text and a line view; bytes
-        # carries the canonical base64 of the payload and nothing else.
-        "content": {
-            "type": "object",
-            "one_of": [
-                {
-                    "kind": "text",
-                    "encoding": "utf-8",
-                    "bom": {"type": "boolean"},
-                    "newline": {"type": "string", "enum": ["lf", "crlf", "cr", "mixed", "none"]},
-                    "trailing_newline": {"type": "boolean"},
-                    "line_count": {"type": "integer"},
-                    "character_count": {"type": "integer"},
-                    "text": {"type": "string"},
-                    "lines": {"type": "array", "items": {"type": "string"}},
-                },
-                {
-                    "kind": "bytes",
-                    "encoding": "base64",
-                    "byte_length": {"type": "integer"},
-                    "bytes": {"type": "string"},
-                },
-            ],
-        },
-    },
-    "refusals": [
-        "invalid_parameter",
-        "mismatched_lengths",
-        "provider_declined",
-    ],
-}
-
-INTERFACE_DIGEST = "sha256:372bc808d6bd77627bdda7bc67586300e2eb812bf0a4fb3769283a26cc021f88"
+INTERFACE_DIGEST = "sha256:faa92552bd6032d3280753881ce991501013b2eaa2005e0f974820f01248d866"
 
 BYTE_SIZE_CEILINGS: tuple[tuple[str, int], ...] = (
     ("tiny", 4_096),

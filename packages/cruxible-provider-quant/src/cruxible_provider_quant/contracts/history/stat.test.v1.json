@@ -1,0 +1,91 @@
+{
+  "interface_id": "stat.test",
+  "version": 1,
+  "input": {
+    "test": {
+      "type": "string",
+      "required": true
+    },
+    "test_family": {
+      "type": "string",
+      "required": true
+    },
+    "design": {
+      "type": "string",
+      "required": true
+    },
+    "alpha": {
+      "type": "number",
+      "required": true
+    },
+    "alternative": {
+      "type": "string",
+      "required": false
+    },
+    "declared_assumptions": {
+      "type": "array<string>",
+      "required": true
+    },
+    "samples": {
+      "type": "object",
+      "required": true
+    }
+  },
+  "output": {
+    "test": {
+      "type": "string"
+    },
+    "test_family": {
+      "type": "string"
+    },
+    "alternative": {
+      "type": "string"
+    },
+    "alpha": {
+      "type": "number"
+    },
+    "statistic": {
+      "type": "number"
+    },
+    "statistic_kind": {
+      "type": "string"
+    },
+    "p_value": {
+      "type": "number"
+    },
+    "degrees_of_freedom": {
+      "type": "number|null"
+    },
+    "reject_null": {
+      "type": "boolean"
+    },
+    "effect": {
+      "type": "object|null"
+    },
+    "assumptions": {
+      "type": "array<object>",
+      "items": {
+        "name": "string",
+        "declared": "boolean",
+        "checked": "boolean",
+        "check": "string|null",
+        "p_value": "number|null",
+        "holds": "boolean|null"
+      }
+    },
+    "assumptions_satisfied": {
+      "type": "boolean|null"
+    },
+    "engine": {
+      "type": "object"
+    }
+  },
+  "refusals": [
+    "unknown_test_name",
+    "declared_family_mismatch",
+    "invalid_parameter",
+    "mismatched_lengths",
+    "non_finite_input",
+    "non_finite_result"
+  ]
+}

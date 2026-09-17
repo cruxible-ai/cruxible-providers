@@ -1,23 +1,18 @@
-"""The stub ``noop.echo`` interface.
+"""Package-owned operation contracts and request classifiers.
 
-This is a **stub**. Real slot interfaces are registered in core with a digest
-over their input/output/refusal schema. ``noop.echo`` exists so that the RP-0
-conformance suite has something to bind against before core's registry exists,
-and so that the launch vocabularies under ``vocab/`` have a worked example of
-the format.
-
-The interface digest is a literal, not a value recomputed at import time: an
-identity that recomputes itself is an identity that can drift silently. A test
-asserts the literal still matches the preimage below.
+Exact definitions live in bundled contracts/*.json; their frozen predecessors
+remain in contracts/history for historical digest verification.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from cruxible_provider_runtime.buckets import BucketClass, BucketDimension, BucketVocabulary
 from cruxible_provider_runtime.canonical import domain_digest
+from cruxible_provider_runtime.registration import read_interface_definition
 from cruxible_provider_runtime.registry import InterfaceRegistration
 
 __all__ = [
@@ -33,21 +28,9 @@ __all__ = [
 INTERFACE_ID = "noop.echo"
 STUB_INTERFACE_DOMAIN_TAG = "cruxible.interface.stub.v1"
 
-INTERFACE_PREIMAGE: dict[str, Any] = {
-    "interface_id": INTERFACE_ID,
-    "version": 1,
-    "input": {
-        "text": {"type": "string", "required": True},
-        "mode": {"type": "string", "required": False, "default": "echo"},
-    },
-    "output": {
-        "echo": {"type": "string"},
-        "input_bucket": {"type": "string"},
-    },
-    "refusals": ["provider_declined", "unresolved_secret_ref"],
-}
+INTERFACE_PREIMAGE: dict[str, Any] = read_interface_definition(Path(__file__).parent, "noop.echo")
 
-INTERFACE_DIGEST = "sha256:e72546b97fdcb8875c4fa3d8828909db60809d98d55e7a2450d0c6043113cb87"
+INTERFACE_DIGEST = "sha256:0e524e363162c688dc393a224464739daeb9ff1053e095d18614a900da322e6b"
 
 VOCABULARY = BucketVocabulary(
     interface_id=INTERFACE_ID,
