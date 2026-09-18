@@ -268,7 +268,7 @@ def test_the_pinned_root_is_fetched_hash_verified_and_installed(
     raw_seal = (tmp_path / "execution-seal.json").read_bytes()
     seal = json.loads(raw_seal)
     assert raw_seal == canonical_json(seal)
-    assert seal["tag"] == "cruxible.provider.seal.v2"
+    assert seal["tag"] == "cruxible.provider.seal.v3"
     assert seal["materialization_digest"] == materialization_digest(
         _resolved(local_index, linux_env), distribution_sha256=local_index.pin().sha256
     )

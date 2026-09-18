@@ -57,24 +57,32 @@ __all__ = [
 
 
 def write_execution_seal(env_path: Path, resolved: ResolvedSet, *, root: DistributionPin) -> Path:
-    """Export the exact file commitments consumed by Core's existing binder.
+    """Inventory an installation for verification when it is prepared.
 
-    The cache seal continues to protect the whole cache entry. This execution
-    seal supplies the file closure, lock and distribution versions Core verifies
-    before every child spawn; it does not grant execution authority.
+    V3 commits regular files and internal links separately. Core retains the
+    successful installation check; this inventory is not a per-invocation scan.
+    The frozen V2 runtime/entrypoint closure has different verification rules.
     """
     seal = env_path / "execution-seal.json"
     files = []
+    links = []
     for path in sorted(
         env_path.rglob("*"), key=lambda p: p.relative_to(env_path).as_posix().encode()
     ):
-        if path == seal:
+        if path == seal or path == env_path / ".cruxible-seal.json":
             continue
         if not path.resolve().is_relative_to(env_path.resolve()):
             raise refuse(
                 RefusalCode.ENVIRONMENT_DIVERGENCE, "execution seal cannot pin an external link"
             )
-        if path.is_file():
+        if path.is_symlink():
+            links.append(
+                {
+                    "path": path.relative_to(env_path).as_posix(),
+                    "target": path.readlink().as_posix(),
+                }
+            )
+        elif path.is_file():
             files.append(
                 {
                     "path": path.relative_to(env_path).as_posix(),
@@ -84,7 +92,7 @@ def write_execution_seal(env_path: Path, resolved: ResolvedSet, *, root: Distrib
     seal.write_bytes(
         canonical_json(
             {
-                "tag": "cruxible.provider.seal.v2",
+                "tag": "cruxible.provider.seal.v3",
                 "materialization_digest": materialization_digest(
                     resolved, distribution_sha256=root.sha256
                 ),
@@ -92,6 +100,7 @@ def write_execution_seal(env_path: Path, resolved: ResolvedSet, *, root: Distrib
                 + hashlib.sha256((env_path / "uv.lock").read_bytes()).hexdigest(),
                 "installed_distributions": installed_distributions(find_site_packages(env_path)),
                 "files": files,
+                "links": links,
             }
         )
     )
