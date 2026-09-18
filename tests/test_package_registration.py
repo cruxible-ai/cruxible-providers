@@ -206,6 +206,43 @@ def test_built_wheels_are_discoverable_without_imports(tmp_path: Path) -> None:
     assert seen == {load_registration(p.parent).manifest.distribution.name for p in PACKAGES}
 
 
+def test_exported_packages_lower_through_core_without_provider_imports() -> None:
+    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
+    if not core_python:
+        pytest.skip("set CRUXIBLE_CORE_PYTHON for package-to-Core registration integration")
+    documents = [load_registration(path.parent).export_document() for path in PACKAGES]
+    code = """
+import json, sys
+from cruxible_core.providers.package_registration import PackageRegistrationDocumentV1
+from cruxible_client.contracts.providers import ProviderLocalDistributionPinV1, ProviderLocalEnvBackendPinV1
+from cruxible_client.contracts.provider_interfaces import evaluate_provider_interface_law, provider_interface_path
+from cruxible_client.contracts.providers import provider_digest, render_provider, parse_provider, provider_path
+count = 0
+for document in json.load(sys.stdin):
+    package = PackageRegistrationDocumentV1.model_validate(document)
+    interfaces = package.interface_registrations()
+    for interface in interfaces:
+        verdict = evaluate_provider_interface_law(interface, path=provider_interface_path(interface.interface_id),
+                                                  predecessor=None, conformance_fixtures={})
+        assert verdict.verdict == 'accepted', verdict
+        count += 1
+    distribution = package.manifest.distribution
+    provider = package.provider_definition(
+        distribution=ProviderLocalDistributionPinV1(name=distribution.name, version=distribution.version,
+            filename='fixture.whl', sha256='sha256:'+'a'*64),
+        local_env=ProviderLocalEnvBackendPinV1(lock_sha256='sha256:'+'b'*64,
+                                             materialization_digests={'linux-cp312':'sha256:'+'c'*64}),
+        control_domain='operator', interfaces=interfaces)
+    assert provider_digest(parse_provider(render_provider(provider), path=provider_path(provider.identity.name))) == provider_digest(provider)
+assert count == 13, count
+assert not any(name.startswith('cruxible_provider_') for name in sys.modules)
+"""
+    result = subprocess.run(
+        [core_python, "-c", code], input=canonical_json(documents), capture_output=True
+    )
+    assert result.returncode == 0, result.stderr.decode()
+
+
 def test_fixture_inputs_and_real_outputs_pass_core_contracts() -> None:
     """Exercise the real provider engines, then validate in Core's own interpreter.
 

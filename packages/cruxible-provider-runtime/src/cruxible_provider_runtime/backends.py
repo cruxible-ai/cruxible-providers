@@ -262,8 +262,9 @@ class UvSyncBuilder:
     installs them with indexes disabled.
     """
 
-    def __init__(self, uv_executable: str = "uv") -> None:
+    def __init__(self, uv_executable: str = "uv", *, python_executable: str | None = None) -> None:
         self._uv = uv_executable
+        self._python = python_executable
 
     # -- argument construction (pure, and therefore testable) ---------------
 
@@ -276,6 +277,8 @@ class UvSyncBuilder:
             "--require-hashes",
             "--no-index",
             "--no-config",
+            "--link-mode",
+            "copy",
             "--python",
             str(interpreter),
             str(requirements),
@@ -299,6 +302,8 @@ class UvSyncBuilder:
             "--no-deps",
             "--no-index",
             "--no-config",
+            "--link-mode",
+            "copy",
             "--python",
             str(interpreter),
             str(artifact),
@@ -370,7 +375,13 @@ class UvSyncBuilder:
         requirements.write_text("\n".join(pinned_requirements) + "\n", encoding="utf-8")
 
         created = run_with_budget(
-            [executable, "venv", "--no-config", str(target / ".venv")],
+            [
+                executable,
+                "venv",
+                "--no-config",
+                *(["--python", self._python] if self._python is not None else []),
+                str(target / ".venv"),
+            ],
             stdin_bytes=b"",
             budgets=budgets,
             env=env,

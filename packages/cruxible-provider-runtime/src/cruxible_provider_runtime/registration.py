@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from packaging.utils import canonicalize_name
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .buckets import BucketSelector, BucketVocabulary, parse_bucket_id
 from .canonical import SHA256_RE, domain_digest
@@ -119,6 +119,17 @@ class RuntimeRequirement(_Strict):
     kind: Literal["python_extra", "runtime_resource"]
     name: str
     description: str
+    probe_entrypoint: str | None = None
+
+    @model_validator(mode="after")
+    def probe(self) -> RuntimeRequirement:
+        if self.kind == "runtime_resource":
+            if self.probe_entrypoint is None:
+                raise ValueError("runtime resources require a package readiness probe")
+            ClassifierExport.callable_path(self.probe_entrypoint)
+        elif self.probe_entrypoint is not None:
+            raise ValueError("Python extras do not use resource probes")
+        return self
 
 
 class PackageRegistration(_Strict):
@@ -146,6 +157,40 @@ class RegistrationBundle:
     vocabularies: Mapping[str, BucketVocabulary]
     fixtures: Mapping[str, tuple[ClassificationFixture, ...]]
     governed_definitions: tuple[dict[str, Any], ...]
+
+    def export_document(self) -> dict[str, Any]:
+        """Return verified data for host lowering, without paths or imported code.
+
+        This document describes the package; it is not an accepted artifact or
+        evidence that classifiers have executed successfully. Installation must
+        independently bind it to the exact distribution it inspected.
+        """
+        return {
+            "schema_version": 1,
+            "manifest": self.manifest.model_dump(mode="json"),
+            "interfaces": [
+                {
+                    "interface_id": item.interface_id,
+                    "interface_digest": item.interface_digest,
+                    "definition": self.definitions[item.interface_id],
+                    "vocabulary": self.vocabularies[item.interface_id].model_dump(mode="json"),
+                    "classifier_identity": item.classifier.identity,
+                    "classifier_version": item.classifier.version,
+                    "classifier_code": {
+                        "entrypoint": item.classifier.entrypoint,
+                        "source_digest": item.classifier.source.digest,
+                    },
+                    "fixtures": [
+                        row.model_dump(mode="json") for row in self.fixtures[item.interface_id]
+                    ],
+                }
+                for item in sorted(self.descriptor.interfaces, key=lambda row: row.interface_id)
+            ],
+            "runtime_requirements": [
+                item.model_dump(mode="json") for item in self.descriptor.runtime_requirements
+            ],
+            "governed_definitions": list(self.governed_definitions),
+        }
 
 
 def load_registration(root: Path) -> RegistrationBundle:
