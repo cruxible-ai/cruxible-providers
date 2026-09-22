@@ -42,7 +42,7 @@ MARKDOWN_PREIMAGE: dict[str, Any] = read_interface_definition(
 OCR_PREIMAGE: dict[str, Any] = read_interface_definition(Path(__file__).parent, "ocr.extract")
 
 MARKDOWN_INTERFACE_DIGEST = (
-    "sha256:59f720f2e924e61dfd4272cc0e03838c8c5374de3cc35b4cf2993ce6e2a08c71"
+    "sha256:ea49a2c38b2d3bcc529864bec07d8b3cc9540021835966f0d09d869361907dbc"
 )
 OCR_INTERFACE_DIGEST = "sha256:358515d19aa14f7459f23854ef511b4c2bb349e1ded95104487fca0a6f9b199f"
 

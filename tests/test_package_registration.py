@@ -343,3 +343,28 @@ assert not errors, errors
         [core_python, "-c", code], input=canonical_json(cases), capture_output=True
     )
     assert result.returncode == 0, result.stderr.decode()
+
+
+def test_document_output_exposes_typed_fields_and_retains_old_contract() -> None:
+    from jsonschema import ValidationError
+
+    package = next(p.parent for p in PACKAGES if p.parent.name == "cruxible_provider_docs")
+    bundle = load_registration(package)
+    current = bundle.definitions["doc.to_markdown"]
+    assert current["version"] == 3
+    schema = current["contracts"]["output"]["fields"]["derived"]["json_schema"]
+    assert schema["properties"]["text"] == {"type": "string"}
+    good = {
+        "kind": "markdown",
+        "engine": "plain-text",
+        "text": "# Report",
+        "page_count": 1,
+        "metadata": {},
+    }
+    Draft202012Validator(schema).validate(good)
+    with pytest.raises(ValidationError):
+        Draft202012Validator(schema).validate({**good, "text": 12})
+    entry = next(i for i in bundle.descriptor.interfaces if i.interface_id == "doc.to_markdown")
+    assert {
+        json.loads(item.definition.read(package))["version"] for item in entry.predecessors
+    } == {1, 2}

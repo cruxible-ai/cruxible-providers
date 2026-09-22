@@ -19,7 +19,7 @@ implementations:
   - interface_id: doc.to_markdown
     # Exact interface digest under its retained historical domain.
     # The bundled contracts/ definition is shared with registration metadata.
-    interface_digest: "sha256:59f720f2e924e61dfd4272cc0e03838c8c5374de3cc35b4cf2993ce6e2a08c71"
+    interface_digest: "sha256:ea49a2c38b2d3bcc529864bec07d8b3cc9540021835966f0d09d869361907dbc"
     entrypoint: "cruxible_provider_docs.to_markdown:DoclingToMarkdown"
     backends: [local_env, container]
     # Docling drags a tensor stack, so it lives behind an extra and this

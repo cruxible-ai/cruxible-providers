@@ -1,6 +1,6 @@
 {
   "interface_id": "doc.to_markdown",
-  "version": 3,
+  "version": 2,
   "effect_class": "pure",
   "contracts": {
     "input": {
@@ -62,74 +62,13 @@
         "document": {
           "type": "json",
           "json_schema": {
-            "type": "object",
-            "properties": {
-              "filename": {
-                "type": "string"
-              },
-              "media_type": {
-                "type": "string"
-              },
-              "byte_count": {
-                "type": "integer"
-              },
-              "sha256": {
-                "type": "string"
-              },
-              "origin": {
-                "type": "string",
-                "enum": [
-                  "inline",
-                  "packaged-recording"
-                ]
-              },
-              "declared_page_count": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "filename",
-              "media_type",
-              "byte_count",
-              "sha256",
-              "origin",
-              "declared_page_count"
-            ],
-            "additionalProperties": false
+            "type": "object"
           }
         },
         "derived": {
           "type": "json",
           "json_schema": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "markdown"
-                ]
-              },
-              "engine": {
-                "type": "string"
-              },
-              "text": {
-                "type": "string"
-              },
-              "page_count": {
-                "type": "integer"
-              },
-              "metadata": {
-                "type": "object"
-              }
-            },
-            "required": [
-              "kind",
-              "engine",
-              "text",
-              "page_count",
-              "metadata"
-            ],
-            "additionalProperties": false
+            "type": "object"
           }
         }
       },
