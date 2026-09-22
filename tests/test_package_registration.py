@@ -309,6 +309,20 @@ checked_required=set()
 for case in json.load(sys.stdin):
     definition=case['definition']
     contract=read_provider_operation_contract(json.dumps(definition).encode().hex())
+    if contract.material is not None and 'output' in case:
+        import base64
+        from cruxible_client.contracts.canonical import canonical_bytes
+        from cruxible_client.contracts.records import Record
+        material=json.loads(base64.b64decode(case['output']['content_base64']))
+        record=Record(contract.material, material)
+        assert record.retrieved.body_sha256 == material['retrieved']['body_sha256']
+        for invalid in (None, 7):
+            bad=json.loads(json.dumps(material))
+            bad['retrieved']['body_sha256']=invalid
+            output={**case['output'], 'content_base64':base64.b64encode(canonical_bytes(bad)).decode()}
+            try: validate_provider_value(contract,output,direction='output')
+            except ValueError: pass
+            else: errors.append((definition['interface_id'],'untyped material accepted'))
     for direction in ('input','output'):
         if direction in case:
             try: validate_provider_value(contract,case[direction],direction=direction)

@@ -225,8 +225,17 @@ def load_registration(root: Path) -> RegistrationBundle:
         if implementation.side_effects != (definition["effect_class"] == "external_mutation"):
             raise ValueError("manifest and interface effects disagree")
         contracts = definition.get("contracts")
-        if not isinstance(contracts, dict) or set(contracts) != {"input", "output"}:
+        if (
+            not isinstance(contracts, dict)
+            or not {"input", "output"}.issubset(contracts)
+            or set(contracts) - {"input", "output", "material"}
+        ):
             raise ValueError("interface must export shared input/output contracts")
+        if "material" in contracts and (
+            contracts["output"] != "playbill-provider-result-to-external-capture-v1"
+            or not isinstance(contracts["material"], dict)
+        ):
+            raise ValueError("captured material schema requires an acquisition interface")
         revision = definition.get("version")
         if type(revision) is not int or revision < 1:
             raise ValueError("interface version must be a positive integer")
