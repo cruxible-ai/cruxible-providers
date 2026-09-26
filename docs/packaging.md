@@ -14,9 +14,10 @@ across the whole fleet on each publish.
 
 The umbrella meta-package `cruxible-providers` — a pure dependency shell with one
 extra per plane — exists for install ergonomics now that the first plane packages
-do. It ships no code, so it enters no implementation digest. End users never
-install providers at all: providers are fetched on bind, and the umbrella serves
-developers.
+do. It ships no code, so it enters no implementation digest. Operators install
+providers into a daemon explicitly and through governance (`cruxible playbill
+provider install`); nothing is fetched implicitly when a Procedure binds. The
+umbrella serves developers.
 
 Because its entire content is other packages, the umbrella declares itself exempt
 from the one-package-one-digest-change gate (`[tool.cruxible] digest_scope =

@@ -144,6 +144,6 @@ is a deployment revision — never a LineSpec successor and never an epoch chang
 
 Core's existing in-process `provider/` machinery (`provider_ref`, entrypoint
 digests, `ProviderRuntime`) is the donor for this design, not a peer of it. v3
-Lines bind only through the fetch-on-bind path; the legacy path follows
+Lines bind only to providers installed through the governed install path; the legacy path follows
 deprecate-then-remove on the core lane's schedule. Its `deterministic` and
 `side_effects` flags survive, unchanged in meaning, in the new manifest.

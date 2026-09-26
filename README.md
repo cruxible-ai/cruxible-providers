@@ -10,7 +10,7 @@ enters the core install:
 |---|---|---|
 | **Core** (`cruxible`) | Machinery only — slot grammar, interface registry, LineSpec closure, executor, provider protocol. Zero heavy dependencies. | the core repository |
 | **Rails** | Accepted artifacts in forkable reference repositories: generic assemblies plus domain packs. Imported via change-set proposals, never baked into the install. | reference repositories |
-| **Providers** | Separate uv-locked packages, fetched on bind into isolated environments. **This repository.** | here |
+| **Providers** | Separate uv-locked packages, installed into isolated environments by an explicit, governed operator install. **This repository.** | here |
 
 The program that governs this work is `rails-providers-program-v1.md`; §7 is the
 RP-0 contract these packages implement.
