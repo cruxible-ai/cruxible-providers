@@ -1,0 +1,92 @@
+name: publish
+
+# One package per run. A release tag names the package and its version
+# (`cruxible-provider-web-v0.2.0`, `cruxible-providers-v0.1.0`); a manual run
+# names the package and publishes the version its pyproject declares.
+#
+# Publish `cruxible-provider-runtime` first: every provider depends on it.
+#
+# Wheels only. An install by name materializes the exact wheel and the lock it
+# embeds; an sdist would only invite a build nobody pinned.
+#
+# PyPI trusted publishing: each package name needs a (pending) trusted publisher
+# for this repository, workflow `publish.yml`, environment `pypi`.
+
+on:
+  push:
+    tags:
+      - "cruxible-provider*-v*"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to publish at its declared version
+        required: true
+        type: choice
+        options:
+          - cruxible-provider-runtime
+          - cruxible-provider-noop
+          - cruxible-provider-web
+          - cruxible-provider-docs
+          - cruxible-provider-quant
+          - cruxible-provider-workspace
+          - cruxible-providers
+
+env:
+  UV_VERSION: "0.8.13"
+
+jobs:
+  build:
+    name: build and check
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.package.outputs.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Name the package
+        id: package
+        env:
+          INPUT: ${{ inputs.package }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          if [ -n "$TAG" ]; then package="${TAG%-v*}"; else package="$INPUT"; fi
+          test -f "packages/$package/pyproject.toml" || { echo "no package $package"; exit 1; }
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+      - run: uv sync
+      - name: Run the package's conformance suite
+        run: |
+          package="${{ steps.package.outputs.package }}"
+          if [ -d "packages/$package/tests" ]; then uv run pytest -q "packages/$package/tests"; fi
+      - name: Assert the lock is current
+        run: uv lock --check --directory "packages/${{ steps.package.outputs.package }}"
+      - name: Build the wheel
+        run: uv build --wheel --out-dir dist "packages/${{ steps.package.outputs.package }}"
+      - name: Assert the wheel is installable by name
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          package="${{ steps.package.outputs.package }}"
+          uv run python scripts/check_release_wheel.py "packages/$package" dist/*.whl \
+            ${TAG:+--tag "$TAG"}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true

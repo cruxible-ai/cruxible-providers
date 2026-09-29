@@ -1,9 +1,9 @@
 # The umbrella meta-package: a pure dependency shell, zero code.
 #
-# It exists for install ergonomics and for developers only. End users never
-# install a provider at all -- providers are fetched on bind -- so nothing here
-# is ever part of an implementation digest, a materialization pin, or a track
-# record. That is also why the identity unit stays the per-plane distribution: a
+# It exists for install ergonomics and for developers only. Operators install a
+# plane by name into a daemon through a governed install, never through this, so
+# nothing here is ever part of an implementation digest, a materialization pin,
+# or a track record. That is also why the identity unit stays the per-plane distribution: a
 # single distribution with plane extras would put ONE distribution sha256 under
 # EVERY provider's implementation digest, and every release would re-digest every
 # provider in the fleet.

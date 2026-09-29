@@ -7,8 +7,9 @@ Cruxible provider adapters for the document plane. Apache-2.0.
 | `doc.to_markdown` | `cruxible_provider_docs.to_markdown:DoclingToMarkdown` | Docling; already-linear documents are converted by the adapter itself | `docling` |
 | `ocr.extract` | `cruxible_provider_docs.ocr:PaddleOcrExtract` | PaddleOCR | `paddleocr` |
 
-End users do not install this package: providers are fetched on bind. The
-umbrella `cruxible-providers[docs]` exists for developers.
+Operators install it into a daemon by name, through a governed install:
+`cruxible playbill provider install cruxible-provider-docs`. The umbrella
+`cruxible-providers[docs]` exists for developers.
 
 ## Nothing here is observed
 

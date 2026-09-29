@@ -137,7 +137,6 @@ class PackageRegistration(_Strict):
     manifest: ResourceRef
     interfaces: tuple[InterfaceExport, ...] = Field(min_length=1)
     runtime_requirements: tuple[RuntimeRequirement, ...] = ()
-    governed_definitions: tuple[ResourceRef, ...] = ()
 
 
 class ClassificationFixture(_Strict):
@@ -156,7 +155,6 @@ class RegistrationBundle:
     definitions: Mapping[str, dict[str, Any]]
     vocabularies: Mapping[str, BucketVocabulary]
     fixtures: Mapping[str, tuple[ClassificationFixture, ...]]
-    governed_definitions: tuple[dict[str, Any], ...]
 
     def export_document(self) -> dict[str, Any]:
         """Return verified data for host lowering, without paths or imported code.
@@ -189,7 +187,6 @@ class RegistrationBundle:
             "runtime_requirements": [
                 item.model_dump(mode="json") for item in self.descriptor.runtime_requirements
             ],
-            "governed_definitions": list(self.governed_definitions),
         }
 
 
@@ -277,12 +274,7 @@ def load_registration(root: Path) -> RegistrationBundle:
             and requirement.name not in implementation.requires_extras
         ):
             raise ValueError("runtime requirement names an undeclared extra")
-    artifacts = tuple(json.loads(ref.read(root)) for ref in descriptor.governed_definitions)
-    if any(not isinstance(item, dict) for item in artifacts):
-        raise ValueError("governed definitions must be objects")
-    return RegistrationBundle(
-        root, descriptor, manifest, definitions, vocabularies, fixtures, artifacts
-    )
+    return RegistrationBundle(root, descriptor, manifest, definitions, vocabularies, fixtures)
 
 
 def registration_from_distribution(distribution: Distribution) -> RegistrationBundle:

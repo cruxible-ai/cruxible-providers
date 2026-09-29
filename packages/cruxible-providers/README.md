@@ -12,9 +12,10 @@ pip install "cruxible-providers[web,docs]"
 
 ## Who this is for
 
-Developers. **End users never install a provider at all** — providers are fetched
-on bind, into an isolated environment, from the pins an accepted Provider
-artifact carries. Nothing in this package is ever part of an implementation
+Developers. **Operators never install a provider through this.** They install a
+plane by name into a daemon through a governed install (`cruxible playbill
+provider install cruxible-provider-web`), which materializes an isolated
+environment from the lock the plane's wheel embeds. Nothing in this package is ever part of an implementation
 digest, a materialization pin, or a track record.
 
 ## Why the planes stay separate distributions

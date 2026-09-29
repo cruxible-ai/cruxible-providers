@@ -87,6 +87,5 @@
       "name": "paddleocr",
       "description": "Required Python extra for this implementation."
     }
-  ],
-  "governed_definitions": []
+  ]
 }
