@@ -1,41 +1,52 @@
 # cruxible-providers
 
-Provider packages for Cruxible. Apache-2.0, one package per plane, each with its
-own committed lock.
+Provider packages for [Cruxible](https://github.com/cruxible-ai/cruxible).
+Apache-2.0, one package per plane, each with its own committed lock.
 
-This repository is the third layer of a three-layer split. Nothing heavy ever
-enters the core install:
+A **provider** is an adapter Cruxible runs out of process to reach something
+outside its own state — a web page, a document converter, a statistical
+baseline, a workspace file. Each implements a registered **interface** with a
+typed input and output contract. Providers never grade their own output: they
+return a typed result plus a trace, and the CaptureContract the run is governed
+by decides what that result is worth.
+
+Nothing heavy ever enters the Cruxible core install:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Core** (`cruxible`) | Machinery only — slot grammar, interface registry, LineSpec closure, executor, provider protocol. Zero heavy dependencies. | the core repository |
-| **Rails** | Accepted artifacts in forkable reference repositories: generic assemblies plus domain packs. Imported via change-set proposals, never baked into the install. | reference repositories |
-| **Providers** | Separate uv-locked packages, installed into isolated environments by an explicit, governed operator install. **This repository.** | here |
+| **Core** (`cruxible`) | Machinery only: the interface registry, governance, the executor, the provider protocol. No heavy dependencies. | [cruxible](https://github.com/cruxible-ai/cruxible) |
+| **Providers** | Separate uv-locked packages, installed into isolated environments by an explicit, governed operator install. | **This repository** |
 
-The program that governs this work is `rails-providers-program-v1.md`; §7 is the
-RP-0 contract these packages implement.
+## Installing a provider
 
-## Layout
+An operator installs a provider into a Cruxible daemon by name:
 
+```sh
+cruxible provider install cruxible-provider-web
 ```
-packages/cruxible-provider-runtime/   the support library every provider uses
-packages/cruxible-provider-noop/      the reference provider: the smallest
-                                      package that exercises every rule
-packages/cruxible-provider-web/       the web plane: web.fetch, search.web
-packages/cruxible-provider-docs/       the document plane: doc.to_markdown, ocr.extract
-packages/cruxible-providers/          the umbrella meta-package: zero code, plane extras
-packages/cruxible-provider-quant/     the quantitative plane: classical
-                                      baselines on the seven quant interfaces
-packages/cruxible-provider-workspace/ the workspace built-in: workspace.file,
-                                      the pure Source adapter core seeds by
-                                      proposal (B4)
-packages/_template/                   copy this to start a new plane package
-vocab/interfaces/                     the launch bucket vocabularies, as draft data
-vocab/stub/                           the stub interface's vocabulary
-ci/marker-environments.json           the environments every digest is computed for
-scripts/                              digest computation and the packaging checks
-docs/                                 the packaging rules and the core seam
-```
+
+The install fetches the wheel from the package index and checks its hash,
+materializes an isolated environment from the lock embedded in the wheel — so
+it resolves exactly what the release was tested with — and proposes the Provider
+registration as an ordinary governed change-set. Every later run is bound to
+that exact accepted distribution, lock and manifest, and refuses on drift.
+
+## Packages
+
+| Package | What it provides |
+|---|---|
+| [`cruxible-provider-runtime`](packages/cruxible-provider-runtime) | The support library every provider uses: manifest and protocol schemas, identity digests, lock resolution, the materialization cache, secret delivery, budgets, egress recording |
+| [`cruxible-provider-web`](packages/cruxible-provider-web) | `web.fetch` (page retrieval, optional browser rendering and extraction) and `search.web` (SearXNG) |
+| [`cruxible-provider-workspace`](packages/cruxible-provider-workspace) | `workspace.file`, the built-in pure adapter that structures a file core read from a workspace |
+| [`cruxible-provider-docs`](packages/cruxible-provider-docs) | `doc.to_markdown` and `ocr.extract` |
+| [`cruxible-provider-quant`](packages/cruxible-provider-quant) | Classical baselines on the quantitative interfaces |
+| [`cruxible-provider-noop`](packages/cruxible-provider-noop) | The reference provider: the smallest package that exercises every rule |
+| [`cruxible-providers`](packages/cruxible-providers) | An umbrella meta-package with one extra per plane, for development |
+
+Also here: `packages/_template/` (copy it to start a new plane package),
+`vocab/` (interface bucket vocabularies), `ci/marker-environments.json` (the
+platforms every digest is computed for), `scripts/` (digest computation and
+packaging checks) and `docs/` (the packaging rules and the core seam).
 
 ## The three levels of identity
 
@@ -127,6 +138,10 @@ Things this repository does **not** claim:
   observed, in both the executor process and the provider child. It does not
   demonstrate **containment**; that exists in the cloud backend's default-deny
   network policy alone.
+- `web.fetch` retrieves URLs a run names, so it refuses loopback,
+  private-network, link-local and other non-public targets on every hop and
+  pins each connection to the address it checked. See the
+  [web package](packages/cruxible-provider-web#security) for the details.
 - `UvSyncBuilder`, the production local builder, needs a `uv` on the path, and a
   test that has one drives it end to end against a PEP 503 index under `file://`
   built from wheels the test itself produces — no network. What it cannot cover

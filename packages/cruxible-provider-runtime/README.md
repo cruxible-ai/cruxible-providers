@@ -1,35 +1,72 @@
 # cruxible-provider-runtime
 
-The support library every Cruxible provider package uses. Apache-2.0.
+The support library every [Cruxible](https://github.com/cruxible-ai/cruxible)
+provider package is built on. Apache-2.0.
 
-Providers do not import most of this. It is the *executor's* half of the
-contract, plus the small provider-facing surface in
-`cruxible_provider_runtime.provider_api`.
+A Cruxible provider is one Python package with its own committed lock, a
+package-side manifest, and one or more entrypoints, each implementing a
+registered interface (`web.fetch`, `doc.to_markdown`, …). Cruxible runs it out
+of process, on an exact pin that an operator accepted through governance. This
+library is both halves of that contract: the small surface a provider
+implements, and the machinery the executor uses to resolve, materialize,
+verify, invoke and record it.
+
+## How Cruxible uses it
+
+Operators never install providers ad hoc. A governed install —
+`cruxible provider install <package>` — resolves the package's lock (embedded in
+its wheel) for an explicit platform, fetches each locked wheel from a pinned
+index and checks its hash, materializes an isolated environment, seals it under
+its digest, and proposes the Provider registration as an ordinary change-set.
+Every later run is bound to that accepted pin and refuses if anything has
+drifted: the manifest, the lock, the environment.
+
+A provider package depends on this library, so it is installed alongside every
+provider. `pip install cruxible-provider-runtime` on its own is useful for
+writing or testing a provider.
+
+## Identity
+
+Three identifiers, deliberately separate:
+
+- **`implementation_digest`** — the track-record key. It covers the interface id
+  and digest, the entrypoint, and the provider distribution's own sha256, and it
+  is the same whichever backend runs the provider.
+- **`materialization_digest`** — one environment pin per backend and platform:
+  locally, the hashed *resolution* of the package's lock (not the lock file's
+  bytes) plus the root distribution's identity; in a container, the image digest.
+- **`protocol_version`** — the transport envelope version, recorded in receipts
+  and in neither digest, so an executor upgrade does not split track records.
 
 ## What it owns
 
 | Module | Responsibility |
 |---|---|
+| `provider_api` | The provider-facing surface: `ProviderRunContext` in, `ProviderResult` out |
 | `manifest` | The package-side manifest schema. Unknown fields fail closed. |
 | `artifact` | The governed Provider artifact payload and its digest |
 | `protocol` | The run context and result envelope, and `protocol_version` |
 | `canonical` | Canonical JSON and domain-tagged digests |
 | `digests` | `implementation_digest` and `materialization_digest` |
-| `resolution` | Lock resolution for an explicit marker environment |
-| `index` | Hash-checked artifact retrieval from pinned indexes, for materializing an environment |
+| `resolution` | Lock resolution for an explicit marker environment, including per-implementation extras |
+| `index` | Hash-checked artifact retrieval from pinned indexes, for materializing an environment; refuses unpinned origins and redirects |
 | `cache` | The sealed, permission-checked, atomically-renamed materialization cache |
 | `secrets` | Credential delivery over an inherited descriptor, and redaction |
 | `budget` | Out-of-process wall-clock and output-size enforcement |
 | `egress` | Endpoints declared versus endpoints actually contacted |
-| `buckets` | The bucket vocabulary format, ids, and selectors |
+| `buckets` | The input-bucket vocabulary format, ids, and selectors |
 | `registration` | Data-only package descriptor reader; verifies bundled resources and exports without executing provider code |
-| `registry` | A **stub** registry standing in for core |
-| `backends` | The two backend kinds and their injected drivers |
+| `registry` | A **stub** registry standing in for Cruxible core, for conformance tests |
+| `backends` | The two backend kinds (`local_env`, `container`) and their injected drivers |
 | `binding`, `execute` | Bind and invoke |
 | `child` | The provider-side process harness |
 | `container_entry` | The image's entry shim: a memory-backed secret in, an inherited descriptor out |
 | `testing` | Fakes, so that no conformance test needs a network or a container engine |
 | `errors` | The typed refusal taxonomy |
+
+Every path fails closed: an unexpected condition raises a `RefusalError` carrying
+a machine-readable `RefusalCode`, never a bare exception and never a silent
+fallback.
 
 ## The provider-facing surface
 
@@ -55,9 +92,10 @@ Locally the executor is the child's parent, so it opens a descriptor over the
 credential bundle and hands it across with `pass_fds`; the run context names the
 number and `child` reads it. A container breaks that. A fresh container is given
 stdin, stdout and stderr and nothing else, an executor has no way to pass a
-descriptor across the boundary, and the no-mounts law forbids bind-mounting a
-secret file into the image. Something inside the image has to turn a delivery
-the container runtime *can* perform into the descriptor the child expects.
+descriptor across the boundary, and provider containers get no host mounts, so
+a secret file cannot be bind-mounted into the image either. Something inside the
+image has to turn a delivery the container runtime *can* perform into the
+descriptor the child expects.
 
 `cruxible_provider_runtime.container_entry` is that something, and it is the
 images' `ENTRYPOINT`. The harness stays in `CMD`; the shim execs whatever argv it
@@ -164,11 +202,9 @@ portable delivery.
 
 ### What the executor owes
 
-Ruled by the maintainer, 2026-09-04:
-
 1. **Deliver on memory, never on a mount.** A tmpfs file or a one-shot pipe. A
    bind-mounted secret file is not a delivery this shim will accept, and the
-   no-mounts law rules it out before the shim ever sees it.
+   no-host-mounts rule excludes it before the shim ever sees it.
 2. **Deliver on a mount private to this run, and writable by nothing else.**
    This is the obligation the shim cannot check for you. *Memory-backed is not
    private.* `fstatfs` answers "is this tmpfs or ramfs", and a `/dev/shm` shared
@@ -200,7 +236,19 @@ Ruled by the maintainer, 2026-09-04:
 
 ## What it does not own
 
-Governance. The Provider artifact kind, interface registration, and bucket
-registration live in core; `registry.StubRegistry` exists so that this
-repository's conformance suite has something to bind against, and
-`docs/core-integration-seam.md` specifies what replaces it.
+Governance. The Provider artifact kind, interface registration and input-bucket
+registration live in Cruxible core. `registry.StubRegistry` exists so that a
+provider's conformance suite has something to bind against without a running
+Cruxible.
+
+## Honest boundaries
+
+- The local isolated environment is **dependency isolation, not a security
+  boundary**: a local provider runs with the operator's privileges. Containment
+  of third-party providers comes only from the cloud container backend.
+- Container builds are not claimed bit-reproducible. The image digest is
+  authoritative, and its recorded provenance — provider artifact digest,
+  materialization digest, base image digest, builder identity — must match the
+  accepted artifact or the executor refuses it.
+- Egress instrumentation proves **recording** (declared equals observed), not
+  containment.

@@ -48,6 +48,9 @@ dependencies = [
 # for when that implementation's environment is materialized.
 browser = ["playwright>=1.44"]
 
+[project.urls]
+Homepage = "https://github.com/cruxible-ai/cruxible-providers"
+
 [project.entry-points."cruxible.providers"]
 "web.fetch" = "cruxible_provider_web.fetch:WebFetch"
 "search.web" = "cruxible_provider_web.search:SearxngSearch"
