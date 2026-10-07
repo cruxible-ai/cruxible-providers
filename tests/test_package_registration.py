@@ -42,6 +42,22 @@ def _check_nested_schema(definition: dict[str, Any], direction: str, payload: An
 
 
 @pytest.mark.parametrize("descriptor", PACKAGES, ids=lambda p: p.parent.name)
+def test_registration_fixtures_are_exactly_the_conformance_proofs(descriptor: Path) -> None:
+    """Core requires the fixture set to equal the proof set, in both directions.
+
+    A fixture for a bucket the manifest no longer claims has no proof, and Core
+    refuses the whole package ("package fixture coverage differs from
+    conformance proofs") rather than ignoring the extra row.
+    """
+
+    bundle = load_registration(descriptor.parent)
+    for item in bundle.descriptor.interfaces:
+        implementation = bundle.manifest.implementation(item.interface_id)
+        fixture_ids = {fixture.fixture_id for fixture in bundle.fixtures[item.interface_id]}
+        assert fixture_ids == set(implementation.bucket_conformance.values()), item.interface_id
+
+
+@pytest.mark.parametrize("descriptor", PACKAGES, ids=lambda p: p.parent.name)
 def test_package_metadata_is_self_contained(descriptor: Path, tmp_path: Path) -> None:
     package = tmp_path / descriptor.parent.name
     shutil.copytree(descriptor.parent, package)

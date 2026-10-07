@@ -25,7 +25,7 @@ from .interfaces import (
 from .recordings import FIXTURE_HOST, load_recordings
 from .search import SearxngSearch
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = PACKAGE_ROOT / "manifest.yaml"

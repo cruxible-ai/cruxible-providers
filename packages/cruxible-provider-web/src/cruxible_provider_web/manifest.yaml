@@ -12,7 +12,7 @@ schema_version: 1
 provider_id: cruxible-provider-web
 distribution:
   name: cruxible-provider-web
-  version: 0.2.0
+  version: 0.2.1
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [1]
 implementations:

@@ -7,7 +7,7 @@
 # so both bind one environment. `uv run pytest` opens no socket.
 [project]
 name = "cruxible-provider-web"
-version = "0.2.0"
+version = "0.2.1"
 description = "Cruxible provider adapters for the web plane: page retrieval and web search."
 readme = "README.md"
 requires-python = ">=3.11"

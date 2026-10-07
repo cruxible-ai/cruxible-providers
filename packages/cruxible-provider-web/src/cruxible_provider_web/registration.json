@@ -2,7 +2,7 @@
   "schema_version": 1,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:16afed5f90839abd63a96fadc45976a3bc4ec63551516235ffde489e8484b9e7"
+    "digest": "sha256:67ba83de14f86966226102648febf8314d12b9db09b06b4cb86dce748084ffdb"
   },
   "interfaces": [
     {
@@ -27,7 +27,7 @@
       },
       "fixtures": {
         "path": "registration-fixtures/web.fetch.json",
-        "digest": "sha256:2130ac87802483d6400d887b287bc0b4335e5c5fa87e8644618ad24a907a88fa"
+        "digest": "sha256:5401b565fb96be6789f4e1535f642b34b184968d007fc8a37da3ed7077fb2f5f"
       },
       "predecessors": [
         {
