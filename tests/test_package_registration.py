@@ -230,7 +230,7 @@ def test_exported_packages_lower_through_core_without_provider_imports() -> None
     code = """
 import json, sys
 from cruxible_core.providers.package_registration import PackageRegistrationDocumentV1
-from cruxible_client.contracts.providers import ProviderLocalDistributionPinV1, ProviderLocalEnvBackendPinV1
+from cruxible_client.contracts.providers import ProviderLocalDistributionPin, ProviderLocalEnvBackendPin
 from cruxible_client.contracts.provider_interfaces import evaluate_provider_interface_law, provider_interface_path
 from cruxible_client.contracts.providers import provider_digest, render_provider, parse_provider, provider_path
 count = 0
@@ -244,9 +244,10 @@ for document in json.load(sys.stdin):
         count += 1
     distribution = package.manifest.distribution
     provider = package.provider_definition(
-        distribution=ProviderLocalDistributionPinV1(name=distribution.name, version=distribution.version,
-            filename='fixture.whl', sha256='sha256:'+'a'*64),
-        local_env=ProviderLocalEnvBackendPinV1(lock_sha256='sha256:'+'b'*64,
+        distribution=ProviderLocalDistributionPin(name=distribution.name, version=distribution.version,
+            filename=distribution.name.replace('-', '_') + '-' + distribution.version + '-py3-none-any.whl',
+            sha256='sha256:'+'a'*64),
+        local_env=ProviderLocalEnvBackendPin(lock_sha256='sha256:'+'b'*64,
                                              materialization_digests={'linux-cp312':'sha256:'+'c'*64}),
         control_domain='operator', interfaces=interfaces)
     assert provider_digest(parse_provider(render_provider(provider), path=provider_path(provider.identity.name))) == provider_digest(provider)
