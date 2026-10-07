@@ -16,7 +16,7 @@ contract, plus the small provider-facing surface in
 | `canonical` | Canonical JSON and domain-tagged digests |
 | `digests` | `implementation_digest` and `materialization_digest` |
 | `resolution` | Lock resolution for an explicit marker environment |
-| `index` | Fetch-on-bind from pinned indexes |
+| `index` | Hash-checked artifact retrieval from pinned indexes, for materializing an environment |
 | `cache` | The sealed, permission-checked, atomically-renamed materialization cache |
 | `secrets` | Credential delivery over an inherited descriptor, and redaction |
 | `budget` | Out-of-process wall-clock and output-size enforcement |

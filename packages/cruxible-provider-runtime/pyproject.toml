@@ -1,7 +1,7 @@
 [project]
 name = "cruxible-provider-runtime"
 version = "0.2.0"
-description = "Support library for Cruxible provider packages: manifest and protocol schemas, identity digests, fetch-on-bind resolution, cache integrity, secret delivery, budgets and egress instrumentation."
+description = "Support library for Cruxible provider packages: manifest and protocol schemas, identity digests, lock resolution and pinned-index retrieval, cache integrity, secret delivery, budgets and egress instrumentation."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
