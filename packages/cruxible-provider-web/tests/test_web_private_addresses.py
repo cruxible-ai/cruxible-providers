@@ -199,6 +199,31 @@ def test_an_unresolvable_name_is_a_connection_failure_not_a_refusal() -> None:
         AddressGuard(nxdomain).vet("https://nowhere.example/")
 
 
+def test_a_refusal_says_why_and_names_the_path_for_internal_sources() -> None:
+    """A declined run should tell its author what to do instead."""
+
+    with pytest.raises(RefusalError) as exc:
+        AddressGuard(_resolver({"wiki.corp.example": ("10.0.0.9",)})).vet(
+            "https://wiki.corp.example/page"
+        )
+
+    refusal = exc.value.refusal
+    assert refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert refusal.message == (
+        "web.fetch does not retrieve private or internal addresses; internal sources need "
+        "a provider with a declared endpoint"
+    )
+    assert refusal.detail["reason"] == "private_or_internal_address"
+    assert "declares that endpoint" in refusal.detail["remedy"]
+
+
+def test_a_local_name_refusal_carries_the_same_explanation() -> None:
+    with pytest.raises(RefusalError) as exc:
+        AddressGuard(_resolver()).vet("http://localhost:8080/")
+    assert exc.value.refusal.message.startswith("web.fetch does not retrieve private")
+    assert exc.value.refusal.detail["reason"] == "private_or_internal_address"
+
+
 def test_a_refusal_names_the_origin_and_never_the_path() -> None:
     with pytest.raises(RefusalError) as exc:
         AddressGuard(_resolver()).vet("http://127.0.0.1:8080/admin?token=abc")

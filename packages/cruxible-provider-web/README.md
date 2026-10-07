@@ -118,6 +118,29 @@ answer is blocked, the target is refused.
 
 The check applies to every hop: the first request and every redirect.
 
+The refusal says why and where to go instead:
+
+```json
+{
+  "code": "provider_declined",
+  "message": "web.fetch does not retrieve private or internal addresses; internal sources need a provider with a declared endpoint",
+  "detail": {
+    "reason": "private_or_internal_address",
+    "remedy": "web.fetch retrieves public web resources only. Reach an internal or local source through a provider whose manifest declares that endpoint, so the operator accepts the endpoint through governance rather than a run naming it.",
+    "url": "https://wiki.corp.example",
+    "host": "wiki.corp.example",
+    "address": "10.0.0.9",
+    "address_class": "private"
+  }
+}
+```
+
+`address_class` is one of `loopback`, `private`, `link_local`, `unspecified`,
+`multicast`, `carrier_grade_nat`, `reserved`, `local_name` (refused by name, so
+`address` is `null`), or `ipv4_embedded_<class>` for an IPv6 form carrying a
+blocked IPv4 address. `url` is the origin only; the path and query of the
+refused URL never enter the refusal.
+
 **DNS rebinding is closed by pinning.** The addresses that passed the check are
 the only ones the connection may open to: the client's network layer connects to
 the vetted address, while the `Host` header, TLS SNI and certificate

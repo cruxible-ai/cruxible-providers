@@ -50,6 +50,8 @@ from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
 __all__ = [
     "LOCAL_NAMES",
     "LOCAL_SUFFIXES",
+    "PRIVATE_ADDRESS_MESSAGE",
+    "PRIVATE_ADDRESS_REMEDY",
     "AddressGuard",
     "Resolver",
     "address_class",
@@ -63,6 +65,18 @@ Resolver = Callable[[str, int], Sequence[str]]
 """``(host, port) -> addresses``. Injected so tests never touch real DNS."""
 
 _DEFAULT_PORTS: Final = {"http": 80, "https": 443}
+
+PRIVATE_ADDRESS_MESSAGE: Final = (
+    "web.fetch does not retrieve private or internal addresses; internal sources need "
+    "a provider with a declared endpoint"
+)
+"""The refusal message: why the run was declined, and where an internal source goes."""
+
+PRIVATE_ADDRESS_REMEDY: Final = (
+    "web.fetch retrieves public web resources only. Reach an internal or local source "
+    "through a provider whose manifest declares that endpoint, so the operator accepts "
+    "the endpoint through governance rather than a run naming it."
+)
 
 LOCAL_NAMES: Final = frozenset(
     {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
@@ -261,8 +275,9 @@ class AddressGuard:
     def _refusal(url: str, host: str, *, address: IPAddress | None, verdict: str) -> RefusalError:
         return refuse(
             RefusalCode.PROVIDER_DECLINED,
-            "web.fetch does not retrieve from loopback, private-network, link-local or "
-            "otherwise non-public addresses",
+            PRIVATE_ADDRESS_MESSAGE,
+            reason="private_or_internal_address",
+            remedy=PRIVATE_ADDRESS_REMEDY,
             url=normalize_endpoint(url),
             host=host,
             address=None if address is None else str(address),
