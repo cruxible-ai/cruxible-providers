@@ -8,7 +8,7 @@ Cruxible provider adapters for the document plane. Apache-2.0.
 | `ocr.extract` | `cruxible_provider_docs.ocr:PaddleOcrExtract` | PaddleOCR | `paddleocr` |
 
 Operators install it into a daemon by name, through a governed install:
-`cruxible playbill provider install cruxible-provider-docs`. The umbrella
+`cruxible provider install cruxible-provider-docs`. The umbrella
 `cruxible-providers[docs]` exists for developers.
 
 ## Nothing here is observed
