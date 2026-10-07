@@ -23,7 +23,7 @@ implementations:
   - interface_id: web.fetch
     # Exact interface digest under its retained historical domain.
     # The bundled contracts/ definition is shared with registration metadata.
-    interface_digest: "sha256:9769f47abc5ac2dae6d6c623a9f9abf01afde699de48768a755f40a0334a1ade"
+    interface_digest: "sha256:f09e1553b05d72a9e58ed3a260417c41992ccd34b2f2541958c5733723ac2121"
     entrypoint: "cruxible_provider_web.fetch:WebFetch"
     backends: [local_env, container]
     # The js_rendered bucket needs a browser, and a browser is a heavy engine,

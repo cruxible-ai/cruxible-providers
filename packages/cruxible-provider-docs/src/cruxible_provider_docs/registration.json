@@ -2,15 +2,15 @@
   "schema_version": 1,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:82ece664573f7a1dcd05c2865ce001f0415ab580c08c5368a0dae892db446773"
+    "digest": "sha256:713b77563257b1ff2041a2ca499096686e7676762215903f5bee6ab695226f22"
   },
   "interfaces": [
     {
       "interface_id": "doc.to_markdown",
-      "interface_digest": "sha256:59f720f2e924e61dfd4272cc0e03838c8c5374de3cc35b4cf2993ce6e2a08c71",
+      "interface_digest": "sha256:ea49a2c38b2d3bcc529864bec07d8b3cc9540021835966f0d09d869361907dbc",
       "definition": {
         "path": "contracts/doc.to_markdown.json",
-        "digest": "sha256:76645482f256ae32d6def3fec482f9097a7c3e9ba3cd1ed209463a37ab65149a"
+        "digest": "sha256:0c20b55cf449478234c1753cff810e5fe07f20b2c341d8f30d1074491476cf08"
       },
       "vocabulary": {
         "path": "vocab/doc.to_markdown.yaml",
@@ -22,7 +22,7 @@
         "entrypoint": "cruxible_provider_docs.interfaces:classify_to_markdown",
         "source": {
           "path": "interfaces.py",
-          "digest": "sha256:b912aefd1b8fad39380d445199dc727bfe2901b5e9e5fc4ef558dc254202cd03"
+          "digest": "sha256:7d2fd1034d603d60ddb1b8592aee9b68348c8f9d64e5ba8c4dba8052c00603c2"
         }
       },
       "fixtures": {
@@ -36,6 +36,13 @@
             "digest": "sha256:50372c4ac989032b05f3f8cbfb2a9c455aed53d75e083530e2dcb2b740b3949c"
           },
           "interface_digest": "sha256:e33e09a19024a719282cdc36ba808bfce64e2ffe2b6fa5a9705852b52cc8e0ca"
+        },
+        {
+          "definition": {
+            "path": "contracts/history/doc.to_markdown.v2.json",
+            "digest": "sha256:76645482f256ae32d6def3fec482f9097a7c3e9ba3cd1ed209463a37ab65149a"
+          },
+          "interface_digest": "sha256:59f720f2e924e61dfd4272cc0e03838c8c5374de3cc35b4cf2993ce6e2a08c71"
         }
       ]
     },
@@ -56,7 +63,7 @@
         "entrypoint": "cruxible_provider_docs.interfaces:classify_ocr",
         "source": {
           "path": "interfaces.py",
-          "digest": "sha256:b912aefd1b8fad39380d445199dc727bfe2901b5e9e5fc4ef558dc254202cd03"
+          "digest": "sha256:7d2fd1034d603d60ddb1b8592aee9b68348c8f9d64e5ba8c4dba8052c00603c2"
         }
       },
       "fixtures": {

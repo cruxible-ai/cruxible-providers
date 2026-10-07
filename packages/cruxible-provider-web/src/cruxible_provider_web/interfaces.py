@@ -41,7 +41,7 @@ FETCH_PREIMAGE: dict[str, Any] = read_interface_definition(Path(__file__).parent
 
 SEARCH_PREIMAGE: dict[str, Any] = read_interface_definition(Path(__file__).parent, "search.web")
 
-FETCH_INTERFACE_DIGEST = "sha256:9769f47abc5ac2dae6d6c623a9f9abf01afde699de48768a755f40a0334a1ade"
+FETCH_INTERFACE_DIGEST = "sha256:f09e1553b05d72a9e58ed3a260417c41992ccd34b2f2541958c5733723ac2121"
 SEARCH_INTERFACE_DIGEST = "sha256:fea1d32087a65259d93586a9d582a5112d08f051c59d97e8737d10ad5bc295bb"
 
 FETCH_VOCABULARY: BucketVocabulary = load_bucket_vocabulary(VOCAB_DIR / "web.fetch.yaml")
