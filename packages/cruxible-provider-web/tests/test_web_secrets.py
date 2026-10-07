@@ -204,3 +204,14 @@ def test_no_credential_material_is_named_in_the_manifest(interface_id: str, mani
     rendered = implementation.model_dump_json()
     assert "token" not in rendered.lower()
     assert "password" not in rendered.lower()
+
+
+def test_the_user_agent_names_the_installed_version() -> None:
+    """Derived from the distribution, so a release never ships a stale claim."""
+
+    from importlib.metadata import version
+
+    from cruxible_provider_web.http import USER_AGENT
+
+    expected = f"cruxible-provider-web/{version('cruxible-provider-web')} (+https://cruxible.ai)"
+    assert expected == USER_AGENT

@@ -32,6 +32,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -56,7 +58,17 @@ __all__ = [
     "packaged_recording_transport",
 ]
 
-USER_AGENT = "cruxible-provider-web/0.1 (+https://cruxible.ai)"
+
+def _package_version() -> str:
+    """The installed distribution's version: what the user-agent claims to be."""
+
+    try:
+        return distribution_version("cruxible-provider-web")
+    except PackageNotFoundError:  # pragma: no cover - a bare source tree, never installed
+        return "unknown"
+
+
+USER_AGENT = f"cruxible-provider-web/{_package_version()} (+https://cruxible.ai)"
 
 MAX_REDIRECTS = 20
 """How many hops a chain may take before this client stops following it.
