@@ -199,7 +199,7 @@ class AddressGuard:
     """Vets targets before anything is sent, and remembers what it vetted.
 
     One guard serves one run. :meth:`vet` runs before every hop — the first
-    request, each redirect, each request a rendered page makes — and replaces
+    request and each redirect — and replaces
     the pin for that host, so a later hop to the same name is judged on the
     answer that later hop will actually use.
     """

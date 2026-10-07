@@ -80,7 +80,7 @@ def test_heavy_api_is_classified_but_unbounded_request_is_not():
     )
 
 
-def test_header_credentials_are_typed_and_never_used_for_browser_rendering():
+def test_header_credentials_are_typed_and_validated():
     client = _CapturingClient(b'{"ok":true}', "application/json")
     fetch = WebFetch(client_factory=lambda recorder, **kwargs: client)
     payload = {

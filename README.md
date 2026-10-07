@@ -36,7 +36,7 @@ that exact accepted distribution, lock and manifest, and refuses on drift.
 | Package | What it provides |
 |---|---|
 | [`cruxible-provider-runtime`](packages/cruxible-provider-runtime) | The support library every provider uses: manifest and protocol schemas, identity digests, lock resolution, the materialization cache, secret delivery, budgets, egress recording |
-| [`cruxible-provider-web`](packages/cruxible-provider-web) | `web.fetch` (page retrieval, optional browser rendering and extraction) and `search.web` (SearXNG) |
+| [`cruxible-provider-web`](packages/cruxible-provider-web) | `web.fetch` (page retrieval and main-content extraction) and `search.web` (SearXNG) |
 | [`cruxible-provider-workspace`](packages/cruxible-provider-workspace) | `workspace.file`, the built-in pure adapter that structures a file core read from a workspace |
 | [`cruxible-provider-docs`](packages/cruxible-provider-docs) | `doc.to_markdown` and `ocr.extract` |
 | [`cruxible-provider-quant`](packages/cruxible-provider-quant) | Classical baselines on the quantitative interfaces |
@@ -74,7 +74,7 @@ executor upgrade must not split track records.
 
 ## Heavy engines live behind per-engine extras
 
-A browser, a document-conversion stack, an OCR runtime: each is gigabytes, and
+A document-conversion stack, an OCR runtime: each is gigabytes, and
 none of them belongs in an install somebody does by accident. So a plane
 package's **base** distribution carries the adapter logic, the schemas, the
 bucket classifiers, and the recorded fixtures, while each engine sits behind an
@@ -88,8 +88,8 @@ pins each separately, under an environment pin key that names both:
 
 ```
 linux-cp311                 the base environment
-linux-cp311+browser         the same lock, resolved with a browser in it
-linux-cp311+docling
+linux-cp311+docling         the same lock, resolved with a conversion engine in it
+linux-cp311+paddleocr
 ```
 
 Two implementations of two interfaces in one package may therefore bind two
@@ -100,7 +100,7 @@ them refuses the other rather than falling back.
 **Every launch engine closure pins on every declared environment.** A declared
 tag list is read as an ordering (PEP 425/600) rather than as literal names, and
 the launch floors are `manylinux_2_28` and `macosx_14_0`. Consequently
-`+browser`, `+paddleocr`, and `+docling` all resolve on the three environments in
+`+paddleocr` and `+docling` both resolve on the three environments in
 `ci/marker-environments.json`. Raising those floors deliberately re-keyed every
 package's materialization digest before any Provider artifact was accepted; it
 does not enter or move the backend-invariant implementation digest.
@@ -140,7 +140,8 @@ Things this repository does **not** claim:
   network policy alone.
 - `web.fetch` retrieves URLs a run names, so it refuses loopback,
   private-network, link-local and other non-public targets on every hop and
-  pins each connection to the address it checked. See the
+  pins each connection to the address it checked. It does not render pages in a
+  browser. See the
   [web package](packages/cruxible-provider-web#security) for the details.
 - `UvSyncBuilder`, the production local builder, needs a `uv` on the path, and a
   test that has one drives it end to end against a PEP 503 index under `file://`

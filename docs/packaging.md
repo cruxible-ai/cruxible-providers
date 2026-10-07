@@ -30,7 +30,7 @@ only one.
 
 ## Per-engine extras, and the environment pin key
 
-A heavy engine — a browser, a document-conversion stack, an OCR runtime — never
+A heavy engine — a document-conversion stack, an OCR runtime — never
 enters a base install. It sits behind an extra, and the implementation that needs
 it declares that extra in its manifest (`requires_extras`).
 
@@ -49,7 +49,7 @@ artifact pins each under an **environment pin key**:
 
 ```
 linux-cp311                     the base environment
-linux-cp311+browser             the same lock, resolved with a browser
+linux-cp311+docling             the same lock, resolved with a conversion engine
 linux-cp311+docling+paddleocr   sorted, so the key is a set rather than an order
 ```
 
@@ -110,7 +110,6 @@ Reproduced against the committed locks, for the three environments in
 | Package | Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
 |---|---|---|---|---|
 | `cruxible-provider-web` | *(base)* | resolves | resolves | resolves |
-| `cruxible-provider-web` | `browser` | resolves | resolves | resolves |
 | `cruxible-provider-docs` | *(base)* | resolves | resolves | resolves |
 | `cruxible-provider-docs` | `docling` | resolves | resolves | resolves |
 | `cruxible-provider-docs` | `paddleocr` | resolves | resolves | resolves |
@@ -260,7 +259,7 @@ validate operation contracts under its selected compiler, and verify fixtures.
 Node-type contracts use `contracts.input` and `contracts.output`, plus explicit
 `effect_class`. Package dependencies and operator configuration remain separate.
 Local Python installation does not imply a container deployment. Runtime resource
-requirements, such as Playwright's browser executable, are declared separately
+requirements, such as a model or binary an engine downloads, are declared separately
 from Python extras and must not be reported ready merely because a wheel exists.
 
 The interface digest domain retains its historical `stub.v1` spelling. It is an

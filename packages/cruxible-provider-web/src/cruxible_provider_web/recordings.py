@@ -85,14 +85,6 @@ class Recording(BaseModel):
     """
 
     response: RecordedResponse
-    rendered_body: str | None = None
-    """The DOM after client-side assembly, for the js_rendered bucket.
-
-    Recorded separately from ``response.body`` because that is exactly what a
-    browser adds: the initial response and the assembled document are two
-    artefacts, and a fixture that conflated them could not tell a renderer that
-    worked from one that was never called.
-    """
 
 
 class BucketFixture(BaseModel):

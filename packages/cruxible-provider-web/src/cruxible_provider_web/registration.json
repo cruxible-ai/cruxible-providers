@@ -2,7 +2,7 @@
   "schema_version": 1,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:cc0bc701fdba32e1fe7bb18ce7ac0847a5c0464ba4543bd7e782e2e8e78c8374"
+    "digest": "sha256:16afed5f90839abd63a96fadc45976a3bc4ec63551516235ffde489e8484b9e7"
   },
   "interfaces": [
     {
@@ -74,19 +74,5 @@
       ]
     }
   ],
-  "runtime_requirements": [
-    {
-      "interface_id": "web.fetch",
-      "kind": "python_extra",
-      "name": "browser",
-      "description": "Required Python extra for this implementation."
-    },
-    {
-      "interface_id": "web.fetch",
-      "kind": "runtime_resource",
-      "name": "playwright.chromium",
-      "description": "Rendered fetches require a Chromium browser matching the installed Playwright version; installing the Python extra alone is insufficient.",
-      "probe_entrypoint": "cruxible_provider_web.resources:chromium_available"
-    }
-  ]
+  "runtime_requirements": []
 }

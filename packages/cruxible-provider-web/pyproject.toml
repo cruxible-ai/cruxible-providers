@@ -1,11 +1,10 @@
 # The web plane. One distribution, one lock, one identity unit; two
 # implementations, of two different interfaces.
 #
-# The base install is LIGHT. It carries the adapter logic, the schemas, the
-# bucket classifiers, the recorded fixtures, and an HTTP client — everything the
-# default conformance lane needs. The heavy engines live behind per-engine
-# extras, and each implementation's manifest declares which extra it requires.
-# `uv run pytest` therefore downloads no browser and opens no socket.
+# The install is LIGHT and has no extras: the adapter logic, the schemas, the
+# bucket classifiers, the recorded fixtures, an HTTP client and an extractor.
+# Neither implementation needs a heavy engine (web.fetch does not render pages),
+# so both bind one environment. `uv run pytest` opens no socket.
 [project]
 name = "cruxible-provider-web"
 version = "0.2.0"
@@ -41,12 +40,6 @@ dependencies = [
   # default conformance lane that never runs a real extraction.
   "trafilatura>=2.0",
 ]
-
-[project.optional-dependencies]
-# The one per-engine extra: a browser. Its name is what the `web.fetch`
-# implementation declares in `requires_extras`, and what the resolver is asked
-# for when that implementation's environment is materialized.
-browser = ["playwright>=1.44"]
 
 [project.urls]
 Homepage = "https://github.com/cruxible-ai/cruxible-providers"

@@ -41,6 +41,14 @@ class InterfaceCase:
     implementation: ModuleType
     shared_modules: tuple[ModuleType, ...] = ()
     required_helpers: tuple[str, ...] = ()
+    declared_not_emitted: tuple[str, ...] = ()
+    """Codes the interface declares that this implementation can no longer emit.
+
+    The interface is shared and digest-pinned; an implementation that drops a
+    capability (web.fetch's rendered path) leaves the declaration standing
+    rather than re-keying the interface. Listed here so the exhaustiveness
+    check stays exact about everything else.
+    """
 
 
 # This is deliberately the provider implementation closure only. Admission,
@@ -54,6 +62,7 @@ INTERFACES = [
         web_interfaces.FETCH_PREIMAGE,
         fetch,
         (web_engines, http, web_addresses),
+        declared_not_emitted=("environment_divergence",),
     ),
     InterfaceCase("search.web", web_interfaces.SEARCH_PREIMAGE, search),
     InterfaceCase("workspace.file", workspace_interface.INTERFACE_PREIMAGE, workspace_file),
@@ -172,7 +181,8 @@ def test_every_implementation_refusal_is_declared_by_its_interface(case: Interfa
         emitted.update(_literal_refusal_codes(inspect.getsource(module)))
 
     assert "decline_reasons" not in case.preimage
-    assert set(case.preimage["refusals"]) == emitted
+    assert not emitted & set(case.declared_not_emitted)
+    assert set(case.preimage["refusals"]) == emitted | set(case.declared_not_emitted)
 
 
 UNSUPPORTED_REFERENCE_FORMS = [

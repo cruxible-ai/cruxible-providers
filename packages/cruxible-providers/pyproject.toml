@@ -35,7 +35,7 @@ dependencies = []
 # umbrella somebody installed.
 #
 #   pip install "cruxible-providers[web]"
-#   pip install "cruxible-provider-web[browser]"   <- the engine, from the plane
+#   pip install "cruxible-provider-docs[docling]"  <- the engine, from the plane
 web = ["cruxible-provider-web"]
 docs = ["cruxible-provider-docs"]
 quant = ["cruxible-provider-quant"]

@@ -175,39 +175,25 @@ def test_fetch_records_the_endpoint_it_requested(
 
 
 @pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)
-def test_fetch_renders_when_the_run_asks_for_a_browser(
+def test_a_rendered_fetch_is_refused_at_admission(
     fetch_binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    """The expectation names text that exists only after client-side assembly."""
+    """web.fetch does not render: js_rendered is unclaimed, so no process starts."""
 
-    outcome = invoke(
-        fetch_binding,
-        registry=registry,
-        payload={"url": "https://fixture.invalid/dashboard", "render": True},
-        budgets=BUDGETS,
-        local_backend=local_backend,
-        container_backend=container_backend,
-    )
-    assert outcome.status == "ok"
-    assert outcome.input_bucket == "source_kind=js_rendered;access=public;page_weight=light"
-    assert outcome.envelope.output is not None
-    assert (
-        json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"][
-            "renderer"
-        ]
-        == "recorded:dashboard-rendered"
-    )
-    assert (
-        "3.214"
-        in json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"][
-            "text"
-        ]
-    )
-    # A recorded render is a replay too, and carries the same label on the trace.
-    assert [event["kind"] for event in outcome.envelope.trace.events] == ["packaged_recording"]
+    with pytest.raises(RefusalError) as exc:
+        invoke(
+            fetch_binding,
+            registry=registry,
+            payload={"url": "https://fixture.invalid/dashboard", "render": True},
+            budgets=BUDGETS,
+            local_backend=local_backend,
+            container_backend=container_backend,
+        )
+    assert exc.value.code is RefusalCode.UNCLAIMED_BUCKET
+    assert exc.value.refusal.detail["bucket"].startswith("source_kind=js_rendered")
 
 
 @pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)

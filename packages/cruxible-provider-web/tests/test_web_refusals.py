@@ -20,11 +20,10 @@ from cruxible_provider_runtime.binding import BindRequest, bind
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.manifest import BackendKind, load_manifest, manifest_digest
 from cruxible_provider_runtime.registry import StubRegistry
-from cruxible_provider_runtime.resolution import environment_pin_key
 from cruxible_provider_runtime.testing import FakeContainerDriver
 from cruxible_provider_web.interfaces import registrations
 
-from .conftest import FETCH_EXTRAS, MARKER_ENVIRONMENT, PROVIDER_ID
+from .conftest import MARKER_ENVIRONMENT, PROVIDER_ID
 
 
 def _request(
@@ -254,42 +253,6 @@ def test_image_provenance_mismatch_refuses(
 
 
 # -- extras ----------------------------------------------------------------
-
-
-def test_an_artifact_pinning_only_the_base_environment_refuses_the_engine_one(
-    accepted_artifact: ProviderArtifactPayload,
-    manifest_path: Path,
-    lock_path: Path,
-    local_backend: LocalEnvBackend,
-) -> None:
-    """The mismatch that only exists once one lock has two environments.
-
-    Dropping the ``+browser`` pin leaves an artifact that is perfectly valid for
-    ``search.web`` and pins nothing for ``web.fetch``. Falling back to the base
-    pin would materialize an environment with no browser in it and then run an
-    implementation that declared it needed one.
-    """
-
-    assert accepted_artifact.local_env is not None
-    engine_key = environment_pin_key(MARKER_ENVIRONMENT.id, FETCH_EXTRAS)
-    base_only = {
-        key: digest
-        for key, digest in accepted_artifact.local_env.materialization_digests.items()
-        if key != engine_key
-    }
-    payload = accepted_artifact.model_copy(
-        update={
-            "local_env": accepted_artifact.local_env.model_copy(
-                update={"materialization_digests": base_only}
-            )
-        }
-    )
-    registry = _registry_for(payload)
-    with pytest.raises(RefusalError) as exc:
-        bind(registry, _request(manifest_path, lock_path), local_backend=local_backend)
-    assert exc.value.code is RefusalCode.LOCK_MISMATCH
-    assert exc.value.refusal.detail["environment_pin_key"] == engine_key
-    assert exc.value.refusal.detail["extras"] == list(FETCH_EXTRAS)
 
 
 def test_an_extra_the_lock_does_not_declare_refuses(

@@ -14,9 +14,3 @@ the SBOM the CI license lane produces, and the notable ones are:
 
     httpx                Copyright the httpx authors. BSD-3-Clause.
     trafilatura          Copyright the trafilatura authors. Apache-2.0.
-    playwright (extra)   Copyright Microsoft Corporation. Apache-2.0.
-
-The browser binaries Playwright downloads are NOT distributed with this package
-and carry their own licenses (Chromium: BSD-3-Clause and others). They are
-fetched by the operator, into the operator's environment, and this package
-neither vendors nor relicenses them.

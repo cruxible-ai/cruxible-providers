@@ -31,8 +31,8 @@ jobs:
       - name: Run the conformance suite
         # Base deps only, and no engine: `uv sync` installs no per-engine extra
         # and the default options exclude the `engine` marker. A default lane
-        # that downloaded a browser and a tensor stack would have given up the
-        # whole point of the heavy-engine split.
+        # that downloaded a conversion stack and an OCR runtime would have given
+        # up the whole point of the heavy-engine split.
         run: uv run --python ${{ matrix.python-version }} pytest -q
 
   engine-collect:
@@ -186,11 +186,11 @@ jobs:
   engines:
     name: real engines (opt-in)
     # NOT part of the default lane, and deliberately manual. Every job here
-    # installs a per-engine extra and, on first use, downloads a browser build or
-    # a model; that is minutes and gigabytes per run, against tests whose whole
-    # subject is whether a recorded engine response still describes what the
-    # engine does. That question is worth asking on a schedule and before a
-    # release, not on every push.
+    # installs a per-engine extra and, on first use, downloads a model; that is
+    # minutes and gigabytes per run, against tests whose whole subject is whether
+    # a recorded engine response still describes what the engine does. That
+    # question is worth asking on a schedule and before a release, not on every
+    # push.
     #
     # A recording that has drifted fails HERE and nowhere else, so a red run in
     # this lane means the fixtures are describing an engine that no longer
@@ -202,8 +202,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - package: cruxible-provider-web
-            extra: browser
           - package: cruxible-provider-docs
             extra: docling
           - package: cruxible-provider-docs
@@ -220,8 +218,5 @@ jobs:
             "packages/${{ matrix.package }}[${{ matrix.extra }}]" \
             packages/cruxible-provider-runtime \
             pytest
-      - name: Fetch the browser build, when the extra is a browser
-        if: matrix.extra == 'browser'
-        run: .engine-venv/bin/python -m playwright install --with-deps chromium
       - name: Run the engine lane for this package
         run: .engine-venv/bin/python -m pytest -m engine packages/${{ matrix.package }}/tests -q

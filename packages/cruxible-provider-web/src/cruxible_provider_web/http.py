@@ -189,28 +189,6 @@ class RecordingClient:
             max_redirects=MAX_REDIRECTS,
         )
 
-    def exchange(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Mapping[str, str] | None = None,
-        content: bytes | None = None,
-        cap_bytes: int,
-    ) -> HttpResponse:
-        """One request, one response: a redirect is returned, never followed.
-
-        For a caller that decides about redirects itself — the rendered path,
-        whose browser has its own view of what a hop means. The hop is vetted
-        exactly as each hop of :meth:`get` is.
-        """
-
-        self.vet(url)
-        with self._client.stream(method, url, headers=dict(headers or {}), content=content) as (
-            response
-        ):
-            return self._read(response, cap_bytes)
-
     def vet(self, url: str) -> None:
         """Refuse ``url`` if this client's guard does; a no-op without a guard."""
 

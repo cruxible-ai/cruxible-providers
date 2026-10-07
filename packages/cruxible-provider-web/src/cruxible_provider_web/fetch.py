@@ -14,14 +14,11 @@ than a formatting choice:
     derived under every contract, whatever the extractor's confidence, because
     it is a reading of the document rather than the document.
 
-A rendered run is where that line is easiest to lose, so it is drawn twice. The
-document a browser assembles is not a body any origin sent: it is script output
-over one, and it is reported under ``derived.assembled_document`` — its own byte
-count, its own digest, and the assembly that produced it. ``retrieved`` keeps
-describing the main-frame response the browser actually received, down to the
-status. A page that redirects across origins and settles on a 404 a script
-repaints is a failed retrieval, and this adapter reports it as one rather than
-as a 200 for the URL that was asked for.
+**No rendering.** This implementation does not run a browser. A run asking
+for ``render: true`` classifies into the ``js_rendered`` bucket, which the
+manifest does not claim, so admission refuses it before this code runs; the
+adapter refuses it too, should it ever be invoked directly. ``retrieved.renderer``
+is therefore always ``null``.
 
 The adapter never mints a Capture. It returns a typed payload plus trace and the
 executor carries both to the CaptureContract, which decides the grade. That
@@ -31,15 +28,12 @@ ordering is what keeps a provider from being able to certify itself.
 named by the caller, which is the whole point of the interface. Its manifest
 therefore declares the experimental ``dynamic:target-from-run-input`` form, and
 what governs is the recording — every request the client issues reaches the run's
-egress recorder through an httpx event hook, redirect hops included. A rendered
-run does not go through that client, so the browser gets its own hooks: every
-origin a page contacts, subresources and redirect hops alike, lands in the same
-recorder.
+egress recorder through an httpx event hook, redirect hops included.
 
 **Private targets.** ``web.fetch`` refuses, with ``provider_declined``, any
 target whose addresses are loopback, private, link-local, or otherwise not
-publicly routable — on the first request, on every redirect hop, and on every
-request a rendered page makes — and connects only to the addresses it checked,
+publicly routable — on the first request and on every redirect hop — and
+connects only to the addresses it checked,
 so a name cannot be re-pointed between the check and the connection. See
 :mod:`cruxible_provider_web.addresses`. The guard always applies; there is no
 opt-out.
@@ -68,93 +62,32 @@ from urllib.parse import urlsplit
 
 from cruxible_provider_runtime.acquisition import external_capture_result
 from cruxible_provider_runtime.canonical import canonical_json
-from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
-from .engines import (
-    Extraction,
-    HtmlExtractor,
-    PageRenderer,
-    PlaywrightRenderer,
-    RenderedPage,
-    TrafilaturaExtractor,
-)
+from .engines import Extraction, HtmlExtractor, TrafilaturaExtractor
 from .http import ClientFactory, ResponseTooLarge, guarded_client_factory
 from .interfaces import DEFAULT_MAX_BYTES, FETCH_INTERFACE_ID, MAX_RESPONSE_BYTES, page_weight_class
-from .recordings import is_fixture_url, recording_for
 
 __all__ = ["WebFetch"]
 
 RETAINED_HEADERS = ("content-type", "content-length", "last-modified", "etag")
 
-CLIENT_SIDE_RENDER = "client_side_render"
-"""How a document was assembled, when a browser assembled it."""
-
 
 @dataclass(frozen=True)
 class _Exchange:
-    """One retrieval: what the wire said, and what this run ended up reading.
-
-    A plain GET reads the body an origin sent, so the two coincide and only the
-    first half is populated. A rendered run reads a DOM a browser built, which no
-    origin sent — so the wire half stays the main-frame response and the
-    assembled document travels beside it. Holding both in one object is what lets
-    the output say which is which instead of presenting the second as the first.
-    """
+    """One retrieval: what the wire said, and the body the origin sent."""
 
     final_url: str
-    status_code: int | None
+    status_code: int
     headers: Mapping[str, str]
-    wire_body: bytes | None
+    wire_body: bytes
     document: str
     from_recording: bool
-    renderer: str | None
 
     @property
     def content_type(self) -> str:
         return self.headers.get("content-type", "")
-
-    @property
-    def assembled(self) -> bool:
-        return self.renderer is not None
-
-
-class _RecordedRenderer:
-    """Replays the post-assembly DOM a recording captured.
-
-    A recorded render is not a render, and the label says so: the engine name it
-    reports is ``recorded:<id>``, never ``playwright``. The engine-marked lane is
-    what keeps the recording honest — it runs the real browser over the same URL
-    and asserts the recording still describes what a browser produces.
-
-    It contacts nothing, so it records nothing. The recorder it is handed goes
-    unused rather than being given a hopeful entry for an origin that was never
-    reached.
-    """
-
-    name = "recorded"
-
-    def render(self, url: str, *, timeout_seconds: float, recorder: EgressRecorder) -> RenderedPage:
-        del timeout_seconds, recorder
-        recording = recording_for(url)
-        if recording is None or recording.rendered_body is None:
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
-                f"no packaged recording carries a rendered document for {url!r}",
-                url=url,
-            )
-        return RenderedPage(
-            engine=f"recorded:{recording.id}",
-            html=recording.rendered_body,
-            # The recorded exchange, not the recorded DOM: a replay reports the
-            # response the recording captured, exactly as a live render reports
-            # the one the browser received.
-            final_url=recording.request_url,
-            status_code=recording.response.status_code,
-            headers={key.lower(): value for key, value in recording.response.headers.items()},
-            body=recording.response.body.encode("utf-8"),
-        )
 
 
 class WebFetch:
@@ -167,14 +100,12 @@ class WebFetch:
         *,
         client_factory: ClientFactory | None = None,
         extractor: HtmlExtractor | None = None,
-        renderer: PageRenderer | None = None,
     ) -> None:
         # Every default is the production spelling. The seams exist so a test can
         # hold one variable still, not so a test can replace the thing under
         # test: the conformance suite drives these same defaults.
         self._client_factory = client_factory or guarded_client_factory
         self._extractor = extractor or TrafilaturaExtractor()
-        self._renderer = renderer
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
@@ -184,10 +115,7 @@ class WebFetch:
 
         timeout_seconds = max(1.0, context.budgets.wall_clock_seconds * 0.8)
         try:
-            if request.render:
-                exchange = self._render(context, request, timeout_seconds)
-            else:
-                exchange = self._get(context, request, timeout_seconds)
+            exchange = self._get(context, request, timeout_seconds)
         except RefusalError as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
         except ResponseTooLarge as exc:
@@ -200,13 +128,10 @@ class WebFetch:
                 observed_weight=page_weight_class(exc.read_bytes),
             )
 
-        if exchange.status_code is not None and not 200 <= exchange.status_code < 300:
+        if not 200 <= exchange.status_code < 300:
             # A status outside 2xx is a failed attempt at an answer, not a
             # declined one: the interface's product is a retrieved resource, and
-            # this run did not get one. A rendered run is judged on the same rule
-            # now that it reports the status a browser actually got — a script
-            # that repaints a 404 into something readable has not turned it into
-            # a retrieved resource.
+            # this run did not get one.
             return ProviderResult.failed(
                 "HttpStatus",
                 f"origin answered {exchange.status_code}",
@@ -215,19 +140,6 @@ class WebFetch:
                 status_code=exchange.status_code,
             )
 
-        document = exchange.document.encode("utf-8")
-        if len(document) > request.max_bytes:
-            return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
-                "the assembled document is heavier than the bucket this run was admitted under",
-                url=request.url,
-                declared_bucket=context.input_bucket,
-                cap_bytes=request.max_bytes,
-                observed_weight=page_weight_class(len(document)),
-            )
-
-        if exchange.wire_body is None:
-            return ProviderResult.failed("MissingBody", "retrieval did not retain the origin body")
         if len(exchange.wire_body) > request.max_bytes:
             return ProviderResult.refused(
                 RefusalCode.PROVIDER_DECLINED, "origin body exceeds max_bytes"
@@ -257,16 +169,14 @@ class WebFetch:
                 "headers": {
                     key: value for key, value in exchange.headers.items() if key in RETAINED_HEADERS
                 },
-                # The body an origin sent, never the document this run read:
-                # on a rendered run those are two artefacts, and the second
-                # is reported under derived.assembled_document.
-                "byte_count": None if exchange.wire_body is None else len(exchange.wire_body),
+                # The body an origin sent, exactly as it arrived.
+                "byte_count": len(exchange.wire_body),
                 "body_sha256": _digest(exchange.wire_body),
                 "body_base64": base64.b64encode(exchange.wire_body).decode("ascii"),
                 "source": source,
                 # Which client performed the exchange, in the sense a
                 # user-agent names one. What it built is derived.
-                "renderer": exchange.renderer,
+                "renderer": None,
             },
             "derived": derived,
         }
@@ -284,7 +194,7 @@ class WebFetch:
                 },
                 observed_at=datetime.now(UTC),
             ),
-            metrics={"byte_count": float(len(document))},
+            metrics={"byte_count": float(len(exchange.document.encode("utf-8")))},
             events=events,
         )
 
@@ -305,59 +215,14 @@ class WebFetch:
             wire_body=response.body,
             document=response.text,
             from_recording=response.from_recording is not None,
-            renderer=None,
         )
-
-    def _render(
-        self, context: ProviderRunContext, request: _Request, timeout_seconds: float
-    ) -> _Exchange:
-        renderer = self._renderer or self._default_renderer(request.url)
-        # The recorder goes to the renderer rather than being written here: a
-        # browser contacts the origin itself, outside the instrumented client,
-        # and it contacts every host the page pulls from as well. Recording only
-        # the URL the run named would leave the receipt describing the request
-        # rather than the run.
-        page = renderer.render(
-            request.url, timeout_seconds=timeout_seconds, recorder=context.egress
-        )
-        return _Exchange(
-            final_url=page.final_url,
-            status_code=page.status_code,
-            headers=page.headers,
-            wire_body=page.body,
-            document=page.html,
-            from_recording=page.engine.startswith("recorded:"),
-            renderer=page.engine,
-        )
-
-    @staticmethod
-    def _default_renderer(url: str) -> PageRenderer:
-        if is_fixture_url(url):
-            return _RecordedRenderer()
-        return PlaywrightRenderer()
 
     # -- derivation --------------------------------------------------------
 
     def _derive(self, request: _Request, exchange: _Exchange) -> dict[str, Any]:
-        derived = self._extraction(request, exchange)
-        if exchange.assembled:
-            # Stated in the derived half, and stated completely enough to stand
-            # on its own: a CaptureContract may grade these two blocks under
-            # different families, and a block that has to be read next to
-            # another one to be understood is a block that will be read alone.
-            document = exchange.document.encode("utf-8")
-            derived["assembled_document"] = {
-                "assembly": CLIENT_SIDE_RENDER,
-                "engine": exchange.renderer,
-                "byte_count": len(document),
-                "sha256": _digest(document),
-            }
-        return derived
-
-    def _extraction(self, request: _Request, exchange: _Exchange) -> dict[str, Any]:
         if not request.extract:
             return {"kind": "none", "engine": None, "text": None, "metadata": {}}
-        if request.expected_format != "html" and not request.render:
+        if request.expected_format != "html":
             # Extraction is for documents. A structured endpoint is carried
             # through verbatim rather than run through a main-content heuristic
             # that would find "main content" in a JSON array.
@@ -376,11 +241,9 @@ class WebFetch:
         }
 
 
-def _digest(payload: bytes | None) -> str | None:
-    """The digest of ``payload``, or ``None`` when there is nothing to digest."""
+def _digest(payload: bytes) -> str:
+    """The ``sha256:`` digest of ``payload``."""
 
-    if payload is None:
-        return None
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
@@ -393,7 +256,6 @@ class _Request:
         "headers",
         "logical_source",
         "max_bytes",
-        "render",
         "source_kind",
         "url",
     )
@@ -402,7 +264,6 @@ class _Request:
         self,
         *,
         url: str,
-        render: bool,
         max_bytes: int,
         extract: bool,
         headers: Mapping[str, str],
@@ -411,7 +272,6 @@ class _Request:
         logical_source: str,
     ) -> None:
         self.url = url
-        self.render = render
         self.max_bytes = max_bytes
         self.extract = extract
         self.headers = dict(headers)
@@ -448,6 +308,15 @@ class _Request:
         for flag in ("render", "extract", "paced"):
             if flag in payload and not isinstance(payload[flag], bool):
                 raise refuse(RefusalCode.PROVIDER_DECLINED, f"{flag} must be a bool")
+        if payload.get("render", False):
+            # Admission refuses this first: a rendered input classifies into the
+            # js_rendered bucket, which the manifest does not claim. Refused here
+            # as well so that a direct invocation cannot reach a code path that
+            # does not exist.
+            raise refuse(
+                RefusalCode.PROVIDER_DECLINED,
+                "web.fetch does not render pages; the js_rendered bucket is not claimed",
+            )
         expected_format = payload.get("expected_format", "auto")
         if expected_format not in {"auto", "html", "json", "csv", "text", "bytes"}:
             raise refuse(RefusalCode.PROVIDER_DECLINED, "unsupported expected_format")
@@ -472,10 +341,6 @@ class _Request:
                 raise refuse(
                     RefusalCode.PROVIDER_DECLINED, "credential must be a single header value"
                 )
-            if payload.get("render", False):
-                raise refuse(
-                    RefusalCode.PROVIDER_DECLINED, "rendered retrieval does not support credentials"
-                )
             headers[header] = material
 
         # The bucket the run was admitted into is the executor's classification
@@ -486,7 +351,6 @@ class _Request:
         ).get("source_kind", "static_html")
         return cls(
             url=url,
-            render=bool(payload.get("render", False)),
             max_bytes=max_bytes,
             extract=bool(payload.get("extract", True)),
             headers=headers,
@@ -496,8 +360,6 @@ class _Request:
         )
 
     def validate_format(self, exchange: _Exchange) -> None:
-        if exchange.wire_body is None:
-            raise ValueError("retrieval did not retain the origin body")
         media = exchange.content_type.partition(";")[0].strip().lower()
         actual = (
             "json"

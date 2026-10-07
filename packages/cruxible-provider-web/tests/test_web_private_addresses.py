@@ -320,19 +320,16 @@ def test_web_fetch_refuses_private_targets_with_its_production_defaults(url: str
     assert result.refusal.detail["address_class"]
 
 
-def test_web_fetch_refuses_a_rendered_run_on_a_private_target_before_any_browser() -> None:
-    """Refused before an engine is even looked for: the default lane has none."""
+def test_a_direct_rendered_invocation_is_declined_without_contacting_anything() -> None:
+    """Admission refuses ``render: true`` first; the adapter refuses it as well."""
 
-    result = WebFetch()(_context("http://169.254.169.254/", render=True))
+    context = _context("https://news.example/app", render=True)
+    result = WebFetch()(context)
 
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code in {
-        RefusalCode.PROVIDER_DECLINED,
-        # With no browser installed the engine check comes first; either way
-        # nothing is contacted.
-        RefusalCode.ENVIRONMENT_DIVERGENCE,
-    }
+    assert result.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert context.egress.observed() == []
 
 
 def test_web_fetch_refuses_a_name_resolving_privately() -> None:

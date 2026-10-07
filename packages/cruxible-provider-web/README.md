@@ -3,10 +3,10 @@
 Web retrieval and web search providers for [Cruxible](https://github.com/cruxible-ai/cruxible).
 Apache-2.0.
 
-| Interface | Entrypoint | What it does | Extra |
-|---|---|---|---|
-| `web.fetch` | `cruxible_provider_web.fetch:WebFetch` | Retrieves one URL the run names, optionally rendering it in a browser and extracting its main content as Markdown | `browser`, for rendered pages |
-| `search.web` | `cruxible_provider_web.search:SearxngSearch` | Queries a SearXNG instance the operator configured | none |
+| Interface | Entrypoint | What it does |
+|---|---|---|
+| `web.fetch` | `cruxible_provider_web.fetch:WebFetch` | Retrieves one URL the run names and, for HTML, extracts its main content as Markdown |
+| `search.web` | `cruxible_provider_web.search:SearxngSearch` | Queries a SearXNG instance the operator configured |
 
 A provider is an adapter Cruxible runs out of process, on an exact, governed
 pin. It returns a typed result plus a trace; it never grades its own output.
@@ -18,7 +18,6 @@ Operators install the package into a Cruxible daemon through a governed install:
 
 ```sh
 cruxible provider install cruxible-provider-web
-cruxible provider install cruxible-provider-web --extra browser   # rendered pages
 ```
 
 The install fetches the wheel, checks it against the index's hash, materializes
@@ -30,22 +29,13 @@ bound to the exact accepted distribution, lock and manifest.
 `pip install cruxible-provider-web` works for development and testing; it is not
 how a daemon runs providers.
 
-### Extras
+### No extras
 
-The base install is light: the adapters, the interface schemas, the input
-classifiers, an HTTP client ([httpx](https://www.python-httpx.org/)), a
+The install is light and has no extras: the adapters, the interface schemas, the
+input classifiers, an HTTP client ([httpx](https://www.python-httpx.org/)), a
 main-content extractor ([trafilatura](https://trafilatura.readthedocs.io/)), and
-the recorded exchanges the conformance fixtures replay.
-
-| Extra | Adds | Needed for |
-|---|---|---|
-| `browser` | [Playwright](https://playwright.dev/python/) | `web.fetch` with `render: true` (pages assembled by JavaScript). Playwright's Chromium build must also be available to that environment (`python -m playwright install chromium`). |
-
-The `web.fetch` manifest declares the `browser` extra, so its environment is
-resolved with Playwright and `search.web`'s without: one lock, two environments,
-each pinned separately in the accepted artifact. In an environment without the
-extra, a rendered run refuses with `environment_divergence` rather than failing
-on an import.
+the recorded exchanges the conformance fixtures replay. Both implementations
+bind the same environment.
 
 ## `web.fetch`
 
@@ -54,7 +44,7 @@ on an import.
 | Field | Default | Meaning |
 |---|---|---|
 | `url` | — | The `http` or `https` URL to retrieve |
-| `render` | `false` | Load the page in a headless browser and read the document it assembles |
+| `render` | `false` | Must be `false`: this implementation does not render pages (see below) |
 | `extract` | `true` | Extract main content from HTML as Markdown; structured formats are carried verbatim |
 | `expected_format` | `auto` | `auto`, `html`, `json`, `csv`, `text` or `bytes`. A mismatch with what arrives is an error; JSON and CSV are validated |
 | `max_bytes` | 256 KiB | Response size cap, at most 32 MiB, enforced while the body streams |
@@ -68,20 +58,22 @@ canonical JSON bundle in two halves that a CaptureContract grades separately:
 
 - **`retrieved`** — what came off the wire: the requested and final URL, the
   status, selected headers, and the exact body the origin sent (base64, byte
-  count, sha256). For a rendered run this is the main-frame response the browser
-  received, after its redirects.
+  count, sha256), after any redirects. `renderer` is always `null`.
 - **`derived`** — what was made of it: the extracted Markdown and metadata, or
-  the verbatim structured body. A rendered run also reports the document the
-  browser assembled, under `assembled_document`, with its own byte count and
-  digest: script output is never presented as something an origin sent.
+  the verbatim structured body.
 
-A non-2xx final status is a failed retrieval — including a rendered page whose
-script repaints an error page into something readable.
+A non-2xx final status is a failed retrieval.
 
-**Input buckets.** Static pages up to the medium weight class, public rendered
-pages, and structured (JSON, CSV) endpoints are claimed. Binary payloads, heavy
-HTML pages and authenticated rendered pages are not, so such inputs refuse at
-admission instead of being served badly. The declared weight is checked, not
+**Input buckets.** Static pages up to the medium weight class and structured
+(JSON, CSV) endpoints are claimed. Binary payloads, heavy HTML pages and every
+rendered (`js_rendered`) page are not, so such inputs refuse at admission
+(`unclaimed_bucket`) before any provider code runs.
+
+**No rendering.** `web.fetch` does not run a browser. The interface keeps its
+`render` field, and a run that sets it classifies into the `js_rendered` bucket,
+which this package does not claim: it is refused at admission, and the adapter
+refuses it as well if invoked directly. Pages that are assembled by JavaScript
+are out of scope for this release. The declared weight is checked, not
 trusted: a response heavier than the bucket the run was admitted under refuses.
 
 ## `search.web`
@@ -124,10 +116,7 @@ A literal IP host is judged as written, including shorthand spellings such as
 `127.1` or `2130706433`. A name is resolved, and if **any** address in the
 answer is blocked, the target is refused.
 
-The check applies to every hop: the first request, every redirect, and — on a
-rendered run — every request the page makes, with each of their redirects. A
-blocked subresource is not loaded and the page carries on without it; a blocked
-main-frame navigation, including one a script starts after load, refuses the run.
+The check applies to every hop: the first request and every redirect.
 
 **DNS rebinding is closed by pinning.** The addresses that passed the check are
 the only ones the connection may open to: the client's network layer connects to
@@ -135,15 +124,6 @@ the vetted address, while the `Host` header, TLS SNI and certificate
 verification keep using the name. A resolver that answers differently a moment
 later is never consulted for that hop; each new hop is resolved and checked
 afresh.
-
-**A rendered run never opens connections of its own.** Every request the browser
-makes is routed back through the same guarded, pinned client, and the browser is
-answered with what that client retrieved. Main-frame redirects are re-navigated
-by the adapter, hop by hop, so each one is checked; subresource redirects are
-followed by the client, without cookies or credentials. For traffic that request
-routing cannot see, such as WebSockets and preconnects, the browser is launched
-against a proxy that accepts no connections, with service workers blocked and
-non-proxied UDP disabled.
 
 The guard always applies; there is no opt-out. Two consequences:
 
@@ -160,15 +140,14 @@ authenticated fetch redirected to a **different origin** refuses
 (`cross_origin_credentialed_redirect`) rather than either handing the credential
 to a host the run never named or continuing anonymously under terms the receipt
 no longer describes. An `http` → `https` upgrade of the same host is followed.
-Rendered runs refuse credentials outright.
 
 ### Egress recording
 
 `web.fetch` declares the `dynamic:target-from-run-input` endpoint form: its
 target *is* the run input, so an endpoint list fixed at acceptance time could
 only be wrong. What governs instead is the recording. Every request the client
-sends — redirect hops and a rendered page's subresources included — lands in the
-run's egress record, and nothing that was refused does. `search.web` declares
+sends, redirect hops included, lands in the run's egress record, and nothing
+that was refused does. `search.web` declares
 `dynamic:target-from-configuration`, and its instance is recorded the same way.
 
 Recording is not containment. A provider in the local backend runs with the
@@ -191,10 +170,5 @@ From a checkout of
 [cruxible-providers](https://github.com/cruxible-ai/cruxible-providers):
 
 ```sh
-uv run pytest packages/cruxible-provider-web -q          # no browser, no network
-uv run pytest -m engine packages/cruxible-provider-web   # needs the browser extra
+uv run pytest packages/cruxible-provider-web -q   # no network
 ```
-
-The default lane needs neither a network nor a browser. The `engine` lane drives
-a real browser against local pages and a local server, and skips with a reason
-when Playwright or Chromium is absent.

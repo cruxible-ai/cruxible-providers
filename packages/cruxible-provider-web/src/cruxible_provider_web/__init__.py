@@ -1,10 +1,9 @@
 """Cruxible provider adapters for the web plane.
 
 Two implementations, of two interfaces: ``web.fetch`` retrieves one resource the
-run names, and ``search.web`` queries a configured SearXNG instance. Neither is
-an engine. The heavy one — a browser — lives behind the ``browser`` extra, which
-the ``web.fetch`` implementation's manifest declares and the resolver
-materializes into that implementation's environment and no other.
+run names, and ``search.web`` queries a configured SearXNG instance. Neither
+needs a heavy engine, so the package has no extras: both bind the same base
+environment.
 """
 
 from __future__ import annotations

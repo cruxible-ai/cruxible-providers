@@ -408,10 +408,8 @@ requires-dist = [
     { name = "cruxible-provider-runtime", editable = "../cruxible-provider-runtime" },
     { name = "httpcore", specifier = ">=1.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.44" },
     { name = "trafilatura", specifier = ">=2.0" },
 ]
-provides-extras = ["browser"]
 
 [package.metadata.requires-dev]
 dev = [
