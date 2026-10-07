@@ -74,8 +74,8 @@ def enforce_cost_budget(
 ) -> None:
     """Refuse when a metered run exceeded its cost budget.
 
-    RP-0 meters nothing; this is the seam the metering substrate raises through
-    so that a cost breach arrives as the same kind of typed refusal as a
+    The runtime meters nothing; this is the seam the metering substrate raises
+    through so that a cost breach arrives as the same kind of typed refusal as a
     wall-clock breach, and lands on a track record the same way. A run with no
     declared cost budget passes: an absent budget is not a zero budget.
     """

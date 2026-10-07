@@ -6,9 +6,10 @@ credential material from an inherited file descriptor the run context names
 parent, so it opens the descriptor and hands it over with ``pass_fds``. A
 container is a different story: a fresh container receives stdin, stdout and
 stderr and nothing else, an executor cannot hand a descriptor across the
-container boundary, and the no-mounts law forbids bind-mounting a secret file
-into the image. Something inside the image has to turn a delivery the container
-runtime *can* perform into the descriptor the child expects.
+container boundary, and provider containers get no host mounts, so a secret
+file cannot be bind-mounted into the image either. Something inside the image
+has to turn a delivery the container runtime *can* perform into the descriptor
+the child expects.
 
 That is this module. It is the image's ``ENTRYPOINT``; the child stays in
 ``CMD``, and the shim ``execv``s whatever command argv it was given:

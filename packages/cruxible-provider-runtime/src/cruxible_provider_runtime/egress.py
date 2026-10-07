@@ -135,7 +135,7 @@ class EgressRecorder:
     """Run-scoped record of endpoints a provider actually contacted.
 
     Providers call :meth:`record` from whatever client they use. The hook is
-    deliberately client-agnostic: RP-0 vendors no HTTP library, and each plane
+    deliberately client-agnostic: the runtime vendors no HTTP library, and each plane
     package wires its own client's event hook to this recorder.
     """
 

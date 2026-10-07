@@ -1,9 +1,9 @@
 """A stub interface/provider registry.
 
 **This is a stub.** The real Provider artifact kind, interface registration, and
-bucket-vocabulary registration live in core. RP-0 ships schemas and a
-conformance harness against this stub and never touches the core repo; the seam
-is documented in ``docs/core-integration-seam.md``.
+bucket-vocabulary registration live in core. This package ships schemas and a
+conformance harness against this stub and never touches core state; the seam
+is documented in ``docs/core-integration-seam.md`` in the source repository.
 
 The stub is faithful about the *rules* core must enforce, because those rules are
 what the conformance suite tests:

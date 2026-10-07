@@ -208,7 +208,7 @@ class ProviderManifest(BaseModel):
                 declared=[impl.interface_id for impl in self.implementations],
             )
         if len(matches) > 1:
-            # Terminal in RP-0. There is no disambiguation mechanism: the bind
+            # Terminal. There is no disambiguation mechanism: the bind
             # request names an interface, not an entrypoint, and inventing a
             # local tie-break would make which implementation ran depend on
             # manifest ordering. Artifact-level disambiguation is a core-seam
@@ -216,7 +216,7 @@ class ProviderManifest(BaseModel):
             raise refuse(
                 RefusalCode.AMBIGUOUS_IMPLEMENTATION,
                 f"provider {self.provider_id!r} declares {len(matches)} implementations of "
-                f"{interface_id!r}; RP-0 has no way to choose between them, so this is "
+                f"{interface_id!r}; the runtime has no way to choose between them, so this is "
                 "terminal — a package may implement an interface at most once",
                 provider_id=self.provider_id,
                 interface_id=interface_id,
