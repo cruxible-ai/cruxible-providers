@@ -26,6 +26,7 @@ from cruxible_provider_quant import (
     reduce,
     stat_test,
 )
+from cruxible_provider_web import addresses as web_addresses
 from cruxible_provider_web import engines as web_engines
 from cruxible_provider_web import fetch, http, search
 from cruxible_provider_web import interfaces as web_interfaces
@@ -52,7 +53,7 @@ INTERFACES = [
         "web.fetch",
         web_interfaces.FETCH_PREIMAGE,
         fetch,
-        (web_engines, http),
+        (web_engines, http, web_addresses),
     ),
     InterfaceCase("search.web", web_interfaces.SEARCH_PREIMAGE, search),
     InterfaceCase("workspace.file", workspace_interface.INTERFACE_PREIMAGE, workspace_file),
