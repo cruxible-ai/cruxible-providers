@@ -197,7 +197,7 @@ def test_the_lane_would_notice_an_unrecorded_socket(
     outcome = invoke(
         binding,
         registry=registry,
-        payload={"url": "https://not-a-fixture.invalid/page"},
+        payload={"url": "https://1.1.1.1/page"},
         budgets=BUDGETS,
         local_backend=local_backend,
         container_backend=container_backend,
@@ -206,7 +206,7 @@ def test_the_lane_would_notice_an_unrecorded_socket(
     assert outcome.envelope.error is not None
     assert "egress-conformance lane" in outcome.envelope.error.message
     # And the attempt was recorded, which is the property the lane is about.
-    assert outcome.egress.observed == ("https://not-a-fixture.invalid",)
+    assert outcome.egress.observed == ("https://1.1.1.1",)
 
 
 def test_a_missing_instance_binding_refuses_before_the_request(

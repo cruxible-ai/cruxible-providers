@@ -21,32 +21,60 @@ injection exists so a test can hold one variable still, not so a test can
 replace the thing under test.
 
 **Why the browser wiring is not inside the browser.** A browser is an engine;
-deciding what a rendered run is allowed to claim, and getting every host it
-touched into the run's recorder, is not. Those decisions live in
-:func:`drive_page`, over the :class:`BrowserPage` protocol, so that the default
-lane can execute them against a double. Wiring only a machine with a browser
-installed can run is wiring nobody reviews, and the receipt is exactly what it
-decides.
+deciding what a rendered run is allowed to claim, what it is allowed to contact,
+and getting every host it touched into the run's recorder, is not. Those
+decisions live in :func:`drive_page`, over the :class:`BrowserPage` protocol, so
+that the default lane can execute them against a double. Wiring only a machine
+with a browser installed can run is wiring nobody reviews, and the receipt is
+exactly what it decides.
+
+**The browser never opens a connection of its own.** Every request a page makes
+— the navigation, each redirect hop, every subresource — is routed through the
+same guarded, address-pinned client a plain fetch uses, and answered from what
+that client retrieved. A private target is refused there before anything is
+sent, exactly as it is on the plain path, and a main-frame refusal refuses the
+run. Routing does not see everything a browser can do — a WebSocket, a
+preconnect — so the browser is also launched against a proxy that accepts no
+connections and with non-proxied UDP disabled: whatever the routing cannot see
+has nowhere to go.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import socket
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+import httpcore
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode, refuse
+from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
+
+from .addresses import AddressGuard, Resolver
+from .http import (
+    MAX_REDIRECTS,
+    REDIRECT_STATUSES,
+    USER_AGENT,
+    HttpResponse,
+    PinnedTransport,
+    RecordingClient,
+    _next_hop,
+)
+from .interfaces import MAX_RESPONSE_BYTES
 
 __all__ = [
     "BrowserPage",
+    "BrowserRequest",
+    "BrowserRoute",
     "Extraction",
     "HtmlExtractor",
     "MainFrameResponse",
     "PageRenderer",
     "PlaywrightRenderer",
     "RenderedPage",
+    "RouteGate",
     "TrafilaturaExtractor",
     "drive_page",
 ]
@@ -102,6 +130,47 @@ class MainFrameResponse(Protocol):
     def body(self) -> bytes: ...
 
 
+class BrowserFrame(Protocol):
+    """The slice of a frame this plane reads: whether it is the top one."""
+
+    @property
+    def parent_frame(self) -> BrowserFrame | None: ...
+
+
+class BrowserRequest(Protocol):
+    """The slice of a browser request the route gate reads."""
+
+    @property
+    def url(self) -> str: ...
+
+    @property
+    def method(self) -> str: ...
+
+    @property
+    def headers(self) -> dict[str, str]: ...
+
+    @property
+    def post_data_buffer(self) -> bytes | None: ...
+
+    @property
+    def frame(self) -> BrowserFrame: ...
+
+    def is_navigation_request(self) -> bool: ...
+
+
+class BrowserRoute(Protocol):
+    """A request the browser has paused, waiting for the gate's decision."""
+
+    @property
+    def request(self) -> BrowserRequest: ...
+
+    def abort(self, error_code: str = ...) -> None: ...
+
+    def continue_(self) -> None: ...
+
+    def fulfill(self, *, status: int, headers: dict[str, str], body: bytes) -> None: ...
+
+
 class BrowserPage(Protocol):
     """The slice of a browser page :func:`drive_page` drives.
 
@@ -110,9 +179,10 @@ class BrowserPage(Protocol):
     Playwright page satisfies it.
     """
 
-    url: str
+    @property
+    def url(self) -> str: ...
 
-    def on(self, event: str, handler: Callable[[Any], None]) -> None: ...
+    def route(self, url: str, handler: Callable[[BrowserRoute], None]) -> None: ...
 
     def goto(self, url: str, *, wait_until: str, timeout: float) -> MainFrameResponse | None: ...
 
@@ -133,18 +203,146 @@ class PageRenderer(Protocol):
     ) -> RenderedPage: ...
 
 
-def _record_contact(recorder: EgressRecorder, url: str) -> None:
-    """Record ``url`` when it names an origin the egress contract is about.
+_UNFORWARDED_REQUEST_HEADERS = frozenset(
+    {
+        # Hop-by-hop, or describing a connection the browser never opened.
+        "host",
+        "connection",
+        "keep-alive",
+        "proxy-connection",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "content-length",
+        # The client decodes what it receives, so it negotiates what it can
+        # decode rather than inheriting the browser's list.
+        "accept-encoding",
+    }
+)
+_CREDENTIAL_HEADERS = frozenset({"cookie", "authorization"})
+_UNFULFILLED_RESPONSE_HEADERS = frozenset(
+    # The body handed back to the browser is already decoded and complete.
+    {"content-encoding", "content-length", "transfer-encoding", "connection", "keep-alive"}
+)
 
-    A browser also loads ``data:``, ``blob:`` and ``file:`` URLs, and the
-    recorder's subject is who a provider talked to over a network. Normalising a
-    hostless URL refuses rather than records, so the filter has to be on the way
-    in rather than left to the recorder.
+
+def _forwardable(headers: Mapping[str, str]) -> dict[str, str]:
+    return {
+        name: value
+        for name, value in headers.items()
+        if name.lower() not in _UNFORWARDED_REQUEST_HEADERS
+    }
+
+
+def _is_main_frame_navigation(request: BrowserRequest) -> bool:
+    try:
+        return request.is_navigation_request() and request.frame.parent_frame is None
+    except Exception:  # pragma: no cover - a request with no frame (a worker's)
+        return False
+
+
+class RouteGate:
+    """The route handler every request a rendered page makes passes through.
+
+    Each request is vetted and sent by the guarded client, and the browser is
+    answered with what that client got back — so the browser's own networking
+    never opens a socket, and a private target is refused before anything is
+    sent to it, exactly as on the plain path.
+
+    Redirects are where a route handler would otherwise lose sight of a hop: a
+    browser follows a redirect it was answered with without routing the next
+    request. So a redirect never reaches the browser. A **main-frame** redirect
+    is recorded in :attr:`redirect` and the navigation aborted, and
+    :func:`drive_page` navigates to the destination itself — through this gate
+    again, with the address bar, relative URLs and the receipt all naming where
+    the page actually is. A **subresource** redirect is followed here, hop by
+    hop, each hop vetted, with credentials dropped after the first.
+
+    A main-frame request the gate refuses is kept in :attr:`failure`, and
+    :func:`drive_page` refuses the run with it. A refused subresource is aborted
+    and the page carries on without it.
     """
 
-    parts = urlsplit(url)
-    if parts.scheme in {"http", "https"} and parts.hostname:
-        recorder.record(url)
+    def __init__(self, client: RecordingClient, *, cap_bytes: int = MAX_RESPONSE_BYTES) -> None:
+        self._client = client
+        self._cap_bytes = cap_bytes
+        self.redirect: str | None = None
+        self.failure: Exception | None = None
+
+    def take_redirect(self) -> str | None:
+        """The main-frame redirect the last navigation was answered with, once."""
+
+        redirect, self.redirect = self.redirect, None
+        return redirect
+
+    def __call__(self, route: BrowserRoute) -> None:
+        request = route.request
+        if urlsplit(request.url).scheme not in {"http", "https"}:
+            # data:, blob:, file: — nothing crosses a network, so nothing is
+            # for the address guard to judge.
+            route.continue_()
+            return
+        main = _is_main_frame_navigation(request)
+        try:
+            response = self._client.exchange(
+                request.method,
+                request.url,
+                headers=_forwardable(request.headers),
+                content=request.post_data_buffer,
+                cap_bytes=self._cap_bytes,
+            )
+            location = response.headers.get("location")
+            if response.status_code in REDIRECT_STATUSES and location:
+                destination = _next_hop(request.url, location, credentialed=False)
+                if main:
+                    self.redirect = destination
+                    route.abort("aborted")
+                    return
+                response = self._follow(request, response.status_code, destination)
+        except Exception as exc:
+            # Broad on purpose: a handler that raises leaves the request paused
+            # until the navigation times out. The refusal travels on for a
+            # main-frame request; a subresource is simply not served.
+            if main:
+                self.failure = exc
+            route.abort("blockedbyclient" if isinstance(exc, RefusalError) else "failed")
+            return
+        route.fulfill(
+            status=response.status_code,
+            headers={
+                name: value
+                for name, value in response.headers.items()
+                if name not in _UNFULFILLED_RESPONSE_HEADERS
+            },
+            body=response.body,
+        )
+
+    def _follow(self, request: BrowserRequest, status: int, destination: str) -> HttpResponse:
+        headers = {
+            name: value
+            for name, value in _forwardable(request.headers).items()
+            if name.lower() not in _CREDENTIAL_HEADERS
+        }
+        method, content = request.method, request.post_data_buffer
+        for _ in range(MAX_REDIRECTS):
+            if status not in {307, 308}:
+                method, content = "GET", None
+            response = self._client.exchange(
+                method, destination, headers=headers, content=content, cap_bytes=self._cap_bytes
+            )
+            location = response.headers.get("location")
+            if response.status_code not in REDIRECT_STATUSES or not location:
+                return response
+            status = response.status_code
+            destination = _next_hop(destination, location, credentialed=False)
+        raise refuse(
+            RefusalCode.REDIRECT_LIMIT,
+            f"a subresource redirect chain did not settle within {MAX_REDIRECTS} hops",
+            url=request.url,
+            max_redirects=MAX_REDIRECTS,
+        )
 
 
 def drive_page(
@@ -152,31 +350,53 @@ def drive_page(
     url: str,
     *,
     timeout_seconds: float,
-    recorder: EgressRecorder,
+    client: RecordingClient,
     engine: str,
 ) -> RenderedPage:
-    """Navigate ``page`` to ``url``, recording every origin it contacts.
+    """Navigate ``page`` to ``url`` with every request routed through ``client``.
 
-    Both hooks are attached and both are load-bearing. A browser contacts hosts
-    the adapter never named — the redirect it follows, the CDN its markup pulls a
-    script from, the API that script queries — and none of that passes through
-    the instrumented HTTP client, so without these hooks none of it reaches the
-    run's recorder and the receipt understates the run to exactly the degree the
-    page was interesting. Requests cover what was attempted; responses cover the
-    hops a redirect chain answers with.
+    The gate is installed before the navigation starts, so nothing the page does
+    precedes it. ``client`` is the run's guarded client: it records every request
+    it sends into the run's recorder, so the receipt names exactly the origins
+    this run contacted — the redirect it followed, the CDN its markup pulls a
+    script from, the API that script queries — and nothing that was refused.
 
     What comes back is the main-frame response as the browser saw it, never the
     request as the caller wrote it.
     """
 
-    page.on("request", lambda event: _record_contact(recorder, event.url))
-    page.on("response", lambda event: _record_contact(recorder, event.url))
-    # Recorded here as well as by the hook. A browser that dies during launch
-    # still leaves a run that was about to contact this origin, and a receipt
-    # that omitted it would understate the attempt.
-    _record_contact(recorder, url)
+    gate = RouteGate(client)
+    page.route("**/*", gate)
+    target = url
+    for _ in range(MAX_REDIRECTS + 1):
+        navigation_error: Exception | None = None
+        response: MainFrameResponse | None = None
+        try:
+            response = page.goto(target, wait_until="networkidle", timeout=timeout_seconds * 1000)
+        except Exception as exc:
+            navigation_error = exc
+        if gate.failure is not None:
+            # Also reached when the refused navigation came later than ``goto``
+            # — a script sending the page somewhere — and so raised nothing.
+            raise gate.failure from navigation_error
+        redirect = gate.take_redirect()
+        if redirect is None:
+            if navigation_error is not None:
+                raise navigation_error
+            break
+        # Vetted here as well as by the gate, so that a redirect onto a private
+        # address is refused without asking the browser to go there at all.
+        client.vet(redirect)
+        target = redirect
+    else:
+        raise refuse(
+            RefusalCode.REDIRECT_LIMIT,
+            f"the redirect chain did not settle within {MAX_REDIRECTS} hops",
+            url=url,
+            next_url=target,
+            max_redirects=MAX_REDIRECTS,
+        )
 
-    response = page.goto(url, wait_until="networkidle", timeout=timeout_seconds * 1000)
     html = page.content()
     if response is None:
         # A navigation with no main-frame response — a same-document navigation,
@@ -273,6 +493,22 @@ class TrafilaturaExtractor:
         )
 
 
+@contextmanager
+def _closed_proxy() -> Iterator[str]:
+    """A proxy address that refuses every connection, for as long as it is held.
+
+    A socket bound and never listened on: the port is reserved for the duration,
+    so nothing else can take it, and a connection to it is refused at once.
+    """
+
+    sink = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sink.bind(("127.0.0.1", 0))
+        yield f"http://127.0.0.1:{sink.getsockname()[1]}"
+    finally:
+        sink.close()
+
+
 class PlaywrightRenderer:
     """Client-side assembly with a real browser. Requires the ``browser`` extra.
 
@@ -282,9 +518,22 @@ class PlaywrightRenderer:
     its implementation declared is not a failed answer, it is an environment that
     diverges from the resolution it was supposed to be — which is exactly what
     ``environment_divergence`` names.
+
+    ``resolver`` and ``network_backend`` are the address guard's seams, so a
+    test can drive the real browser through the real gate without real DNS or a
+    public origin. Neither loosens the guard.
     """
 
     name = "playwright"
+
+    def __init__(
+        self,
+        *,
+        resolver: Resolver | None = None,
+        network_backend: httpcore.NetworkBackend | None = None,
+    ) -> None:
+        self._resolver = resolver
+        self._network_backend = network_backend
 
     def render(self, url: str, *, timeout_seconds: float, recorder: EgressRecorder) -> RenderedPage:
         try:
@@ -298,21 +547,34 @@ class PlaywrightRenderer:
                 engine=self.name,
             ) from exc
 
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
-            try:
-                # Everything that decides what the run may claim happens in
-                # drive_page, which the default lane executes over a double. This
-                # method's whole job is to hand it a real page.
-                return drive_page(
-                    browser.new_page(user_agent=_USER_AGENT),
-                    url,
-                    timeout_seconds=timeout_seconds,
-                    recorder=recorder,
-                    engine=self.name,
+        guard = AddressGuard(self._resolver)
+        client = RecordingClient(
+            recorder,
+            timeout_seconds=timeout_seconds,
+            transport=PinnedTransport(guard, network_backend=self._network_backend),
+            guard=guard,
+        )
+        with client:
+            if urlsplit(url).scheme in {"http", "https"}:
+                # Refused before a browser is launched for it.
+                client.vet(url)
+            with _closed_proxy() as proxy, sync_playwright() as playwright:
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    proxy={"server": proxy, "bypass": "<-loopback>"},
+                    args=["--force-webrtc-ip-handling-policy=disable_non_proxied_udp"],
                 )
-            finally:
-                browser.close()
-
-
-_USER_AGENT = "cruxible-provider-web/0.1 (+https://cruxible.ai)"
+                try:
+                    context = browser.new_context(user_agent=USER_AGENT, service_workers="block")
+                    # Everything that decides what the run may claim happens in
+                    # drive_page, which the default lane executes over a double.
+                    # This method's whole job is to hand it a real page.
+                    return drive_page(
+                        context.new_page(),
+                        url,
+                        timeout_seconds=timeout_seconds,
+                        client=client,
+                        engine=self.name,
+                    )
+                finally:
+                    browser.close()

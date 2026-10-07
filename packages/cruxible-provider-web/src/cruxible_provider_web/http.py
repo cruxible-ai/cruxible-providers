@@ -18,19 +18,29 @@ its credential travels on, so a token on ``x-api-key`` would be handed to
 whatever second host the first one names — and the recorder would learn that host
 existed only after the credential had already gone to it. Hop by hop, this client
 gets to decide before anything is sent.
+
+**Private targets are refused, and connections are pinned.** A client built with
+an :class:`~cruxible_provider_web.addresses.AddressGuard` — which is how
+``web.fetch`` always builds one — vets every hop before it is sent and connects
+only to the addresses the vetting checked (:class:`PinnedTransport`). Checking a
+name and then letting the connection resolve it again would leave a DNS-rebinding
+gap between the two; pinning closes it. ``search.web`` builds its client without
+a guard, because its SearXNG instance is an endpoint the operator declared.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 from cruxible_provider_runtime.egress import EgressRecorder, normalize_endpoint
 from cruxible_provider_runtime.errors import RefusalCode, refuse
 
+from .addresses import AddressGuard, Resolver
 from .recordings import is_fixture_url, recording_for
 
 __all__ = [
@@ -38,9 +48,11 @@ __all__ = [
     "USER_AGENT",
     "ClientFactory",
     "HttpResponse",
+    "PinnedTransport",
     "RecordingClient",
     "ResponseTooLarge",
     "default_client_factory",
+    "guarded_client_factory",
     "packaged_recording_transport",
 ]
 
@@ -95,8 +107,12 @@ class RecordingClient:
         timeout_seconds: float,
         transport: httpx.BaseTransport | None = None,
         recording_id: str | None = None,
+        guard: AddressGuard | None = None,
     ) -> None:
         self._recording_id = recording_id
+        self._guard = guard
+        if guard is not None and transport is None:
+            transport = PinnedTransport(guard)
         self._client = httpx.Client(
             timeout=timeout_seconds,
             # Off, and :meth:`get` follows the chain itself. See the module
@@ -135,11 +151,16 @@ class RecordingClient:
         redirected to a **different origin** therefore refuses rather than
         following: see :func:`_next_hop` for why this plane declines instead of
         stripping.
+
+        With a guard, every hop is vetted before it is sent — the first request
+        and each redirect alike — so an origin cannot bounce the run onto a
+        private address.
         """
 
         carried = dict(headers or {})
         target = url
         for _ in range(MAX_REDIRECTS + 1):
+            self.vet(target)
             with self._client.stream("GET", target, headers=carried) as response:
                 location = response.headers.get("location")
                 if response.status_code not in REDIRECT_STATUSES or not location:
@@ -155,6 +176,34 @@ class RecordingClient:
             next_url=target,
             max_redirects=MAX_REDIRECTS,
         )
+
+    def exchange(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        content: bytes | None = None,
+        cap_bytes: int,
+    ) -> HttpResponse:
+        """One request, one response: a redirect is returned, never followed.
+
+        For a caller that decides about redirects itself — the rendered path,
+        whose browser has its own view of what a hop means. The hop is vetted
+        exactly as each hop of :meth:`get` is.
+        """
+
+        self.vet(url)
+        with self._client.stream(method, url, headers=dict(headers or {}), content=content) as (
+            response
+        ):
+            return self._read(response, cap_bytes)
+
+    def vet(self, url: str) -> None:
+        """Refuse ``url`` if this client's guard does; a no-op without a guard."""
+
+        if self._guard is not None:
+            self._guard.vet(url)
 
     def _read(self, response: httpx.Response, cap_bytes: int) -> HttpResponse:
         chunks: list[bytes] = []
@@ -222,6 +271,73 @@ def _crosses_origin(current: str, destination: str) -> bool:
     return there != upgraded
 
 
+class _PinnedBackend(httpcore.NetworkBackend):
+    """Opens a socket only to an address the guard vetted for that host.
+
+    httpcore hands this backend the request's host name and connects the TLS
+    layer with that same name as SNI and as the certificate's expected subject,
+    so substituting the address here changes where the socket goes and nothing
+    else: ``Host``, SNI and verification all still say the name.
+    """
+
+    def __init__(self, guard: AddressGuard, inner: httpcore.NetworkBackend) -> None:
+        self._guard = guard
+        self._inner = inner
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        failure: Exception | None = None
+        for address in self._guard.pinned(host):
+            try:
+                return self._inner.connect_tcp(
+                    address,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                failure = exc
+        assert failure is not None  # pinned() never returns an empty tuple
+        raise failure
+
+    def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        raise httpcore.ConnectError("web.fetch does not connect to unix sockets")
+
+    def sleep(self, seconds: float) -> None:
+        self._inner.sleep(seconds)
+
+
+class PinnedTransport(httpx.HTTPTransport):
+    """An httpx transport whose connections go only to vetted addresses.
+
+    It is also deliberately proxy-free: a proxy resolves the name itself, which
+    would hand the decision this transport exists to make to somebody else.
+    ``network_backend`` is injectable so a test can observe which address a
+    connection was opened to without opening one.
+    """
+
+    def __init__(
+        self, guard: AddressGuard, *, network_backend: httpcore.NetworkBackend | None = None
+    ) -> None:
+        super().__init__()
+        self._pool = httpcore.ConnectionPool(
+            ssl_context=httpx.create_ssl_context(),
+            network_backend=_PinnedBackend(guard, network_backend or httpcore.SyncBackend()),
+        )
+
+
 class ClientFactory(Protocol):
     """How an implementation obtains a client for one run.
 
@@ -260,7 +376,7 @@ def packaged_recording_transport(url: str) -> tuple[httpx.BaseTransport, str] | 
 def default_client_factory(
     recorder: EgressRecorder, *, url: str, timeout_seconds: float
 ) -> RecordingClient:
-    """The production client, with one reserved-host exception.
+    """The unguarded client ``search.web`` uses, with one reserved-host exception.
 
     A request to ``fixture.invalid`` is served from the recording shipped in this
     distribution. The host is reserved by RFC 2606 and cannot resolve, so this
@@ -277,3 +393,30 @@ def default_client_factory(
     return RecordingClient(
         recorder, timeout_seconds=timeout_seconds, transport=transport, recording_id=recording_id
     )
+
+
+def guarded_client_factory(
+    recorder: EgressRecorder,
+    *,
+    url: str,
+    timeout_seconds: float,
+    resolver: Resolver | None = None,
+) -> RecordingClient:
+    """The client ``web.fetch`` uses: private targets refused, connections pinned.
+
+    The packaged-recording exception is the same as :func:`default_client_factory`'s
+    and needs no guard: it opens no socket, and ``fixture.invalid`` resolves
+    nowhere. Every other URL gets a client that vets each hop and connects only
+    to what it vetted.
+    """
+
+    packaged = packaged_recording_transport(url)
+    if packaged is not None:
+        transport, recording_id = packaged
+        return RecordingClient(
+            recorder,
+            timeout_seconds=timeout_seconds,
+            transport=transport,
+            recording_id=recording_id,
+        )
+    return RecordingClient(recorder, timeout_seconds=timeout_seconds, guard=AddressGuard(resolver))

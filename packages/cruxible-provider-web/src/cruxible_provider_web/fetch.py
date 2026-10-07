@@ -36,6 +36,14 @@ run does not go through that client, so the browser gets its own hooks: every
 origin a page contacts, subresources and redirect hops alike, lands in the same
 recorder.
 
+**Private targets.** ``web.fetch`` refuses, with ``provider_declined``, any
+target whose addresses are loopback, private, link-local, or otherwise not
+publicly routable — on the first request, on every redirect hop, and on every
+request a rendered page makes — and connects only to the addresses it checked,
+so a name cannot be re-pointed between the check and the connection. See
+:mod:`cruxible_provider_web.addresses`. The guard always applies; there is no
+opt-out.
+
 One reading note about that recording. A request to the reserved
 ``fixture.invalid`` host is served from a recording shipped in this distribution
 rather than from a socket; it is still recorded, because the recorder's subject
@@ -72,7 +80,7 @@ from .engines import (
     RenderedPage,
     TrafilaturaExtractor,
 )
-from .http import ClientFactory, ResponseTooLarge, default_client_factory
+from .http import ClientFactory, ResponseTooLarge, guarded_client_factory
 from .interfaces import DEFAULT_MAX_BYTES, FETCH_INTERFACE_ID, MAX_RESPONSE_BYTES, page_weight_class
 from .recordings import is_fixture_url, recording_for
 
@@ -164,7 +172,7 @@ class WebFetch:
         # Every default is the production spelling. The seams exist so a test can
         # hold one variable still, not so a test can replace the thing under
         # test: the conformance suite drives these same defaults.
-        self._client_factory = client_factory or default_client_factory
+        self._client_factory = client_factory or guarded_client_factory
         self._extractor = extractor or TrafilaturaExtractor()
         self._renderer = renderer
 

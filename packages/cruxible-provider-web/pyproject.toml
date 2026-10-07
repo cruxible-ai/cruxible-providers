@@ -30,6 +30,10 @@ dependencies = [
   # anything at all, and it is how egress gets recorded. An adapter that could
   # not make a request would have no adapter logic left to test.
   "httpx>=0.27",
+  # Imported directly, not only through httpx: the address-pinned transport
+  # supplies its own httpcore network backend, so that a connection opens to the
+  # address the private-address guard checked.
+  "httpcore>=1.0",
   # Extraction is base too, and deliberately so. The heavy-engine split exists
   # to keep a browser, a tensor stack, and an OCR runtime out of the base
   # install; a pure-Python extractor with an lxml wheel is none of those, and
