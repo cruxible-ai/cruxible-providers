@@ -58,3 +58,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cruxible_provider_docs"]
+
+# The package's own lock travels inside the wheel, so an install by name from an
+# index resolves exactly what the materialization digest pins, with no checkout.
+[tool.hatch.build.targets.wheel.extra-metadata]
+"uv.lock" = "uv.lock"

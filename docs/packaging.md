@@ -293,6 +293,23 @@ therefore names only the distribution's name and version; the accepted Provider
 artifact carries the hash. A manifest that tried to contain its own artifact's
 hash would be impossible to produce.
 
+Each provider wheel embeds its package's committed `uv.lock` at
+`<dist-info>/extra_metadata/uv.lock` (hatch `extra-metadata`). An operator
+install by name (`cruxible playbill provider install cruxible-provider-web`)
+fetches the wheel from the index, checks it against the index's sha256, and
+materializes the environment from that embedded lock, so it resolves exactly
+what the package was released with and needs no checkout. The lock names the
+runtime as a path source; the installer takes it from the same index at its
+locked version.
+
+`.github/workflows/publish.yml` publishes one package per run, wheels only,
+through PyPI trusted publishing with attestations. A tag
+`<package>-v<version>` (or a manual run naming the package) triggers it; the
+run refuses a tag that does not name the pyproject version, a stale lock, and a
+provider wheel whose embedded lock differs from the committed one
+(`scripts/check_release_wheel.py`). Publish `cruxible-provider-runtime` before
+any provider that depends on a new runtime version.
+
 
 ## The two lock checks at bind
 

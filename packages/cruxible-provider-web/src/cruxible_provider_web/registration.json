@@ -80,6 +80,5 @@
       "description": "Rendered fetches require a Chromium browser matching the installed Playwright version; installing the Python extra alone is insufficient.",
       "probe_entrypoint": "cruxible_provider_web.resources:chromium_available"
     }
-  ],
-  "governed_definitions": []
+  ]
 }

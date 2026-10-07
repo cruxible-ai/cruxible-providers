@@ -7,8 +7,9 @@ Cruxible provider adapters for the web plane. Apache-2.0.
 | `web.fetch` | `cruxible_provider_web.fetch:WebFetch` | trafilatura (base), Playwright (extra) | `browser` |
 | `search.web` | `cruxible_provider_web.search:SearxngSearch` | none — an HTTP client to somebody else's instance | — |
 
-End users do not install this package: providers are fetched on bind. The
-umbrella `cruxible-providers[web]` exists for developers.
+Operators install it into a daemon by name, through a governed install:
+`cruxible playbill provider install cruxible-provider-web`. The umbrella
+`cruxible-providers[web]` exists for developers.
 
 ## The base install is light
 
