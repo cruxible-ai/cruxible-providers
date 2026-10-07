@@ -1,4 +1,6 @@
-# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration.
+# The input-bucket vocabulary for the search.web interface, shipped as package
+# data. Cruxible core registers and accepts it through governance; this package
+# only carries it, alongside the classifier that measures runs into its buckets.
 interface_id: search.web
 version: 1
 status: draft

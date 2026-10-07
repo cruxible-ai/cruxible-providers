@@ -1,5 +1,6 @@
-# DRAFT. RP-0 ships the launch vocabularies as DATA for later core registration;
-# core owns registration, and the vocabulary is accepted there, not here.
+# The input-bucket vocabulary for the web.fetch interface, shipped as package
+# data. Cruxible core registers and accepts it through governance; this package
+# only carries it, alongside the classifier that measures runs into its buckets.
 interface_id: web.fetch
 version: 1
 status: draft

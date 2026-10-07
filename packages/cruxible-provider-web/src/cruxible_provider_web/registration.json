@@ -14,7 +14,7 @@
       },
       "vocabulary": {
         "path": "vocab/web.fetch.yaml",
-        "digest": "sha256:0150379074a6129175a76e6f803f325790b53bde10206d50b1f36e200ce095e6"
+        "digest": "sha256:111eb609750ec1fe4a2256338859b22a3ac3a2cd317b0366839cdbcc0fa2c226"
       },
       "classifier": {
         "identity": "web.fetch.input",
@@ -48,7 +48,7 @@
       },
       "vocabulary": {
         "path": "vocab/search.web.yaml",
-        "digest": "sha256:61a78f52d917fef17779b492e9754378a2ffe3409859dd1c30105814633b8d77"
+        "digest": "sha256:3daa38826d3e800d19d49333ae624a8b0fd81e88f66012c119bcf5d160359189"
       },
       "classifier": {
         "identity": "search.web.input",
