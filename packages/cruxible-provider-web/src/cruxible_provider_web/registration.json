@@ -2,7 +2,7 @@
   "schema_version": 1,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:67ba83de14f86966226102648febf8314d12b9db09b06b4cb86dce748084ffdb"
+    "digest": "sha256:4b63710ca61d6593b11e3d482947ffa844ecc922d64ff3386de7a455c23f0a34"
   },
   "interfaces": [
     {
