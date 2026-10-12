@@ -230,6 +230,7 @@ def test_exported_packages_lower_through_core_without_provider_imports() -> None
     code = """
 import json, sys
 from cruxible_core.providers.package_registration import PackageRegistrationDocumentV1
+from cruxible_core.providers.provider_classifiers import core_provider_bucket_conformance_fixtures
 from cruxible_client.contracts.providers import ProviderLocalDistributionPin, ProviderLocalEnvBackendPin
 from cruxible_client.contracts.provider_interfaces import evaluate_provider_interface_law, provider_interface_path
 from cruxible_client.contracts.providers import provider_digest, render_provider, parse_provider, provider_path
@@ -239,7 +240,8 @@ for document in json.load(sys.stdin):
     interfaces = package.interface_registrations()
     for interface in interfaces:
         verdict = evaluate_provider_interface_law(interface, path=provider_interface_path(interface.interface_id),
-                                                  predecessor=None, conformance_fixtures={})
+                                                  predecessor=None,
+                                                  conformance_fixtures=core_provider_bucket_conformance_fixtures())
         assert verdict.verdict == 'accepted', verdict
         count += 1
     distribution = package.manifest.distribution
