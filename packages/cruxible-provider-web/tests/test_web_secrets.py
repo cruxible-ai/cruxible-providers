@@ -201,6 +201,13 @@ def test_unserved_depths_and_freshness_are_declined_before_contact(
     assert client.urls == []
 
 
+def test_an_unserved_input_is_declined_before_the_instance_is_looked_at() -> None:
+    result = SearxngSearch()(_context("search.web", input={"query": "x", "max_age_hours": 6}))
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.detail["reason"] == "realtime_recency"
+
+
 @pytest.mark.parametrize(
     "fields",
     [
