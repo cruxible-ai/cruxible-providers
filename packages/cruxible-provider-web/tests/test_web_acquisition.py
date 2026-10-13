@@ -5,6 +5,7 @@ import hashlib
 import json
 
 import pytest
+from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.interfaces import MAX_RESPONSE_BYTES, classify_web_fetch
 
@@ -16,10 +17,9 @@ from .test_web_secrets import _CapturingClient, _context
     [
         ("application/json", b'{"severity": "critical"}', "json"),
         ("text/csv", b"id,severity\n1,critical\n", "csv"),
-        ("application/octet-stream", b"\x00\xffraw", "bytes"),
     ],
 )
-def test_structured_and_binary_observations_preserve_exact_origin_bytes(media, body, expected):
+def test_structured_observations_preserve_exact_origin_bytes(media, body, expected):
     client = _CapturingClient(body, media)
     fetch = WebFetch(client_factory=lambda recorder, **kwargs: client)
     result = fetch(
@@ -42,6 +42,58 @@ def test_structured_and_binary_observations_preserve_exact_origin_bytes(media, b
     observation = json.loads(material)
     assert base64.b64decode(observation["retrieved"]["body_base64"]) == body
     assert observation["derived"]["engine"] != "trafilatura"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"url": "https://example.test/resource", "expected_format": "bytes"},
+        {"url": "https://example.test/report.pdf"},
+        {"url": "https://example.test/photo.JPG"},
+        {"url": "https://example.test/dump.tar"},
+        {"url": "https://example.test/sheet.xlsx", "expected_format": "auto"},
+    ],
+)
+def test_binary_resources_are_declined_before_contact(fields):
+    client = _CapturingClient(b"\x00\xffraw", "application/octet-stream")
+    result = WebFetch(client_factory=lambda recorder, **kwargs: client)(
+        _context("web.fetch", input=fields)
+    )
+    assert result.status == "refused"
+    assert result.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert result.refusal.detail["reason"] == "binary_resource"
+    assert client.urls == []
+
+
+def test_html_heavier_than_two_mebibytes_is_declined_and_structured_is_not():
+    client = _CapturingClient(b'{"ok":true}', "application/json")
+    fetch = WebFetch(client_factory=lambda recorder, **kwargs: client)
+    heavy = 2 * 1024 * 1024 + 1
+    for url in ("https://example.test/page", "https://example.test/page.html"):
+        refused = fetch(_context("web.fetch", input={"url": url, "max_bytes": heavy}))
+        assert refused.status == "refused"
+        assert refused.refusal.code is RefusalCode.PROVIDER_DECLINED
+        assert refused.refusal.detail == {
+            "reason": "heavy_page",
+            "url": url,
+            "max_bytes": heavy,
+            "ceiling_bytes": 2 * 1024 * 1024,
+        }
+    assert client.urls == []
+    medium = fetch(
+        _context(
+            "web.fetch",
+            input={"url": "https://example.test/page", "max_bytes": 2 * 1024 * 1024},
+        )
+    )
+    assert medium.status != "refused"
+    structured = fetch(
+        _context(
+            "web.fetch",
+            input={"url": "https://example.test/api/v1/data", "max_bytes": MAX_RESPONSE_BYTES},
+        )
+    )
+    assert structured.status == "ok", structured
 
 
 @pytest.mark.parametrize(

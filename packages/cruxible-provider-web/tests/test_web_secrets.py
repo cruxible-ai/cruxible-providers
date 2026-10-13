@@ -159,7 +159,7 @@ def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
     result = provider(
         _context(
             "search.web",
-            input={"query": "tide gauge", "max_age_hours": 6},
+            input={"query": "tide gauge", "max_age_hours": 48},
             coordinates={"instance_url": "https://instance.example"},
         )
     )
@@ -169,6 +169,60 @@ def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
     ]
     for key, value in parameters.items():
         assert f"{key}={value}".replace(" ", "+") in client.urls[0].replace("%20", "+")
+
+
+@pytest.mark.parametrize(
+    "fields,reason",
+    [
+        ({"max_age_hours": 1}, "realtime_recency"),
+        ({"max_age_hours": 24}, "realtime_recency"),
+        ({"limit": 51}, "deep_result_limit"),
+        ({"limit": 51, "max_age_hours": 100_000}, "deep_result_limit"),
+        ({"limit": 11, "max_age_hours": 25}, "recent_standard_depth"),
+        ({"limit": 50, "max_age_hours": 2160}, "recent_standard_depth"),
+    ],
+)
+def test_unserved_depths_and_freshness_are_declined_before_contact(
+    fields: dict[str, Any], reason: str
+) -> None:
+    client = _CapturingClient(INSTANCE_ANSWER, "application/json")
+    provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]
+    result = provider(
+        _context(
+            "search.web",
+            input={"query": "tide gauge", **fields},
+            coordinates={"instance_url": "https://instance.example"},
+        )
+    )
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert result.refusal.detail["reason"] == reason
+    assert client.urls == []
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"limit": 50},
+        {"limit": 10, "max_age_hours": 25},
+        {"limit": 10, "max_age_hours": 2160},
+        {"limit": 50, "max_age_hours": 2161},
+    ],
+)
+def test_served_depths_and_freshness_reach_the_instance(fields: dict[str, Any]) -> None:
+    client = _CapturingClient(INSTANCE_ANSWER, "application/json")
+    provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]
+    result = provider(
+        _context(
+            "search.web",
+            input={"query": "tide gauge", **fields},
+            coordinates={"instance_url": "https://instance.example"},
+        )
+    )
+    assert result.status == "ok", result
+    assert result.output is not None
+    assert "input_bucket" not in json.loads(base64.b64decode(result.output["content_base64"]))
 
 
 def test_a_fetch_naming_an_undelivered_credential_refuses() -> None:

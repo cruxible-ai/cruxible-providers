@@ -53,6 +53,9 @@ CREDENTIAL_REF = "search.web.instance_credential"
 
 RESPONSE_CAP_BYTES = 4 * 1024 * 1024
 HOURS_PER_DAY = 24
+SHALLOW_LIMIT = 10
+STANDARD_LIMIT = 50
+RECENT_CEILING_HOURS = HOURS_PER_DAY * 90
 
 
 class SearxngSearch:
@@ -135,7 +138,6 @@ class SearxngSearch:
         truncated = kept[:limit]
 
         material: dict[str, Any] = {
-            "input_bucket": context.input_bucket,
             "retrieved": {
                 "instance": instance,
                 "query_submitted": query,
@@ -219,7 +221,50 @@ def _parse_input(context: ProviderRunContext) -> tuple[str, int, int | None, str
     language = payload.get("language", "en")
     if not isinstance(language, str) or not language:
         raise refuse(RefusalCode.PROVIDER_DECLINED, "language must be a string")
+    _decline_unserved(limit, max_age_hours)
     return query.strip(), limit, max_age_hours, language
+
+
+def _decline_unserved(limit: int, max_age_hours: int | None) -> None:
+    """Refuse the depths and freshness bounds this adapter does not serve.
+
+    Core runs no input classifier, so these are declined here, before any
+    request: a realtime bound (24 hours or less; an instance's indexing lag is
+    the binding constraint and this adapter cannot promise past it), a deep
+    limit (over 50; paging past one answer is several requests and a different
+    pacing story), and a recent bound (90 days or less) at standard depth (over
+    10), which has no fixture behind it.
+    """
+
+    if max_age_hours is not None and max_age_hours <= HOURS_PER_DAY:
+        raise refuse(
+            RefusalCode.PROVIDER_DECLINED,
+            "search.web does not serve realtime queries; max_age_hours must exceed 24",
+            reason="realtime_recency",
+            max_age_hours=max_age_hours,
+            minimum_hours=HOURS_PER_DAY + 1,
+        )
+    if limit > STANDARD_LIMIT:
+        raise refuse(
+            RefusalCode.PROVIDER_DECLINED,
+            "search.web returns at most 50 results",
+            reason="deep_result_limit",
+            limit=limit,
+            maximum_limit=STANDARD_LIMIT,
+        )
+    if (
+        max_age_hours is not None
+        and max_age_hours <= RECENT_CEILING_HOURS
+        and limit > SHALLOW_LIMIT
+    ):
+        raise refuse(
+            RefusalCode.PROVIDER_DECLINED,
+            "search.web returns at most 10 results under a max_age_hours bound of 90 days or less",
+            reason="recent_standard_depth",
+            limit=limit,
+            maximum_limit=SHALLOW_LIMIT,
+            max_age_hours=max_age_hours,
+        )
 
 
 def _time_range(max_age_hours: int | None) -> str | None:
