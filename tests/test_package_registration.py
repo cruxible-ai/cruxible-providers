@@ -231,15 +231,17 @@ def test_exported_packages_lower_through_core_without_provider_imports() -> None
 import json, sys
 from cruxible_core.providers.package_registration import PackageRegistrationDocumentV1
 from cruxible_client.contracts.providers import ProviderLocalDistributionPin, ProviderLocalEnvBackendPin
-from cruxible_client.contracts.provider_interfaces import evaluate_provider_interface_law, provider_interface_path
-from cruxible_client.contracts.providers import provider_digest, render_provider, parse_provider, provider_path
+from cruxible_client.contracts.provider_interfaces import (AcceptedProviderInterfaceRegistration,
+    evaluate_provider_interface_law, provider_interface_digest, provider_interface_path)
+from cruxible_client.contracts.providers import (evaluate_provider_law, provider_digest, render_provider,
+    parse_provider, provider_path)
 count = 0
 for document in json.load(sys.stdin):
     package = PackageRegistrationDocumentV1.model_validate(document)
     interfaces = package.interface_registrations()
     for interface in interfaces:
         verdict = evaluate_provider_interface_law(interface, path=provider_interface_path(interface.interface_id),
-                                                  predecessor=None, conformance_fixtures={})
+                                                  predecessor=None)
         assert verdict.verdict == 'accepted', verdict
         count += 1
     distribution = package.manifest.distribution
@@ -251,6 +253,13 @@ for document in json.load(sys.stdin):
                                              materialization_digests={'linux-cp312':'sha256:'+'c'*64}),
         control_domain='operator', interfaces=interfaces)
     assert provider_digest(parse_provider(render_provider(provider), path=provider_path(provider.identity.name))) == provider_digest(provider)
+    # The Provider law against the registrations it binds, as Core's install path evaluates it.
+    accepted = {item.identity.qualified: AcceptedProviderInterfaceRegistration(
+                    path=provider_interface_path(item.interface_id), registration=item,
+                    artifact_digest=provider_interface_digest(item).tagged) for item in interfaces}
+    law = evaluate_provider_law(provider, path=provider_path(provider.identity.name), predecessor=None,
+                                interface_registrations=accepted)
+    assert law.verdict == 'accepted', law
 assert count == 13, count
 assert not any(name.startswith('cruxible_provider_') for name in sys.modules)
 """

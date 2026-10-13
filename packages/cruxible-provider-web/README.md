@@ -64,17 +64,17 @@ canonical JSON bundle in two halves that a CaptureContract grades separately:
 
 A non-2xx final status is a failed retrieval.
 
-**Input buckets.** Static pages up to the medium weight class and structured
-(JSON, CSV) endpoints are claimed. Binary payloads, heavy HTML pages and every
-rendered (`js_rendered`) page are not, so such inputs refuse at admission
-(`unclaimed_bucket`) before any provider code runs.
+**What it serves.** Static pages up to 2 MiB and structured (JSON, CSV)
+endpoints up to 32 MiB. The adapter itself declines everything else before
+contacting anything, with `provider_declined` and a `reason` in the refusal
+detail: binary resources (`expected_format: bytes`, or a URL ending in a PDF,
+image, archive, media or Office suffix) are `binary_resource`, and an HTML page
+whose `max_bytes` is above 2 MiB is `heavy_page`.
 
 **No rendering.** `web.fetch` does not run a browser. The interface keeps its
-`render` field, and a run that sets it classifies into the `js_rendered` bucket,
-which this package does not claim: it is refused at admission, and the adapter
-refuses it as well if invoked directly. Pages that are assembled by JavaScript
-are out of scope for this release. The declared weight is checked, not
-trusted: a response heavier than the bucket the run was admitted under refuses.
+`render` field, and a run that sets it is declined. Pages that are assembled by
+JavaScript are out of scope for this release. The declared `max_bytes` cap is
+checked, not trusted: a response heavier than the cap refuses.
 
 ## `search.web`
 
@@ -87,6 +87,11 @@ format enabled.
 | `limit` | 10 | How many results to return |
 | `max_age_hours` | — | Drop results older than this, measured from `as_of` |
 | `language` | `en` | The SearXNG language |
+
+Declined with `provider_declined` before any request, with a `reason` in the
+refusal detail: `max_age_hours` of 24 or less (`realtime_recency`), `limit`
+over 50 (`deep_result_limit`), and `limit` over 10 with `max_age_hours` of 2160
+(90 days) or less (`recent_standard_depth`).
 
 The instance is configuration, not input: the `instance_url` configuration field
 names it, and an optional `as_of` fixes the instant recency is evaluated at, so

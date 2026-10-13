@@ -14,11 +14,17 @@ than a formatting choice:
     derived under every contract, whatever the extractor's confidence, because
     it is a reading of the document rather than the document.
 
-**No rendering.** This implementation does not run a browser. A run asking
-for ``render: true`` classifies into the ``js_rendered`` bucket, which the
-manifest does not claim, so admission refuses it before this code runs; the
-adapter refuses it too, should it ever be invoked directly. ``retrieved.renderer``
-is therefore always ``null``.
+**No rendering.** This implementation does not run a browser, so a run asking
+for ``render: true`` is refused with ``provider_declined``.
+``retrieved.renderer`` is therefore always ``null``.
+
+**What it declines.** Core runs no input classifier, so this adapter refuses
+for itself every input it cannot serve, before contacting anything, with
+``provider_declined`` and a ``reason`` in the refusal detail: a binary resource
+(``expected_format: bytes``, or a URL whose suffix names a PDF, image, archive,
+media or Office file: the document plane's work, not an HTML extractor's), and
+an HTML page whose ``max_bytes`` cap is above the medium weight class (2 MiB).
+Structured endpoints are served at any cap up to 32 MiB.
 
 The adapter never mints a Capture. It returns a typed payload plus trace and the
 executor carries both to the CaptureContract, which decides the grade. That
@@ -67,7 +73,14 @@ from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunCo
 
 from .engines import Extraction, HtmlExtractor, TrafilaturaExtractor
 from .http import ClientFactory, ResponseTooLarge, guarded_client_factory
-from .interfaces import DEFAULT_MAX_BYTES, FETCH_INTERFACE_ID, MAX_RESPONSE_BYTES, page_weight_class
+from .interfaces import (
+    DEFAULT_MAX_BYTES,
+    FETCH_INTERFACE_ID,
+    MAX_RESPONSE_BYTES,
+    MEDIUM_CEILING_BYTES,
+    classify_web_fetch,
+    page_weight_class,
+)
 
 __all__ = ["WebFetch"]
 
@@ -123,7 +136,6 @@ class WebFetch:
                 RefusalCode.PROVIDER_DECLINED,
                 "the origin sent more than the byte cap this run was admitted under",
                 url=request.url,
-                declared_bucket=context.input_bucket,
                 cap_bytes=exc.cap_bytes,
                 observed_weight=page_weight_class(exc.read_bytes),
             )
@@ -161,6 +173,8 @@ class WebFetch:
                 }
             )
         material = {
+            # Required by the interface's pinned material contract, so it stays
+            # until the definition succeeds; core now sends a placeholder here.
             "input_bucket": context.input_bucket,
             "retrieved": {
                 "url": request.url,
@@ -241,6 +255,39 @@ class WebFetch:
         }
 
 
+def _decline_unserved(
+    payload: Mapping[str, Any], url: str, expected_format: str, max_bytes: int
+) -> None:
+    """Refuse the source kinds and weights this adapter does not serve.
+
+    The kind is the package's own reading of the input (the same function its
+    registration names), so what is refused here is exactly what the manifest
+    leaves unclaimed: binary resources, and HTML pages heavier than the medium
+    weight class. Called only after the input is otherwise valid.
+    """
+
+    measured = classify_web_fetch(payload)
+    source_kind = "static_html" if measured is None else measured["source_kind"]
+    if source_kind == "binary":
+        raise refuse(
+            RefusalCode.PROVIDER_DECLINED,
+            "web.fetch does not fetch binary resources; a PDF, image, archive or Office "
+            "file is the document plane's work",
+            reason="binary_resource",
+            url=url,
+            expected_format=expected_format,
+        )
+    if source_kind == "static_html" and max_bytes > MEDIUM_CEILING_BYTES:
+        raise refuse(
+            RefusalCode.PROVIDER_DECLINED,
+            "web.fetch serves HTML pages up to 2 MiB; a larger max_bytes is a heavy page",
+            reason="heavy_page",
+            url=url,
+            max_bytes=max_bytes,
+            ceiling_bytes=MEDIUM_CEILING_BYTES,
+        )
+
+
 def _digest(payload: bytes) -> str:
     """The ``sha256:`` digest of ``payload``."""
 
@@ -256,7 +303,6 @@ class _Request:
         "headers",
         "logical_source",
         "max_bytes",
-        "source_kind",
         "url",
     )
 
@@ -267,7 +313,6 @@ class _Request:
         max_bytes: int,
         extract: bool,
         headers: Mapping[str, str],
-        source_kind: str,
         expected_format: str,
         logical_source: str,
     ) -> None:
@@ -275,7 +320,6 @@ class _Request:
         self.max_bytes = max_bytes
         self.extract = extract
         self.headers = dict(headers)
-        self.source_kind = source_kind
         self.expected_format = expected_format
         self.logical_source = logical_source
 
@@ -309,10 +353,8 @@ class _Request:
             if flag in payload and not isinstance(payload[flag], bool):
                 raise refuse(RefusalCode.PROVIDER_DECLINED, f"{flag} must be a bool")
         if payload.get("render", False):
-            # Admission refuses this first: a rendered input classifies into the
-            # js_rendered bucket, which the manifest does not claim. Refused here
-            # as well so that a direct invocation cannot reach a code path that
-            # does not exist.
+            # This implementation runs no browser, so a rendered fetch has no
+            # code path to reach.
             raise refuse(
                 RefusalCode.PROVIDER_DECLINED,
                 "web.fetch does not render pages; the js_rendered bucket is not claimed",
@@ -320,6 +362,7 @@ class _Request:
         expected_format = payload.get("expected_format", "auto")
         if expected_format not in {"auto", "html", "json", "csv", "text", "bytes"}:
             raise refuse(RefusalCode.PROVIDER_DECLINED, "unsupported expected_format")
+        _decline_unserved(payload, url, expected_format, max_bytes)
         headers: dict[str, str] = {}
         credential_ref = payload.get("credential_ref")
         if credential_ref is not None:
@@ -343,18 +386,11 @@ class _Request:
                 )
             headers[header] = material
 
-        # The bucket the run was admitted into is the executor's classification
-        # of this same input; reading the source kind back off it keeps the
-        # adapter's behaviour and the recorded bucket from ever disagreeing.
-        source_kind = dict(
-            segment.split("=", 1) for segment in context.input_bucket.split(";")
-        ).get("source_kind", "static_html")
         return cls(
             url=url,
             max_bytes=max_bytes,
             extract=bool(payload.get("extract", True)),
             headers=headers,
-            source_kind=source_kind,
             expected_format=expected_format,
             logical_source=logical_source,
         )
