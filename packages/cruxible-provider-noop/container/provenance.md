@@ -22,9 +22,10 @@ that does not trust the registry's metadata reads.
 ## Why the materialization digest is on the image
 
 A backend switch must not split track record. The **implementation digest** —
-interface id, interface digest, entrypoint object path, distribution sha256 — is
-identical whether the provider runs from a local environment or from this image,
-and it is the track-record key. The **materialization digest** differs by
+`cruxible.provider.implementation.v2` over the entrypoint object path and the
+distribution sha256 — is identical whether the provider runs from a local
+environment or from this image; the operation, its signature digest and the build
+a run executed are recorded beside it. The **materialization digest** differs by
 backend: locally it is the hashed resolution for a marker environment, in cloud
 it is the image digest itself. Recording the local-equivalent materialization on
 the image is what lets a reviewer ask "is this image built from the same

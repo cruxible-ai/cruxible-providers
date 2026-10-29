@@ -18,7 +18,10 @@ def test_the_registration_declares_the_one_operation_the_entrypoint_serves() -> 
     assert operation.effect == "pure"
     assert operation.in_.spelling == "noop.echo.request@1"
     assert operation.out.spelling == "noop.echo.result@1"
-    assert set(operation.refusals) == {cruxible_provider_noop.PROVIDER_DECLINED}
+    assert set(operation.refusals) == {
+        cruxible_provider_noop.CREDENTIAL_MISSING,
+        cruxible_provider_noop.PROVIDER_DECLINED,
+    }
     assert NoopEcho.operations == (operation.name,)
     assert operation.entrypoint == "cruxible_provider_noop.provider:NoopEcho"
 

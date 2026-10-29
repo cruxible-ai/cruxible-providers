@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .provider import CREDENTIAL_REF, OPERATION, PROVIDER_DECLINED, NoopEcho
+from .provider import CREDENTIAL_MISSING, CREDENTIAL_REF, OPERATION, PROVIDER_DECLINED, NoopEcho
 
 __version__ = "0.3.0"
 
@@ -19,6 +19,7 @@ CONTAINER_DIR = PACKAGE_ROOT.parent.parent / "container"
 
 __all__ = [
     "CONTAINER_DIR",
+    "CREDENTIAL_MISSING",
     "CREDENTIAL_REF",
     "MANIFEST_PATH",
     "OPERATION",

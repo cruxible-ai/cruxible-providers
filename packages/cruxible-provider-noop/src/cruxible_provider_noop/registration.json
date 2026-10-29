@@ -11,6 +11,9 @@
       "out": "noop.echo.result@1",
       "effect": "pure",
       "refusals": {
+        "credential_missing": {
+          "contract": "noop.echo.refusal.credential_missing@1"
+        },
         "provider_declined": {
           "contract": "noop.echo.refusal.provider_declined@1"
         }

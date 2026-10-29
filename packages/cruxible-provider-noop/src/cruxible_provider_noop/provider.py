@@ -24,12 +24,13 @@ from typing import ClassVar
 from cruxible_provider_runtime.errors import Refusal, RefusalCode, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
-__all__ = ["CREDENTIAL_REF", "OPERATION", "PROVIDER_DECLINED", "NoopEcho"]
+__all__ = ["CREDENTIAL_MISSING", "CREDENTIAL_REF", "OPERATION", "PROVIDER_DECLINED", "NoopEcho"]
 
 OPERATION = "noop.echo"
 CREDENTIAL_REF = "noop.dummy_credential"
 PROVIDER_DECLINED = "provider_declined"
-"""The one refusal ``noop.echo`` declares (registration.json)."""
+CREDENTIAL_MISSING = "credential_missing"
+"""The refusals ``noop.echo`` declares (registration.json)."""
 
 
 class NoopEcho:
@@ -93,6 +94,16 @@ class NoopEcho:
             refusal=Refusal(code=RefusalCode.BUDGET_WALL_CLOCK.value, message="not mine to say"),
         )
 
+    def _mode_raise_runtime_code(self, context: ProviderRunContext, text: str) -> ProviderResult:
+        """Raise the runtime's own refusal code, as if this provider were the runtime.
+
+        Only runtime machinery produces runtime codes, so the harness reports
+        this as a protocol violation rather than a budget breach.
+        """
+
+        del context, text
+        raise refuse(RefusalCode.BUDGET_WALL_CLOCK, "provider invented this timeout")
+
     def _mode_error(self, context: ProviderRunContext, text: str) -> ProviderResult:
         del context, text
         raise RuntimeError("the reference provider was asked to fail")
@@ -101,11 +112,11 @@ class NoopEcho:
         del text
         material = context.secrets.get(CREDENTIAL_REF)
         if material is None:
-            # The runtime's own code, raised rather than returned: a credential
-            # that never arrived is a delivery fault, not this operation's
-            # judgement about its input.
-            raise refuse(
-                RefusalCode.UNRESOLVED_SECRET_REF,
+            # The operation's own declared refusal. The harness already refuses a
+            # run whose secret channel lacks a ref it names; a credential this
+            # provider expected but the run never named is the provider's call.
+            return ProviderResult.refused(
+                CREDENTIAL_MISSING,
                 f"credential {CREDENTIAL_REF!r} was not delivered",
                 ref=CREDENTIAL_REF,
             )
@@ -212,6 +223,7 @@ class NoopEcho:
         "refuse": _mode_refuse,
         "undeclared_refusal": _mode_undeclared_refusal,
         "runtime_code": _mode_runtime_code,
+        "raise_runtime_code": _mode_raise_runtime_code,
         "error": _mode_error,
         "credential": _mode_credential,
         "chatty": _mode_chatty,

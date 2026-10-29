@@ -17,7 +17,12 @@ import cruxible_provider_runtime.binding as binding_module
 import cruxible_provider_runtime.execute as execute_module
 import pytest
 import yaml
-from cruxible_provider_noop.provider import CREDENTIAL_REF, OPERATION, PROVIDER_DECLINED
+from cruxible_provider_noop.provider import (
+    CREDENTIAL_MISSING,
+    CREDENTIAL_REF,
+    OPERATION,
+    PROVIDER_DECLINED,
+)
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding, BindRequest, bind
@@ -728,7 +733,7 @@ def test_an_undeclared_operation_refusal_is_refused_by_the_executor(
         )
     assert exc.value.code is RefusalCode.UNDECLARED_REFUSAL
     assert exc.value.refusal.detail["refused_code"] == "not_a_declared_refusal"
-    assert exc.value.refusal.detail["declared"] == [PROVIDER_DECLINED]
+    assert exc.value.refusal.detail["declared"] == [CREDENTIAL_MISSING, PROVIDER_DECLINED]
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)
@@ -755,14 +760,12 @@ def test_an_operation_cannot_refuse_under_a_runtime_code(
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)
-def test_a_missing_credential_is_the_runtimes_refusal(
+def test_a_missing_credential_is_the_operations_declared_refusal(
     binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    """Raised as a runtime refusal, so no operation declaration is needed."""
-
     outcome = invoke(
         binding,
         registry=registry,
@@ -773,5 +776,28 @@ def test_a_missing_credential_is_the_runtimes_refusal(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code == RefusalCode.UNRESOLVED_SECRET_REF
-    assert outcome.envelope.refusal.is_runtime
+    assert outcome.envelope.refusal.code == CREDENTIAL_MISSING
+    assert not outcome.envelope.refusal.is_runtime
+
+
+@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
+def test_an_operation_cannot_raise_a_runtime_code(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """A raised runtime code is a protocol violation, not the condition it names."""
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "raise_runtime_code"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "refused"
+    assert outcome.envelope.refusal is not None
+    assert outcome.envelope.refusal.code == RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert outcome.envelope.refusal.detail["refused_code"] == "budget_wall_clock"
