@@ -13,8 +13,9 @@ The order is load-bearing:
    caps, a breach of which is a typed refusal rather than a provider error;
 4. **check** — endpoints actually contacted are compared against the accepted
    declaration, credential material is asserted absent from everything
-   destined for exhaust, and an operation refusal must be one the bound
-   operation declares (``undeclared_refusal``).
+   destined for exhaust, an operation refusal must be one the bound
+   operation declares (``undeclared_refusal``), and a runtime refusal must be
+   one the child harness produces.
 
 No input is classified. What an operation admits is its input Contract, which
 core validates before the run and this library never interprets.
@@ -33,7 +34,7 @@ from .backends import ContainerBackend, LocalEnvBackend
 from .binding import Binding
 from .budget import ProcessOutcome
 from .egress import EgressComparison, compare_egress, enforce_egress
-from .errors import Refusal, RefusalCode, RefusalError, refuse
+from .errors import HARNESS_REFUSAL_CODES, Refusal, RefusalCode, RefusalError, refuse
 from .protocol import (
     PROTOCOL_VERSION,
     Budgets,
@@ -190,15 +191,28 @@ def invoke(
 
 
 def check_declared_refusal(binding: Binding, envelope: ResultEnvelope) -> None:
-    """Refuse an operation refusal the bound operation does not declare.
+    """Refuse a refusal the envelope has no standing to carry.
 
-    A runtime refusal is the runtime's own and needs no declaration. Anything
-    else is the operation's, and its ``refusals`` are its whole vocabulary: an
-    undeclared code is not passed through as if it meant something.
+    An operation refusal must be one the bound operation declares: its
+    ``refusals`` are its whole vocabulary, and an undeclared code is not passed
+    through as if it meant something (``undeclared_refusal``). A runtime
+    refusal must be one the child harness produces (``HARNESS_REFUSAL_CODES``);
+    every other runtime code names a condition only this executor observes, so
+    an envelope reporting one is a protocol violation, not an observation.
     """
 
     refusal = envelope.refusal
-    if envelope.status != "refused" or refusal is None or refusal.is_runtime:
+    if envelope.status != "refused" or refusal is None:
+        return
+    if refusal.is_runtime:
+        if refusal.code not in HARNESS_REFUSAL_CODES:
+            raise refuse(
+                RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+                f"the provider envelope reports {refusal.code!r}, a condition only the "
+                "executor observes",
+                operation=binding.operation.name,
+                refused_code=refusal.code,
+            )
         return
     if not binding.operation.declares_refusal(refusal.code):
         raise refuse(

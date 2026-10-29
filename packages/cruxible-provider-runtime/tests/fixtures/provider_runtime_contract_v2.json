@@ -27,6 +27,14 @@
     "dynamic:target-from-configuration",
     "dynamic:target-from-run-input"
   ],
+  "harness_refusal_codes": [
+    "non_finite_output",
+    "provider_protocol_violation",
+    "undeclared_operation",
+    "unknown_run_context_field",
+    "unresolved_secret_ref",
+    "unsupported_protocol"
+  ],
   "implementation_cases": {
     "sample-echo": {
       "distribution_sha256": "sha256:2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",

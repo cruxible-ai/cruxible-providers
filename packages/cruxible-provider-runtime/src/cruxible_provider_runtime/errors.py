@@ -24,6 +24,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 __all__ = [
+    "HARNESS_REFUSAL_CODES",
     "REFUSAL_CODE_RE",
     "RUNTIME_REFUSAL_CODES",
     "Declined",
@@ -48,9 +49,10 @@ class RefusalCode(StrEnum):
     operation's vocabulary, not this one's.
 
     The two vocabularies are kept disjoint by construction: an operation may not
-    declare a code spelled like one of these (registration refuses it), and a
-    provider's operation refusal using one is a protocol violation. So a code
-    on the wire says by its spelling whose refusal it is.
+    declare a code spelled like one of these (registration refuses it), and
+    provider code that returns or raises one is a protocol violation. Only the
+    runtime's own machinery produces these codes: the child harness the few in
+    :data:`HARNESS_REFUSAL_CODES`, the executor the rest.
     """
 
     # --- registration / manifest -------------------------------------------
@@ -102,6 +104,27 @@ class RefusalCode(StrEnum):
 
 RUNTIME_REFUSAL_CODES: frozenset[str] = frozenset(code.value for code in RefusalCode)
 """Every code the runtime reserves; no operation may declare one of these."""
+
+HARNESS_REFUSAL_CODES: frozenset[str] = frozenset(
+    {
+        RefusalCode.UNSUPPORTED_PROTOCOL.value,
+        RefusalCode.UNKNOWN_RUN_CONTEXT_FIELD.value,
+        RefusalCode.PROVIDER_PROTOCOL_VIOLATION.value,
+        RefusalCode.UNDECLARED_OPERATION.value,
+        RefusalCode.UNRESOLVED_SECRET_REF.value,
+        RefusalCode.NON_FINITE_OUTPUT.value,
+    }
+)
+"""The runtime codes the child harness itself produces, and so the only ones an envelope carries.
+
+The harness produces them from its own observations -- the run context, the
+entrypoint's declaration, the secret channel, the envelope it builds -- never
+on a provider's say-so: a runtime refusal raised or returned by provider code is
+a protocol violation. Every other runtime code (budgets, egress conformance,
+leaks, locks, the cache, the environment seal) is the executor's own
+observation, and an envelope carrying one is refused as a protocol violation
+rather than believed.
+"""
 
 REFUSAL_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 """The spelling of any refusal code, the runtime's or an operation's."""
@@ -161,7 +184,12 @@ class ProviderErrorPayload(BaseModel):
 
 
 class RefusalError(Exception):
-    """Raised whenever the runtime declines to proceed, under one of its own codes."""
+    """Raised whenever the runtime declines to proceed, under one of its own codes.
+
+    Runtime machinery only. Provider code refuses with :class:`Declined` under a
+    code its operation declares; a ``RefusalError`` escaping provider code is
+    reported as a protocol violation, never as the runtime condition it names.
+    """
 
     def __init__(
         self,

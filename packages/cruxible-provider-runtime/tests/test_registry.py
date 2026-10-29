@@ -11,7 +11,7 @@ from cruxible_provider_runtime.artifact import (
     LocalEnvBackendPin,
     ProviderArtifactPayload,
 )
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError
+from cruxible_provider_runtime.errors import HARNESS_REFUSAL_CODES, RefusalCode, RefusalError
 from cruxible_provider_runtime.manifest import load_manifest_document, manifest_digest
 from cruxible_provider_runtime.operations import ContractRef, ProviderOperation
 from cruxible_provider_runtime.registry import StubRegistry, stub_contract_digest
@@ -159,3 +159,46 @@ def test_unaccepted_provider_refuses() -> None:
     with pytest.raises(RefusalError) as exc:
         registry.accepted_build("cruxible-provider-sample")
     assert exc.value.code is RefusalCode.UNACCEPTED_PROVIDER
+
+
+def _envelope(code: str) -> object:
+    from cruxible_provider_runtime.protocol import PROTOCOL_VERSION, ResultEnvelope
+
+    return ResultEnvelope.model_validate(
+        {
+            "protocol_version": PROTOCOL_VERSION.render(),
+            "run_id": "r",
+            "status": "refused",
+            "refusal": {"code": code, "message": "m"},
+        }
+    )
+
+
+class _Bound:
+    def __init__(self, operation: ProviderOperation) -> None:
+        self.operation = operation
+
+
+@pytest.mark.parametrize(
+    "code",
+    sorted(code.value for code in RefusalCode if code.value not in HARNESS_REFUSAL_CODES),
+)
+def test_an_envelope_reporting_an_executor_only_condition_is_refused(code: str) -> None:
+    """A forged envelope cannot pass a budget breach or a cache failure off as observed."""
+
+    from cruxible_provider_runtime.execute import check_declared_refusal
+
+    with pytest.raises(RefusalError) as exc:
+        check_declared_refusal(_Bound(ECHO), _envelope(code))  # type: ignore[arg-type]
+    assert exc.value.code is RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert exc.value.refusal.detail["refused_code"] == code
+
+
+def test_harness_and_declared_refusals_pass_and_undeclared_ones_do_not() -> None:
+    from cruxible_provider_runtime.execute import check_declared_refusal
+
+    check_declared_refusal(_Bound(ECHO), _envelope("undeclared_operation"))  # type: ignore[arg-type]
+    check_declared_refusal(_Bound(ECHO), _envelope("too_long"))  # type: ignore[arg-type]
+    with pytest.raises(RefusalError) as exc:
+        check_declared_refusal(_Bound(ECHO), _envelope("too_short"))  # type: ignore[arg-type]
+    assert exc.value.code is RefusalCode.UNDECLARED_REFUSAL

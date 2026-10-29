@@ -55,6 +55,15 @@ detail Contract — never one of the runtime's `RefusalCode` values, which are
 reserved for the runtime's machinery. `decline(code, message, **detail)` raises
 the same refusal from deep inside a call.
 
+Runtime codes come from runtime machinery only. A `RefusalError` raised by
+provider code, or a runtime code returned in a `ProviderResult`, is reported as
+`provider_protocol_violation`: a provider cannot report a budget breach, a cache
+failure or an undelivered credential on its own say-so. The executor also
+refuses an envelope carrying a runtime code outside the few the child harness
+produces (`HARNESS_REFUSAL_CODES`). A condition only the provider can detect —
+an engine its environment lacks, a model file that misses its pin — is an
+operation refusal it declares.
+
 Credentials arrive already resolved in `context.secrets`, keyed by ref. Endpoints
 are recorded through `context.egress.record(url)`. Budgets are in
 `context.budgets` so a provider can report against them, but they are enforced

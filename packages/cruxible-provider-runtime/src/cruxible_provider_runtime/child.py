@@ -5,6 +5,11 @@ stdin, resolves the entrypoint, checks that it serves the run's operation,
 opens the secret channel the run context names, invokes the provider, and
 writes a result envelope on the process's original standard output.
 
+**Only the harness produces runtime refusals.** A refusal the harness raises
+from its own checks carries a runtime code; a refusal from provider code --
+returned or raised -- must use a code the operation declares, and one using a
+runtime code is reported as a protocol violation.
+
 **Dispatch is by entrypoint, checked against the operation.** The run context
 names one entrypoint and one operation. The entrypoint object declares the
 operations it serves (``operations``); a context naming an operation it does
@@ -213,7 +218,21 @@ def main(argv: list[str] | None = None) -> int:
             egress=recorder,
             additive=context.additive,
         )
-        result = provider(provider_context)
+        try:
+            result = provider(provider_context)
+        except RefusalError as exc:
+            # Runtime codes name conditions only the runtime's machinery
+            # observes. Provider code asserting one -- a budget breach, a cache
+            # failure, an undelivered credential -- would be forging a runtime
+            # observation, so it is reported as what it is.
+            raise refuse(
+                RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+                f"operation {context.operation!r} raised the runtime's own refusal code "
+                f"{exc.refusal.code!r}; runtime codes come from runtime machinery only, "
+                "and an operation refuses under codes it declares",
+                operation=context.operation,
+                refused_code=exc.refusal.code,
+            ) from exc
         if not isinstance(result, ProviderResult):
             raise refuse(
                 RefusalCode.PROVIDER_PROTOCOL_VIOLATION,

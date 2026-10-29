@@ -61,6 +61,17 @@ class Deep:
         raise decline("too_long", "the text is too long", limit=3)
 
 
+class Forger:
+    """Raises the runtime's own codes, as if it were the runtime."""
+
+    operations = ("sample.forge",)
+
+    def __call__(self, context):
+        from cruxible_provider_runtime.errors import RefusalCode, refuse
+
+        raise refuse(RefusalCode(context.input["code"]), "provider invented this")
+
+
 class Echo:
     operations = ("sample.echo",)
 
@@ -201,3 +212,27 @@ def test_a_protocol_1_context_is_refused_under_its_own_run(provider_root: Path) 
     assert envelope.refusal is not None
     assert envelope.refusal.code == RefusalCode.UNSUPPORTED_PROTOCOL
     assert envelope.refusal.detail == {"supported_major": 2, "requested": "1.0"}
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        RefusalCode.BUDGET_WALL_CLOCK,
+        RefusalCode.CACHE_INTEGRITY,
+        RefusalCode.UNRESOLVED_SECRET_REF,
+        RefusalCode.UNDECLARED_EGRESS,
+        RefusalCode.ENVIRONMENT_DIVERGENCE,
+    ],
+)
+def test_provider_code_cannot_raise_a_runtime_refusal(
+    provider_root: Path, code: RefusalCode
+) -> None:
+    """Only runtime machinery produces runtime codes; a raised one is a protocol violation."""
+
+    document = _context("sample.forge", "Forger", input={"code": code.value})
+    envelope = _run(provider_root, document)
+    assert envelope.status == "refused"
+    assert envelope.refusal is not None
+    assert envelope.refusal.code == RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert envelope.refusal.detail["refused_code"] == code.value
+    assert envelope.refusal.detail["operation"] == "sample.forge"

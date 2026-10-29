@@ -9,7 +9,8 @@ code. This script is that producer:
     uv run python scripts/export_runtime_contract.py --check  # exit 1 on drift
 
 The fixture carries the wire models' JSON schemas, the runtime's reserved
-refusal codes and the operation-code grammar, valid and invalid vectors (a
+refusal codes (and the subset the child harness itself produces, the only ones
+an envelope may carry), the operation-code grammar, valid and invalid vectors (a
 protocol-1.x context among the invalid ones), the receipt fields an invocation
 records, and the digest goldens (implementation, materialization, operation
 signature) with the cases that produce them. The commit it was produced at is
@@ -39,6 +40,7 @@ from cruxible_provider_runtime.digests import (  # noqa: E402
 )
 from cruxible_provider_runtime.egress import DYNAMIC_ENDPOINT_FORMS  # noqa: E402
 from cruxible_provider_runtime.errors import (  # noqa: E402
+    HARNESS_REFUSAL_CODES,
     REFUSAL_CODE_RE,
     RUNTIME_REFUSAL_CODES,
     ProviderErrorPayload,
@@ -159,6 +161,7 @@ def contract() -> dict[str, Any]:
         "runtime_version": RUNTIME_VERSION,
         "dynamic_endpoint_forms": sorted(DYNAMIC_ENDPOINT_FORMS),
         "runtime_refusal_codes": sorted(RUNTIME_REFUSAL_CODES, key=lambda code: code.encode()),
+        "harness_refusal_codes": sorted(HARNESS_REFUSAL_CODES, key=lambda code: code.encode()),
         "operation_refusal_code_pattern": REFUSAL_CODE_RE.pattern,
         "operation_name_pattern": protocol.OPERATION_NAME_RE.pattern,
         "domains": {
