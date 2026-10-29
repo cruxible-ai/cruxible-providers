@@ -37,9 +37,9 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode, decline, refuse
+from cruxible_provider_runtime.errors import decline
 
-from .operations import PROVIDER_DECLINED
+from .operations import ENGINE_UNAVAILABLE, PROVIDER_DECLINED
 
 __all__ = [
     "BrowserPage",
@@ -283,7 +283,7 @@ class PlaywrightRenderer:
     distinction is the one the taxonomy draws: an environment missing the engine
     its implementation declared is not a failed answer, it is an environment that
     diverges from the resolution it was supposed to be — which is exactly what
-    ``environment_divergence`` names.
+    the declared ``engine_unavailable`` refusal says.
     """
 
     name = "playwright"
@@ -292,8 +292,8 @@ class PlaywrightRenderer:
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
-            raise refuse(
-                RefusalCode.ENVIRONMENT_DIVERGENCE,
+            raise decline(
+                ENGINE_UNAVAILABLE,
                 "this implementation declares the 'browser' extra and the materialized "
                 "environment does not carry it",
                 required_extra="browser",

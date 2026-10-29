@@ -61,7 +61,7 @@ from urllib.parse import urlsplit
 from cruxible_provider_runtime.acquisition import external_capture_result
 from cruxible_provider_runtime.canonical import canonical_json
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import Declined, RefusalCode, decline, refuse
+from cruxible_provider_runtime.errors import Declined, decline
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .engines import (
@@ -73,7 +73,7 @@ from .engines import (
     TrafilaturaExtractor,
 )
 from .http import ClientFactory, ResponseTooLarge, default_client_factory
-from .operations import FETCH_OPERATION, PROVIDER_DECLINED
+from .operations import CREDENTIAL_UNAVAILABLE, FETCH_OPERATION, PROVIDER_DECLINED
 from .recordings import is_fixture_url, recording_for
 
 __all__ = ["DEFAULT_MAX_BYTES", "MAX_RESPONSE_BYTES", "WebFetch", "page_weight_class"]
@@ -458,8 +458,8 @@ class _Request:
                 raise decline(PROVIDER_DECLINED, "credential_ref must be a string")
             material = context.secrets.get(credential_ref)
             if material is None:
-                raise refuse(
-                    RefusalCode.UNRESOLVED_SECRET_REF,
+                raise decline(
+                    CREDENTIAL_UNAVAILABLE,
                     f"the run names credential {credential_ref!r} and it was not delivered",
                     ref=credential_ref,
                 )

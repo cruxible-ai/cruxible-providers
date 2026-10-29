@@ -9,7 +9,7 @@ is declared in the manifest's ``declared_endpoints`` and therefore travels in th
 accepted Provider artifact, where it can be reviewed and where the cloud
 backend's allowlist can be built from it. The executor names the instance for a
 run through ``coordinates``, and this adapter refuses
-(``undeclared_egress``) if the coordinate names an origin the accepted
+(``undeclared_instance``, declared) if the coordinate names an origin the accepted
 declaration does not carry. Pointing a deployment at a different instance is
 therefore a governance act, which is the correct shape for a decision about
 where a run's evidence comes from.
@@ -40,11 +40,11 @@ from cruxible_provider_runtime.egress import (
     normalize_endpoint,
     partition_declared,
 )
-from cruxible_provider_runtime.errors import Declined, RefusalCode, decline, refuse
+from cruxible_provider_runtime.errors import Declined, decline
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .http import ClientFactory, default_client_factory
-from .operations import PROVIDER_DECLINED, SEARCH_OPERATION
+from .operations import PROVIDER_DECLINED, SEARCH_OPERATION, UNDECLARED_INSTANCE
 
 __all__ = ["CREDENTIAL_REF", "SearxngSearch"]
 
@@ -191,8 +191,8 @@ class SearxngSearch:
         origin = normalize_endpoint(instance)
         declared, dynamic = partition_declared(context.declared_endpoints)
         if origin not in declared and DYNAMIC_TARGET_FROM_CONFIGURATION not in dynamic:
-            raise refuse(
-                RefusalCode.UNDECLARED_EGRESS,
+            raise decline(
+                UNDECLARED_INSTANCE,
                 "the run names an instance this implementation does not declare",
                 implementation_digest=context.implementation_digest,
                 instance=origin,

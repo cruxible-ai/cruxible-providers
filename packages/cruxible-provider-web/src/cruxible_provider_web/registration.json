@@ -23,6 +23,10 @@
           "contract": "search.web.refusal.redirect_limit@1",
           "absorbable": false
         },
+        "undeclared_instance": {
+          "contract": "search.web.refusal.undeclared_instance@1",
+          "absorbable": false
+        },
         "unsupported_redirect_scheme": {
           "contract": "search.web.refusal.unsupported_redirect_scheme@1",
           "absorbable": false
@@ -36,8 +40,16 @@
       "out": "web.fetch.result@1",
       "effect": "external_read",
       "refusals": {
+        "credential_unavailable": {
+          "contract": "web.fetch.refusal.credential_unavailable@1",
+          "absorbable": false
+        },
         "cross_origin_credentialed_redirect": {
           "contract": "web.fetch.refusal.cross_origin_credentialed_redirect@1",
+          "absorbable": false
+        },
+        "engine_unavailable": {
+          "contract": "web.fetch.refusal.engine_unavailable@1",
           "absorbable": false
         },
         "provider_declined": {

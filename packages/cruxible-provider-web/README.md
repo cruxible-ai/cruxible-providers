@@ -149,7 +149,7 @@ of it is recorded.
 
 `search.web` declares a concrete origin, because its target is configuration
 rather than input. The instance is named per run by an `instance_url` coordinate
-and refused (`undeclared_egress`) unless the accepted declaration carries it.
+and refused (`undeclared_instance`) unless the accepted declaration carries it.
 
 **As shipped, the declared instance is the reserved conformance host, so this
 package is not deployable against a real instance as-is.** Under
@@ -179,13 +179,13 @@ refusals it may return, each with a detail Contract:
 
 | Operation | In | Out | Effect | Refusals |
 |---|---|---|---|---|
-| `search.web` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect` |
-| `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect` |
+| `search.web` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
+| `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `engine_unavailable` |
 
-An undelivered credential (`unresolved_secret_ref`), an instance outside the
-declaration (`undeclared_egress`) and a missing browser
-(`environment_divergence`) are the runtime's own refusals, raised as such and
-not declared by either operation.
+A credential the run names but did not deliver (`credential_unavailable`), an
+instance outside the declaration (`undeclared_instance`) and a missing browser
+(`engine_unavailable`) are the operations' own declared refusals. Runtime codes
+come from the runtime's machinery only; provider code never raises one.
 
 Weight and freshness are declared by the caller and *checked* rather than
 trusted: a response heavier than the run's `max_bytes` refuses, and the recency

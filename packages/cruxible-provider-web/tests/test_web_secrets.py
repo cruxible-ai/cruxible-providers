@@ -15,11 +15,11 @@ from typing import Any
 
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderRunContext
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.http import HttpResponse, RecordingClient
+from cruxible_provider_web.operations import CREDENTIAL_UNAVAILABLE, UNDECLARED_INSTANCE
 from cruxible_provider_web.search import CREDENTIAL_REF, SearxngSearch
 
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=1_000_000)
@@ -144,9 +144,10 @@ def test_explicit_static_declaration_still_refuses_a_different_service() -> None
         input={"query": "tide gauge"},
         coordinates={"instance_url": "https://other.example"},
     )
-    with pytest.raises(RefusalError) as exc:
-        provider(context)
-    assert exc.value.code is RefusalCode.UNDECLARED_EGRESS
+    result = provider(context)
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.code == UNDECLARED_INSTANCE
     assert not client.urls
 
 
@@ -173,18 +174,19 @@ def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
 def test_a_fetch_naming_an_undelivered_credential_refuses() -> None:
     """A run that says it is authenticated does not silently go out anonymous.
 
-    An undelivered credential is a delivery fault, so it is the runtime's own
-    refusal, raised rather than returned as the operation's.
+    It refuses under the operation's declared ``credential_unavailable``: a
+    runtime code is the runtime machinery's to produce, never provider code's.
     """
 
-    with pytest.raises(RefusalError) as exc:
-        WebFetch()(
-            _context(
-                "web.fetch",
-                input={"url": "https://fixture.invalid/page", "credential_ref": "web.token"},
-            )
+    result = WebFetch()(
+        _context(
+            "web.fetch",
+            input={"url": "https://fixture.invalid/page", "credential_ref": "web.token"},
         )
-    assert exc.value.code is RefusalCode.UNRESOLVED_SECRET_REF
+    )
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.code == CREDENTIAL_UNAVAILABLE
 
 
 def test_the_client_never_puts_credentials_in_its_own_repr() -> None:
@@ -208,3 +210,23 @@ def test_no_credential_material_is_named_in_the_manifest(entrypoint: str, manife
     rendered = implementation.model_dump_json()
     assert "token" not in rendered.lower()
     assert "password" not in rendered.lower()
+
+
+def test_a_missing_browser_is_the_operations_declared_refusal() -> None:
+    """Only this adapter can see its engine is absent, so the refusal is its own."""
+
+    import importlib.util
+
+    from cruxible_provider_runtime.egress import EgressRecorder
+    from cruxible_provider_runtime.errors import Declined
+    from cruxible_provider_web.engines import PlaywrightRenderer
+    from cruxible_provider_web.operations import ENGINE_UNAVAILABLE
+
+    if importlib.util.find_spec("playwright") is not None:
+        pytest.skip("the browser extra is installed here")
+    with pytest.raises(Declined) as exc:
+        PlaywrightRenderer().render(
+            "https://fixture.invalid/", timeout_seconds=1.0, recorder=EgressRecorder()
+        )
+    assert exc.value.code == ENGINE_UNAVAILABLE
+    assert exc.value.refusal.detail["required_extra"] == "browser"
