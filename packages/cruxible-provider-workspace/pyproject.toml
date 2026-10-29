@@ -1,5 +1,5 @@
 # The workspace built-in. One distribution, one lock, one identity unit; one
-# implementation, of the `workspace.file` interface.
+# implementation, serving the `workspace.file` operation.
 #
 # It is a built-in on the core side -- it enters every instance by the
 # seed-by-proposal verb -- and an ordinary plane package on this side. Nothing in
