@@ -60,9 +60,17 @@ not declare, and a protocol violation for an entrypoint that declares none or an
 
 A refused envelope's `refusal.code` is one of two disjoint vocabularies: the
 runtime's own closed `RefusalCode` (reserved; no operation may declare one), or a
-code the bound operation declares. An executor holding the operation refuses an
-undeclared operation code (`undeclared_refusal` here; core validates the detail
-against the declared Contract).
+code the bound operation declares. Runtime codes are produced by runtime
+machinery only: provider code that raises or returns one is reported by the
+child as `provider_protocol_violation`, and conditions only a provider can see
+(a missing engine, a model file that misses its pin, a credential the run named
+but did not deliver) are refusals its operation declares. The child harness
+produces only the runtime codes in `HARNESS_REFUSAL_CODES` (exported in the
+contract fixture as `harness_refusal_codes`); an envelope carrying any other
+runtime code names a condition only the executor observes and is refused as a
+protocol violation. An executor holding the operation refuses an undeclared
+operation code (`undeclared_refusal` here; core validates the detail against
+the declared Contract).
 
 **The contract fixture.** `scripts/export_runtime_contract.py` writes
 `packages/cruxible-provider-runtime/tests/fixtures/provider_runtime_contract_v2.json`
