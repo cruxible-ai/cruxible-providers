@@ -332,3 +332,41 @@ def test_the_release_check_refuses_a_wheel_without_its_lock(tmp_path: Path) -> N
         "tag 'cruxible-provider-noop-v0.1.0' does not name cruxible-provider-noop 0.3.0",
         f"{wheel.name} embeds a lock that differs from the committed one",
     ]
+
+
+def _runtime_requirement(pyproject: Path) -> str | None:
+    from packaging.requirements import Requirement
+
+    document = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    for item in document["project"].get("dependencies", []):
+        requirement = Requirement(item)
+        if requirement.name == "cruxible-provider-runtime":
+            return str(requirement.specifier)
+    return None
+
+
+PROVIDER_PYPROJECTS = [
+    *(
+        package / "pyproject.toml"
+        for package in REAL_PACKAGES
+        if any((package / "src").glob("*/registration.json"))
+    ),
+    PACKAGES / "_template" / "pyproject.toml.template",
+]
+
+
+@pytest.mark.parametrize("pyproject", PROVIDER_PYPROJECTS, ids=lambda path: path.parent.name)
+def test_every_provider_requires_the_protocol_2_runtime(pyproject: Path) -> None:
+    """A provider that admits an older runtime admits one that cannot run it.
+
+    The floor is the runtime's own minor line: a schema-2 registration and a
+    protocol-2.0 operation need exactly the runtime that reads them. The
+    template is held to the same floor, because a package copied from it
+    inherits the requirement.
+    """
+
+    runtime = tomllib.loads(
+        (PACKAGES / "cruxible-provider-runtime" / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
+    major, minor, _patch = runtime.split(".")
+    assert _runtime_requirement(pyproject) == f">={major}.{minor}.0"
