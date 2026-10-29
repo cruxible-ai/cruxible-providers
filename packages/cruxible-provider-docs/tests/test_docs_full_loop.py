@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 from cruxible_provider_docs import PROVIDER_DECLINED
+from cruxible_provider_docs.documents import ENGINE_UNAVAILABLE
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding, BindRequest, bind
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
@@ -196,7 +196,7 @@ def test_an_inline_document_needing_the_engine_refuses_when_it_is_absent(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code == RefusalCode.ENVIRONMENT_DIVERGENCE
+    assert outcome.envelope.refusal.code == ENGINE_UNAVAILABLE
     assert outcome.envelope.refusal.detail["required_extra"] == "docling"
 
 
@@ -322,7 +322,7 @@ def test_an_ocr_run_needing_the_engine_refuses_when_it_is_absent(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code == RefusalCode.ENVIRONMENT_DIVERGENCE
+    assert outcome.envelope.refusal.code == ENGINE_UNAVAILABLE
     assert outcome.envelope.refusal.detail["required_extra"] == "paddleocr"
 
 

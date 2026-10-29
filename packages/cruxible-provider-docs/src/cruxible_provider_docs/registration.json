@@ -11,6 +11,10 @@
       "out": "doc.to_markdown.result@1",
       "effect": "pure",
       "refusals": {
+        "engine_unavailable": {
+          "contract": "doc.to_markdown.refusal.engine_unavailable@1",
+          "absorbable": false
+        },
         "provider_declined": {
           "contract": "doc.to_markdown.refusal.provider_declined@1",
           "absorbable": true
@@ -24,6 +28,10 @@
       "out": "ocr.extract.result@1",
       "effect": "pure",
       "refusals": {
+        "engine_unavailable": {
+          "contract": "ocr.extract.refusal.engine_unavailable@1",
+          "absorbable": false
+        },
         "provider_declined": {
           "contract": "ocr.extract.refusal.provider_declined@1",
           "absorbable": true

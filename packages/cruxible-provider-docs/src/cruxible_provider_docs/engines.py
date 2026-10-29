@@ -14,11 +14,12 @@ an adopter and a provider they are about to bind is a cost with no upside at thi
 stage. PaddleOCR also publishes CPU wheels for every platform the launch marker
 environments name, which Surya's torch dependency does not make simple.
 
-Both real engines import inside the method and turn a missing import into a typed
-``environment_divergence`` refusal rather than letting an ImportError cross the
-process boundary as an error. An environment that lacks the engine its
-implementation declared has diverged from the resolution it was supposed to be;
-that is not a failed answer, and the taxonomy already has a name for it.
+Both real engines import inside the method and turn a missing import into the
+operations' declared ``engine_unavailable`` refusal rather than letting an
+ImportError cross the process boundary as an error. An environment that lacks
+the engine its implementation declared is not a failed answer; only this adapter
+can see it, so the refusal is the operation's own (runtime codes are the
+runtime machinery's to produce).
 """
 
 from __future__ import annotations
@@ -26,9 +27,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from cruxible_provider_runtime.errors import RefusalCode, refuse
+from cruxible_provider_runtime.errors import decline
 
-from .documents import document_suffix
+from .documents import ENGINE_UNAVAILABLE, document_suffix
 
 __all__ = [
     "DoclingMarkdownEngine",
@@ -136,8 +137,8 @@ class DoclingMarkdownEngine:
             from docling.datamodel.base_models import DocumentStream
             from docling.document_converter import DocumentConverter
         except ImportError as exc:
-            raise refuse(
-                RefusalCode.ENVIRONMENT_DIVERGENCE,
+            raise decline(
+                ENGINE_UNAVAILABLE,
                 "this implementation declares the 'docling' extra and the materialized "
                 "environment does not carry it",
                 required_extra="docling",
@@ -182,8 +183,8 @@ class PaddleOcrEngine:
         try:
             from paddleocr import PaddleOCR
         except ImportError as exc:
-            raise refuse(
-                RefusalCode.ENVIRONMENT_DIVERGENCE,
+            raise decline(
+                ENGINE_UNAVAILABLE,
                 "this implementation declares the 'paddleocr' extra and the materialized "
                 "environment does not carry it",
                 required_extra="paddleocr",

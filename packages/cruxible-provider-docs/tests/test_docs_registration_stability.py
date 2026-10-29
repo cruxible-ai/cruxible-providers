@@ -30,11 +30,11 @@ def test_each_entrypoint_serves_the_operation_the_registration_names() -> None:
         assert item.effect == "pure"
         assert item.in_.spelling == f"{name}.request@1"
         assert item.out.spelling == f"{name}.result@1"
-        assert set(item.refusals) == {"provider_declined"}
+        assert set(item.refusals) == {"engine_unavailable", "provider_declined"}
         assert item.refusals["provider_declined"].absorbable is True
-        assert item.refusals["provider_declined"].contract.spelling == (
-            f"{name}.refusal.provider_declined@1"
-        )
+        assert item.refusals["engine_unavailable"].absorbable is False
+        for code, refusal in item.refusals.items():
+            assert refusal.contract.spelling == f"{name}.refusal.{code}@1"
 
 
 def test_the_declared_refusals_cover_every_code_the_code_can_return() -> None:
@@ -47,12 +47,13 @@ def test_the_declared_refusals_cover_every_code_the_code_can_return() -> None:
             if (
                 isinstance(node, ast.Assign)
                 and any(
-                    isinstance(t, ast.Name) and t.id == "PROVIDER_DECLINED" for t in node.targets
+                    isinstance(t, ast.Name) and t.id in {"PROVIDER_DECLINED", "ENGINE_UNAVAILABLE"}
+                    for t in node.targets
                 )
                 and isinstance(node.value, ast.Constant)
             ):
                 codes.add(str(node.value.value))
-    assert codes == {"provider_declined"}
+    assert codes == {"engine_unavailable", "provider_declined"}
     for item in _bundle().operations:
         assert codes == set(item.refusals)
 

@@ -22,6 +22,7 @@ from .recordings import Recording, inline_document, load_document, load_recordin
 
 __all__ = [
     "DEFAULT_SUFFIX",
+    "ENGINE_UNAVAILABLE",
     "PROVIDER_DECLINED",
     "ResolvedSource",
     "document_format",
@@ -31,7 +32,8 @@ __all__ = [
 ]
 
 PROVIDER_DECLINED = "provider_declined"
-"""The one refusal both operations declare (registration.json)."""
+ENGINE_UNAVAILABLE = "engine_unavailable"
+"""The refusals both operations declare (registration.json)."""
 
 _SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,12}$")
 

@@ -8,9 +8,10 @@ Cruxible provider adapters for the document plane. Apache-2.0.
 | `ocr.extract` | `cruxible_provider_docs.ocr:PaddleOcrExtract` | PaddleOCR | `paddleocr` |
 
 Each operation is declared in `registration.json` (schema 2): input
-`<operation>.request@1`, output `<operation>.result@1`, effect `pure`, and one
-declared refusal, `provider_declined` (detail Contract
-`<operation>.refusal.provider_declined@1`, absorbable). The Contracts are named,
+`<operation>.request@1`, output `<operation>.result@1`, effect `pure`, and two
+declared refusals: `provider_declined` (absorbable) and `engine_unavailable`
+(the environment lacks the engine's extra; not absorbable), each with detail
+Contract `<operation>.refusal.<code>@1`. The Contracts are named,
 not shipped; an install pins each to the version accepted at its base.
 
 Operators install it into a daemon by name, through a governed install:
