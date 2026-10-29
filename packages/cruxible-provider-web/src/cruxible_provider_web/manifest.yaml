@@ -1,53 +1,32 @@
 # Package-side provider manifest for the web plane.
 #
 # This file is a transcription SOURCE, never authority. A provider is bindable
-# only through an accepted providers/<provider-id>.yaml governed artifact whose
-# payload transcribes this document; at bind and invoke the runtime recomputes
-# this manifest's digest and refuses on any divergence.
+# only through an accepted Provider build whose payload transcribes this
+# document; at bind and invoke the runtime recomputes this manifest's digest and
+# refuses on any divergence.
+#
+# One row per entrypoint. What each entrypoint serves -- its operations, their
+# Contracts and their refusals -- is declared in registration.json, not here.
 #
 # The distribution's own sha256 is deliberately absent: an artifact cannot carry
 # its own hash. It is pinned by the accepted artifact, and it is what the
 # implementation digest consumes.
-schema_version: 1
+schema_version: 2
 provider_id: cruxible-provider-web
 distribution:
   name: cruxible-provider-web
-  version: 0.2.0
+  version: 0.3.0
 entrypoint_group: cruxible.providers
-supported_protocol_majors: [1]
+supported_protocol_majors: [2]
 implementations:
-  # Two implementations, two interfaces. One package may implement several
-  # interfaces within its plane; it may implement any one of them at most once,
-  # and a second implementation of the same interface is terminal
-  # (ambiguous_implementation) rather than something to disambiguate here.
-  - interface_id: web.fetch
-    # Exact interface digest under its retained historical domain.
-    # The bundled contracts/ definition is shared with registration metadata.
-    interface_digest: "sha256:f09e1553b05d72a9e58ed3a260417c41992ccd34b2f2541958c5733723ac2121"
-    entrypoint: "cruxible_provider_web.fetch:WebFetch"
+  # Serves web.fetch.
+  - entrypoint: "cruxible_provider_web.fetch:WebFetch"
     backends: [local_env, container]
-    # The js_rendered bucket needs a browser, and a browser is a heavy engine,
-    # so it lives behind the `browser` extra rather than in the base install.
+    # A rendered fetch needs a browser, and a browser is a heavy engine, so it
+    # lives behind the `browser` extra rather than in the base install.
     # Declaring it here is what makes the resolver materialize an environment
     # that has it -- and what makes the environment differ from search.web's.
     requires_extras: [browser]
-    # Claimed: static pages up to the medium weight class, one rendered face of
-    # the cube, and light structured endpoints. Deliberately UNCLAIMED, so that
-    # an input reaching for them refuses at admission rather than being served
-    # badly: binary payloads (this adapter extracts text, and a PDF is the
-    # document plane's work), heavy HTML pages, and authenticated rendered pages
-    # (a credential handed to a browser context is a different security story
-    # and has no fixture).
-    declared_input_buckets:
-      - "source_kind=static_html;access=*;page_weight=light"
-      - "source_kind=static_html;access=*;page_weight=medium"
-      - "source_kind=js_rendered;access=public;page_weight=*"
-      - "source_kind=api_json;access=*;page_weight=*"
-    bucket_conformance:
-      "source_kind=static_html;access=*;page_weight=light": web-fetch-static-light
-      "source_kind=static_html;access=*;page_weight=medium": web-fetch-static-medium
-      "source_kind=js_rendered;access=public;page_weight=*": web-fetch-rendered
-      "source_kind=api_json;access=*;page_weight=*": web-fetch-api-json
     # EXPERIMENTAL declaration form. This implementation's target IS the run
     # input: enumerating endpoints at acceptance time could only ever be wrong,
     # and declaring [] and then contacting things would be a lie. What governs
@@ -55,46 +34,21 @@ implementations:
     # included, lands in the run's egress recorder and in the receipt.
     declared_endpoints:
       - "dynamic:target-from-run-input"
-    # Two families, because the output is two kinds of material. What came off
-    # the wire is retrieval material; what an extractor made of it is derived,
-    # whatever the extractor's confidence. The contract carries the grades; this
-    # adapter mints no Capture.
-    capture_contract_families:
-      - web.fetch.retrieval.v1
-      - web.fetch.extraction.v1
-    # A live fetch is not deterministic. External reads are explicit in the
-    # interface effect class; side_effects here denotes external mutation.
+    # A live fetch is not deterministic. That it reads the outside world is the
+    # operation's effect (external_read), declared in registration.json.
     deterministic: false
-    side_effects: false
 
-  - interface_id: search.web
-    interface_digest: "sha256:fea1d32087a65259d93586a9d582a5112d08f051c59d97e8737d10ad5bc295bb"
-    entrypoint: "cruxible_provider_web.search:SearxngSearch"
+  # Serves search.web.
+  - entrypoint: "cruxible_provider_web.search:SearxngSearch"
     backends: [local_env, container]
     # No engine: an HTTP client to somebody else's instance is the whole
     # implementation. Its environment is therefore the base one, and differs
     # from web.fetch's above -- one lock, two environments, two pins.
     requires_extras: []
-    # Claimed: shallow and standard depths at any-time, and shallow at the
-    # recent bound. Unclaimed: realtime (an instance's indexing lag is the
-    # binding constraint and this adapter cannot promise past it) and deep
-    # (paging past 50 results means several requests and a different pacing
-    # story, with no fixture behind it).
-    declared_input_buckets:
-      - "query_form=*;recency=any_time;result_depth=shallow"
-      - "query_form=*;recency=any_time;result_depth=standard"
-      - "query_form=*;recency=recent;result_depth=shallow"
-    bucket_conformance:
-      "query_form=*;recency=any_time;result_depth=shallow": search-web-shallow
-      "query_form=*;recency=any_time;result_depth=standard": search-web-standard
-      "query_form=*;recency=recent;result_depth=shallow": search-web-recent
     # The exact instance URL is supplied as retained run configuration. The
     # package is reusable across instances; egress remains recorded per run.
     declared_endpoints:
       - "dynamic:target-from-configuration"
-    capture_contract_families:
-      - search.web.instance_answer.v1
     # A ranking is a fact about an instance at a moment, not a reproducible
-    # function of the query. No side effects: a query changes nothing.
+    # function of the query.
     deterministic: false
-    side_effects: false

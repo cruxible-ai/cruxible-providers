@@ -30,7 +30,6 @@ from cruxible_provider_web.fetch import CLIENT_SIDE_RENDER, WebFetch
 from cruxible_provider_web.recordings import load_recordings
 
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=1_000_000)
-RENDERED_BUCKET = "source_kind=js_rendered;access=public;page_weight=light"
 
 REQUESTED = "https://first.example/report"
 SETTLED = "https://second.example/report"
@@ -153,10 +152,10 @@ def _redirected_page() -> _FakePage:
 def _context(**overrides: Any) -> ProviderRunContext:
     fields: dict[str, Any] = {
         "run_id": "run-rendered",
-        "interface_id": "web.fetch",
-        "interface_digest": "sha256:" + "aa" * 32,
+        "operation": "web.fetch",
+        "operation_signature_digest": "sha256:" + "aa" * 32,
+        "build_digest": "sha256:" + "cc" * 32,
         "implementation_digest": "sha256:" + "bb" * 32,
-        "input_bucket": RENDERED_BUCKET,
         "input": {"url": REQUESTED, "render": True},
         "coordinates": {},
         "budgets": BUDGETS,
@@ -274,7 +273,6 @@ def test_a_plain_fetch_claims_no_assembly() -> None:
     result = WebFetch()(
         _context(
             input={"url": "https://fixture.invalid/articles/tide-gauge-recalibration"},
-            input_bucket="source_kind=static_html;access=public;page_weight=light",
         )
     )
 

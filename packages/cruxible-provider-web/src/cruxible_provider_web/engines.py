@@ -37,7 +37,9 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode, refuse
+from cruxible_provider_runtime.errors import RefusalCode, decline, refuse
+
+from .operations import PROVIDER_DECLINED
 
 __all__ = [
     "BrowserPage",
@@ -236,8 +238,8 @@ class TrafilaturaExtractor:
 
         tree = load_html(html)
         if tree is None:
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            raise decline(
+                PROVIDER_DECLINED,
                 "the retrieved document could not be parsed as HTML",
                 url=url,
                 engine=self.name,
@@ -253,8 +255,8 @@ class TrafilaturaExtractor:
             favor_precision=True,
         )
         if not text:
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            raise decline(
+                PROVIDER_DECLINED,
                 "no main content could be extracted from the retrieved document",
                 url=url,
                 engine=self.name,

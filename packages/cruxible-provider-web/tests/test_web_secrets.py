@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode
+from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderRunContext
 from cruxible_provider_web.fetch import WebFetch
@@ -54,13 +54,13 @@ class _CapturingClient:
         )
 
 
-def _context(interface_id: str, **overrides: Any) -> ProviderRunContext:
+def _context(operation: str, **overrides: Any) -> ProviderRunContext:
     fields: dict[str, Any] = {
         "run_id": "run-secrets",
-        "interface_id": interface_id,
-        "interface_digest": "sha256:" + "aa" * 32,
+        "operation": operation,
+        "operation_signature_digest": "sha256:" + "aa" * 32,
+        "build_digest": "sha256:" + "cc" * 32,
         "implementation_digest": "sha256:" + "bb" * 32,
-        "input_bucket": "query_form=keyword;recency=any_time;result_depth=shallow",
         "input": {},
         "coordinates": {},
         "budgets": BUDGETS,
@@ -144,10 +144,9 @@ def test_explicit_static_declaration_still_refuses_a_different_service() -> None
         input={"query": "tide gauge"},
         coordinates={"instance_url": "https://other.example"},
     )
-    result = provider(context)
-    assert result.status == "refused"
-    assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.UNDECLARED_EGRESS
+    with pytest.raises(RefusalError) as exc:
+        provider(context)
+    assert exc.value.code is RefusalCode.UNDECLARED_EGRESS
     assert not client.urls
 
 
@@ -172,18 +171,20 @@ def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
 
 
 def test_a_fetch_naming_an_undelivered_credential_refuses() -> None:
-    """A run that says it is authenticated does not silently go out anonymous."""
+    """A run that says it is authenticated does not silently go out anonymous.
 
-    result = WebFetch()(
-        _context(
-            "web.fetch",
-            input={"url": "https://fixture.invalid/page", "credential_ref": "web.token"},
-            input_bucket="source_kind=static_html;access=authenticated;page_weight=light",
+    An undelivered credential is a delivery fault, so it is the runtime's own
+    refusal, raised rather than returned as the operation's.
+    """
+
+    with pytest.raises(RefusalError) as exc:
+        WebFetch()(
+            _context(
+                "web.fetch",
+                input={"url": "https://fixture.invalid/page", "credential_ref": "web.token"},
+            )
         )
-    )
-    assert result.status == "refused"
-    assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.UNRESOLVED_SECRET_REF
+    assert exc.value.code is RefusalCode.UNRESOLVED_SECRET_REF
 
 
 def test_the_client_never_puts_credentials_in_its_own_repr() -> None:
@@ -196,11 +197,14 @@ def test_the_client_never_puts_credentials_in_its_own_repr() -> None:
         client.close()
 
 
-@pytest.mark.parametrize("interface_id", ["web.fetch", "search.web"])
-def test_no_credential_material_is_named_in_the_manifest(interface_id: str, manifest: Any) -> None:
+@pytest.mark.parametrize(
+    "entrypoint",
+    ["cruxible_provider_web.fetch:WebFetch", "cruxible_provider_web.search:SearxngSearch"],
+)
+def test_no_credential_material_is_named_in_the_manifest(entrypoint: str, manifest: Any) -> None:
     """Secret-refs name credentials; manifests carry neither refs' values nor keys."""
 
-    implementation = manifest.implementation(interface_id)
+    implementation = manifest.implementation(entrypoint)
     rendered = implementation.model_dump_json()
     assert "token" not in rendered.lower()
     assert "password" not in rendered.lower()

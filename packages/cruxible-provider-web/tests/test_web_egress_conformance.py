@@ -31,7 +31,6 @@ from cruxible_provider_runtime.egress import (
     DYNAMIC_TARGET_FROM_RUN_INPUT,
     no_network,
 )
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.execute import invoke, observed_vs_declared
 from cruxible_provider_runtime.manifest import BackendKind, ProviderManifest
 from cruxible_provider_runtime.protocol import Budgets
@@ -68,7 +67,7 @@ def guard_the_child(
 
 
 def _bind(
-    interface_id: str,
+    operation: str,
     backend_kind: BackendKind,
     registry: StubRegistry,
     manifest_path: Path,
@@ -80,7 +79,7 @@ def _bind(
         registry,
         BindRequest(
             provider_id=PROVIDER_ID,
-            interface_id=interface_id,
+            operation=operation,
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -95,12 +94,12 @@ def _bind(
 def test_the_manifest_declares_what_each_implementation_actually_needs(
     manifest: ProviderManifest,
 ) -> None:
-    assert manifest.implementation("web.fetch").declared_endpoints == (
+    assert manifest.implementation("cruxible_provider_web.fetch:WebFetch").declared_endpoints == (
         DYNAMIC_TARGET_FROM_RUN_INPUT,
     )
-    assert manifest.implementation("search.web").declared_endpoints == (
-        DYNAMIC_TARGET_FROM_CONFIGURATION,
-    )
+    assert manifest.implementation(
+        "cruxible_provider_web.search:SearxngSearch"
+    ).declared_endpoints == (DYNAMIC_TARGET_FROM_CONFIGURATION,)
 
 
 @pytest.mark.parametrize("backend_kind", BACKENDS)
@@ -236,5 +235,5 @@ def test_a_missing_instance_binding_refuses_before_the_request(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert outcome.envelope.refusal.code == "provider_declined"
     assert outcome.egress.observed == ()

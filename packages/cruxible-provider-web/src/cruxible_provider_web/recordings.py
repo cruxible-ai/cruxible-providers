@@ -1,8 +1,8 @@
-"""Recorded exchanges and bucket fixtures, shipped inside the distribution.
+"""Recorded exchanges, shipped inside the distribution.
 
-Every claimed input bucket needs a conformance fixture that passes, and a fixture
-for a network adapter has to come from somewhere. These recordings are that
-somewhere: response material captured once, replayed byte for byte.
+A conformance suite for a network adapter needs responses from somewhere, and
+the default lane opens no socket. These recordings are that somewhere: response
+material captured once, replayed byte for byte.
 
 Two rules keep replay from becoming fabrication.
 
@@ -20,13 +20,6 @@ The recordings travel *through the real client*: they are served by an
 ``httpx.MockTransport``, so the request pipeline, the egress event hook, the
 header handling, and the size cap all execute exactly as they do against a
 network. What is replaced is the socket, and nothing above it.
-
-Fixtures and recordings are separate files on purpose. A fixture is a *claim
-about a bucket* — this input, admitted into that bucket, produces this shape;
-a recording is an *exchange*. Several fixtures may exercise several buckets over
-one exchange, which is exactly what the three search fixtures do, and collapsing
-the two would have forced three copies of one instance answer to make the ids
-line up.
 """
 
 from __future__ import annotations
@@ -38,24 +31,20 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 __all__ = [
-    "FIXTURES_DIR",
     "FIXTURE_HOST",
     "RECORDINGS_DIR",
-    "BucketFixture",
     "RecordedResponse",
     "Recording",
     "is_fixture_url",
-    "load_fixtures",
     "load_recordings",
     "recording_for",
 ]
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 RECORDINGS_DIR = PACKAGE_ROOT / "recordings"
-FIXTURES_DIR = PACKAGE_ROOT / "fixtures"
 FIXTURE_HOST = "fixture.invalid"
 
 
@@ -86,37 +75,13 @@ class Recording(BaseModel):
 
     response: RecordedResponse
     rendered_body: str | None = None
-    """The DOM after client-side assembly, for the js_rendered bucket.
+    """The DOM after client-side assembly, for a rendered fetch.
 
     Recorded separately from ``response.body`` because that is exactly what a
     browser adds: the initial response and the assembled document are two
     artefacts, and a fixture that conflated them could not tell a renderer that
     worked from one that was never called.
     """
-
-
-class BucketFixture(BaseModel):
-    """One claimed bucket, and what a run in it must produce."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    id: str
-    note: str
-    interface_id: str
-    bucket_selector: str
-    bucket_id: str
-    """The full bucket the input must classify into, spelled out.
-
-    Not derived from the selector: a selector may wildcard, and the point of the
-    fixture is that *this* input measures into *that* bucket. Writing it down is
-    what makes the classifier's behaviour a fixed, reviewable claim.
-    """
-
-    recording_id: str
-    input: dict[str, Any] = Field(default_factory=dict)
-    coordinates: dict[str, Any] = Field(default_factory=dict)
-    secrets: dict[str, str] = Field(default_factory=dict)
-    expect: dict[str, Any] = Field(default_factory=dict)
 
 
 def _load(directory: Path, model: type[BaseModel]) -> dict[str, Any]:
@@ -142,13 +107,6 @@ def load_recordings() -> Mapping[str, Recording]:
             "guess which one a request meant"
         )
     return recordings
-
-
-@lru_cache(maxsize=1)
-def load_fixtures() -> Mapping[str, BucketFixture]:
-    """Every bucket fixture shipped in this distribution, keyed by id."""
-
-    return _load(FIXTURES_DIR, BucketFixture)
 
 
 def is_fixture_url(url: str) -> bool:

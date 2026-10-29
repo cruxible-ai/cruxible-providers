@@ -28,7 +28,7 @@ executor carries both to the CaptureContract, which decides the grade. That
 ordering is what keeps a provider from being able to certify itself.
 
 **Egress.** This implementation cannot enumerate its endpoints: the resource is
-named by the caller, which is the whole point of the interface. Its manifest
+named by the caller, which is the whole point of the operation. Its manifest
 therefore declares the experimental ``dynamic:target-from-run-input`` form, and
 what governs is the recording — every request the client issues reaches the run's
 egress recorder through an httpx event hook, redirect hops included. A rendered
@@ -61,7 +61,7 @@ from urllib.parse import urlsplit
 from cruxible_provider_runtime.acquisition import external_capture_result
 from cruxible_provider_runtime.canonical import canonical_json
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
+from cruxible_provider_runtime.errors import Declined, RefusalCode, decline, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .engines import (
@@ -73,10 +73,26 @@ from .engines import (
     TrafilaturaExtractor,
 )
 from .http import ClientFactory, ResponseTooLarge, default_client_factory
-from .interfaces import DEFAULT_MAX_BYTES, FETCH_INTERFACE_ID, MAX_RESPONSE_BYTES, page_weight_class
+from .operations import FETCH_OPERATION, PROVIDER_DECLINED
 from .recordings import is_fixture_url, recording_for
 
-__all__ = ["WebFetch"]
+__all__ = ["DEFAULT_MAX_BYTES", "MAX_RESPONSE_BYTES", "WebFetch", "page_weight_class"]
+
+DEFAULT_MAX_BYTES = 262_144
+MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+LIGHT_CEILING_BYTES = 262_144
+MEDIUM_CEILING_BYTES = 2 * 1024 * 1024
+
+
+def page_weight_class(byte_count: int) -> str:
+    """The weight class a byte count falls in, reported on an oversized response."""
+
+    if byte_count <= LIGHT_CEILING_BYTES:
+        return "light"
+    if byte_count <= MEDIUM_CEILING_BYTES:
+        return "medium"
+    return "heavy"
+
 
 RETAINED_HEADERS = ("content-type", "content-length", "last-modified", "etag")
 
@@ -131,8 +147,8 @@ class _RecordedRenderer:
         del timeout_seconds, recorder
         recording = recording_for(url)
         if recording is None or recording.rendered_body is None:
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            raise decline(
+                PROVIDER_DECLINED,
                 f"no packaged recording carries a rendered document for {url!r}",
                 url=url,
             )
@@ -152,7 +168,7 @@ class _RecordedRenderer:
 class WebFetch:
     """Retrieve a resource the run input names."""
 
-    interface_id = FETCH_INTERFACE_ID
+    operations = (FETCH_OPERATION,)
 
     def __init__(
         self,
@@ -171,7 +187,7 @@ class WebFetch:
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
             request = _Request.parse(context)
-        except RefusalError as exc:
+        except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 
         timeout_seconds = max(1.0, context.budgets.wall_clock_seconds * 0.8)
@@ -180,21 +196,20 @@ class WebFetch:
                 exchange = self._render(context, request, timeout_seconds)
             else:
                 exchange = self._get(context, request, timeout_seconds)
-        except RefusalError as exc:
+        except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
         except ResponseTooLarge as exc:
             return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
-                "the origin sent more than the byte cap this run was admitted under",
+                PROVIDER_DECLINED,
+                "the origin sent more than the max_bytes this run declared",
                 url=request.url,
-                declared_bucket=context.input_bucket,
                 cap_bytes=exc.cap_bytes,
                 observed_weight=page_weight_class(exc.read_bytes),
             )
 
         if exchange.status_code is not None and not 200 <= exchange.status_code < 300:
             # A status outside 2xx is a failed attempt at an answer, not a
-            # declined one: the interface's product is a retrieved resource, and
+            # declined one: the operation's product is a retrieved resource, and
             # this run did not get one. A rendered run is judged on the same rule
             # now that it reports the status a browser actually got — a script
             # that repaints a 404 into something readable has not turned it into
@@ -210,10 +225,9 @@ class WebFetch:
         document = exchange.document.encode("utf-8")
         if len(document) > request.max_bytes:
             return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
-                "the assembled document is heavier than the bucket this run was admitted under",
+                PROVIDER_DECLINED,
+                "the assembled document is heavier than the max_bytes this run declared",
                 url=request.url,
-                declared_bucket=context.input_bucket,
                 cap_bytes=request.max_bytes,
                 observed_weight=page_weight_class(len(document)),
             )
@@ -221,9 +235,7 @@ class WebFetch:
         if exchange.wire_body is None:
             return ProviderResult.failed("MissingBody", "retrieval did not retain the origin body")
         if len(exchange.wire_body) > request.max_bytes:
-            return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED, "origin body exceeds max_bytes"
-            )
+            return ProviderResult.refused(PROVIDER_DECLINED, "origin body exceeds max_bytes")
         try:
             request.validate_format(exchange)
             derived = self._derive(request, exchange)
@@ -241,7 +253,6 @@ class WebFetch:
                 }
             )
         material = {
-            "input_bucket": context.input_bucket,
             "retrieved": {
                 "url": request.url,
                 "final_url": exchange.final_url,
@@ -386,7 +397,6 @@ class _Request:
         "logical_source",
         "max_bytes",
         "render",
-        "source_kind",
         "url",
     )
 
@@ -398,7 +408,6 @@ class _Request:
         max_bytes: int,
         extract: bool,
         headers: Mapping[str, str],
-        source_kind: str,
         expected_format: str,
         logical_source: str,
     ) -> None:
@@ -407,7 +416,6 @@ class _Request:
         self.max_bytes = max_bytes
         self.extract = extract
         self.headers = dict(headers)
-        self.source_kind = source_kind
         self.expected_format = expected_format
         self.logical_source = logical_source
 
@@ -418,14 +426,14 @@ class _Request:
         if not isinstance(logical_source, str) or not re.fullmatch(
             r"[a-z][a-z0-9_.-]{0,255}", logical_source
         ):
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            raise decline(
+                PROVIDER_DECLINED,
                 "logical_source must be a logical name, not a locator",
             )
         url = payload.get("url")
         if not isinstance(url, str) or urlsplit(url).scheme not in {"http", "https"}:
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            raise decline(
+                PROVIDER_DECLINED,
                 "web.fetch needs an http or https url",
                 url=url if isinstance(url, str) else None,
             )
@@ -435,19 +443,19 @@ class _Request:
             or isinstance(max_bytes, bool)
             or not 0 < max_bytes <= MAX_RESPONSE_BYTES
         ):
-            raise refuse(RefusalCode.PROVIDER_DECLINED, "max_bytes must be between 1 and 33554432")
+            raise decline(PROVIDER_DECLINED, "max_bytes must be between 1 and 33554432")
 
         for flag in ("render", "extract", "paced"):
             if flag in payload and not isinstance(payload[flag], bool):
-                raise refuse(RefusalCode.PROVIDER_DECLINED, f"{flag} must be a bool")
+                raise decline(PROVIDER_DECLINED, f"{flag} must be a bool")
         expected_format = payload.get("expected_format", "auto")
         if expected_format not in {"auto", "html", "json", "csv", "text", "bytes"}:
-            raise refuse(RefusalCode.PROVIDER_DECLINED, "unsupported expected_format")
+            raise decline(PROVIDER_DECLINED, "unsupported expected_format")
         headers: dict[str, str] = {}
         credential_ref = payload.get("credential_ref")
         if credential_ref is not None:
             if not isinstance(credential_ref, str):
-                raise refuse(RefusalCode.PROVIDER_DECLINED, "credential_ref must be a string")
+                raise decline(PROVIDER_DECLINED, "credential_ref must be a string")
             material = context.secrets.get(credential_ref)
             if material is None:
                 raise refuse(
@@ -459,30 +467,19 @@ class _Request:
             if not isinstance(header, str) or not re.fullmatch(
                 r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", header
             ):
-                raise refuse(RefusalCode.PROVIDER_DECLINED, "credential_header must be a string")
+                raise decline(PROVIDER_DECLINED, "credential_header must be a string")
             if "\r" in material or "\n" in material:
-                raise refuse(
-                    RefusalCode.PROVIDER_DECLINED, "credential must be a single header value"
-                )
+                raise decline(PROVIDER_DECLINED, "credential must be a single header value")
             if payload.get("render", False):
-                raise refuse(
-                    RefusalCode.PROVIDER_DECLINED, "rendered retrieval does not support credentials"
-                )
+                raise decline(PROVIDER_DECLINED, "rendered retrieval does not support credentials")
             headers[header] = material
 
-        # The bucket the run was admitted into is the executor's classification
-        # of this same input; reading the source kind back off it keeps the
-        # adapter's behaviour and the recorded bucket from ever disagreeing.
-        source_kind = dict(
-            segment.split("=", 1) for segment in context.input_bucket.split(";")
-        ).get("source_kind", "static_html")
         return cls(
             url=url,
             render=bool(payload.get("render", False)),
             max_bytes=max_bytes,
             extract=bool(payload.get("extract", True)),
             headers=headers,
-            source_kind=source_kind,
             expected_format=expected_format,
             logical_source=logical_source,
         )

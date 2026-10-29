@@ -26,7 +26,7 @@ ARG MATERIALIZATION_DIGEST
 ARG BUILDER_IDENTITY
 
 # The browser extra is NOT installed in this image by default. A deployment that
-# binds the js_rendered bucket builds with `--build-arg PROVIDER_EXTRAS=browser`,
+# serves rendered web.fetch runs builds with `--build-arg PROVIDER_EXTRAS=browser`,
 # which also pulls the browser binaries in the build stage; the resulting image
 # is a different image with a different digest, which is correct -- an image with
 # a browser in it is not the image without one.

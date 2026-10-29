@@ -40,11 +40,11 @@ from cruxible_provider_runtime.egress import (
     normalize_endpoint,
     partition_declared,
 )
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
+from cruxible_provider_runtime.errors import Declined, RefusalCode, decline, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .http import ClientFactory, default_client_factory
-from .interfaces import SEARCH_INTERFACE_ID
+from .operations import PROVIDER_DECLINED, SEARCH_OPERATION
 
 __all__ = ["CREDENTIAL_REF", "SearxngSearch"]
 
@@ -58,7 +58,7 @@ HOURS_PER_DAY = 24
 class SearxngSearch:
     """Query a configured SearXNG instance and record its answer."""
 
-    interface_id = SEARCH_INTERFACE_ID
+    operations = (SEARCH_OPERATION,)
 
     def __init__(self, *, client_factory: ClientFactory | None = None) -> None:
         self._client_factory = client_factory or default_client_factory
@@ -67,7 +67,7 @@ class SearxngSearch:
         try:
             instance = self._instance(context)
             query, limit, max_age_hours, language = _parse_input(context)
-        except RefusalError as exc:
+        except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 
         parameters = {
@@ -135,7 +135,6 @@ class SearxngSearch:
         truncated = kept[:limit]
 
         material: dict[str, Any] = {
-            "input_bucket": context.input_bucket,
             "retrieved": {
                 "instance": instance,
                 "query_submitted": query,
@@ -185,8 +184,8 @@ class SearxngSearch:
     def _instance(self, context: ProviderRunContext) -> str:
         instance = context.coordinates.get("instance_url")
         if not isinstance(instance, str) or not instance.strip():
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            raise decline(
+                PROVIDER_DECLINED,
                 "search.web needs an instance_url coordinate naming the configured instance",
             )
         origin = normalize_endpoint(instance)
@@ -207,18 +206,18 @@ def _parse_input(context: ProviderRunContext) -> tuple[str, int, int | None, str
     payload = context.input
     query = payload.get("query")
     if not isinstance(query, str) or not query.strip():
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "search.web needs a non-empty query")
+        raise decline(PROVIDER_DECLINED, "search.web needs a non-empty query")
     limit = payload.get("limit", 10)
     if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "limit must be a positive integer")
+        raise decline(PROVIDER_DECLINED, "limit must be a positive integer")
     max_age_hours = payload.get("max_age_hours")
     if max_age_hours is not None and (
         not isinstance(max_age_hours, int) or isinstance(max_age_hours, bool) or max_age_hours <= 0
     ):
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "max_age_hours must be a positive integer")
+        raise decline(PROVIDER_DECLINED, "max_age_hours must be a positive integer")
     language = payload.get("language", "en")
     if not isinstance(language, str) or not language:
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "language must be a string")
+        raise decline(PROVIDER_DECLINED, "language must be a string")
     return query.strip(), limit, max_age_hours, language
 
 
@@ -272,12 +271,12 @@ def _as_of(context: ProviderRunContext) -> datetime:
     if supplied is None:
         return datetime.now(UTC)
     if not isinstance(supplied, str):
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "the as_of coordinate must be a string")
+        raise decline(PROVIDER_DECLINED, "the as_of coordinate must be a string")
     try:
         parsed = datetime.fromisoformat(supplied.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise refuse(
-            RefusalCode.PROVIDER_DECLINED,
+        raise decline(
+            PROVIDER_DECLINED,
             f"the as_of coordinate {supplied!r} is not an ISO 8601 instant",
         ) from exc
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)

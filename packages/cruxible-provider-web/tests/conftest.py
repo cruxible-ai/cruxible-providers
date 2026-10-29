@@ -45,8 +45,8 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
+    register_package,
 )
-from cruxible_provider_web.interfaces import registrations
 
 PACKAGE_DIR = Path(cruxible_provider_web.__file__).resolve().parent.parent.parent
 REPO_ROOT = PACKAGE_DIR.parent.parent
@@ -175,9 +175,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
-    stub.register_provider(accepted_artifact)
+    register_package(stub, accepted_artifact, cruxible_provider_web.PACKAGE_ROOT)
     return stub
 
 

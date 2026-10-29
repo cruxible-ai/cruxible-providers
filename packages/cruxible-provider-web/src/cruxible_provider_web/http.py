@@ -29,8 +29,13 @@ from urllib.parse import urlsplit
 
 import httpx
 from cruxible_provider_runtime.egress import EgressRecorder, normalize_endpoint
-from cruxible_provider_runtime.errors import RefusalCode, refuse
+from cruxible_provider_runtime.errors import decline
 
+from .operations import (
+    CROSS_ORIGIN_CREDENTIALED_REDIRECT,
+    REDIRECT_LIMIT,
+    UNSUPPORTED_REDIRECT_SCHEME,
+)
 from .recordings import is_fixture_url, recording_for
 
 __all__ = [
@@ -129,7 +134,7 @@ class RecordingClient:
         **Every header in ``headers`` is treated as credential-bearing.** A
         client cannot tell one caller-chosen header name from another —
         ``x-api-key`` carries exactly what ``authorization`` carries, and this
-        interface lets the run name either — so the safe reading of a per-request
+        operation lets the run name either — so the safe reading of a per-request
         header is that the adapter attached it because it had to, and both
         adapters in this plane attach nothing else. An authenticated fetch
         redirected to a **different origin** therefore refuses rather than
@@ -148,8 +153,8 @@ class RecordingClient:
             # Outside the `with`: the hop is decided on what the origin said, and
             # the connection it said it on is of no further use.
             target = _next_hop(str(response.url), location, credentialed=bool(carried))
-        raise refuse(
-            RefusalCode.REDIRECT_LIMIT,
+        raise decline(
+            REDIRECT_LIMIT,
             f"the redirect chain did not settle within {MAX_REDIRECTS} hops",
             url=url,
             next_url=target,
@@ -179,8 +184,8 @@ def _next_hop(current: str, location: str, *, credentialed: bool) -> str:
 
     A credentialed fetch that changes origin is **refused, not stripped**. Both
     were available, and this plane already holds the position the refusal
-    follows from: a run admitted into the ``access=authenticated`` bucket does
-    not silently go out anonymous — the undelivered-credential refusal says so
+    follows from: a run that names a credential does not silently go out
+    anonymous — the undelivered-credential refusal says so
     in as many words. Stripping would do precisely that, and would hand the
     caller a document retrieved under terms the receipt no longer describes,
     with nothing in it to distinguish that document from one the credential
@@ -195,15 +200,15 @@ def _next_hop(current: str, location: str, *, credentialed: bool) -> str:
 
     destination = str(httpx.URL(current).join(location))
     if urlsplit(destination).scheme not in {"http", "https"}:
-        raise refuse(
-            RefusalCode.UNSUPPORTED_REDIRECT_SCHEME,
-            "the origin redirected to a scheme this interface does not retrieve",
+        raise decline(
+            UNSUPPORTED_REDIRECT_SCHEME,
+            "the origin redirected to a scheme this adapter does not retrieve",
             url=current,
             redirect_to=destination,
         )
     if credentialed and _crosses_origin(current, destination):
-        raise refuse(
-            RefusalCode.CROSS_ORIGIN_CREDENTIALED_REDIRECT,
+        raise decline(
+            CROSS_ORIGIN_CREDENTIALED_REDIRECT,
             "the origin redirected an authenticated fetch to a different origin",
             url=normalize_endpoint(current),
             redirect_to=normalize_endpoint(destination),

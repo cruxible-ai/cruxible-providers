@@ -1,4 +1,4 @@
-"""Bind and invoke, end to end, on both backend kinds, for both interfaces.
+"""Bind and invoke, end to end, on both backend kinds, for both operations.
 
 Every run here goes through a real child process: the entrypoint is imported in
 the child, the run context crosses a pipe, credential material arrives on an
@@ -22,11 +22,11 @@ from cruxible_provider_runtime.egress import (
     DYNAMIC_TARGET_FROM_CONFIGURATION,
     DYNAMIC_TARGET_FROM_RUN_INPUT,
 )
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.registry import StubRegistry
+from cruxible_provider_web.operations import PROVIDER_DECLINED
 from cruxible_provider_web.search import CREDENTIAL_REF
 
 from .conftest import DISTRIBUTION_SHA256, MARKER_ENVIRONMENT, PROVIDER_ID
@@ -39,7 +39,7 @@ DUMMY_CREDENTIAL = "dummy-instance-token-c0ffee-do-not-use"
 
 
 def _bind(
-    interface_id: str,
+    operation: str,
     backend_kind: BackendKind,
     registry: StubRegistry,
     manifest_path: Path,
@@ -51,7 +51,7 @@ def _bind(
         registry,
         BindRequest(
             provider_id=PROVIDER_ID,
-            interface_id=interface_id,
+            operation=operation,
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -124,7 +124,7 @@ def test_fetch_success_path(
         container_backend=container_backend,
     )
     assert outcome.status == "ok"
-    assert outcome.input_bucket == "source_kind=static_html;access=public;page_weight=light"
+    assert outcome.receipt_fields()["operation"] == "web.fetch"
     assert outcome.envelope.output is not None
     retrieved = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"]
     derived = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"]
@@ -192,7 +192,6 @@ def test_fetch_renders_when_the_run_asks_for_a_browser(
         container_backend=container_backend,
     )
     assert outcome.status == "ok"
-    assert outcome.input_bucket == "source_kind=js_rendered;access=public;page_weight=light"
     assert outcome.envelope.output is not None
     assert (
         json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"][
@@ -259,11 +258,11 @@ def test_fetch_typed_refusal_path(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
 
 
 @pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)
-def test_a_response_heavier_than_the_admitted_bucket_refuses(
+def test_a_response_heavier_than_the_declared_cap_refuses(
     fetch_binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
@@ -271,10 +270,10 @@ def test_a_response_heavier_than_the_admitted_bucket_refuses(
 ) -> None:
     """The weight declaration is checked against the response, not trusted.
 
-    Weight is not knowable before retrieval, so the bucket is derived from the
-    cap the caller declared. That makes the cap a claim, and this is where the
-    claim is tested: a body that outgrows it refuses rather than being truncated
-    into a Capture that looks complete.
+    Weight is not knowable before retrieval, so the caller declares a cap. That
+    makes the cap a claim, and this is where the claim is tested: a body that
+    outgrows it refuses rather than being truncated into a Capture that looks
+    complete.
     """
 
     outcome = invoke(
@@ -287,47 +286,30 @@ def test_a_response_heavier_than_the_admitted_bucket_refuses(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
     assert outcome.envelope.refusal.detail["cap_bytes"] == 128
 
 
-def test_an_unclaimed_bucket_refuses_before_any_process_starts(
+@pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)
+def test_an_input_naming_no_url_is_declined_by_the_adapter(
     fetch_binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    """A PDF is the document plane's work, and this implementation says so."""
+    """No classifier stands in front of the adapter; it judges its own input."""
 
-    with pytest.raises(RefusalError) as exc:
-        invoke(
-            fetch_binding,
-            registry=registry,
-            payload={"url": "https://fixture.invalid/reports/annual.pdf"},
-            budgets=BUDGETS,
-            local_backend=local_backend,
-            container_backend=container_backend,
-        )
-    assert exc.value.code is RefusalCode.UNCLAIMED_BUCKET
-    assert exc.value.refusal.detail["bucket"].startswith("source_kind=binary")
-
-
-def test_an_unclassifiable_input_refuses(
-    fetch_binding: Binding,
-    registry: StubRegistry,
-    local_backend: LocalEnvBackend,
-    container_backend: ContainerBackend,
-) -> None:
-    with pytest.raises(RefusalError) as exc:
-        invoke(
-            fetch_binding,
-            registry=registry,
-            payload={"render": True},
-            budgets=BUDGETS,
-            local_backend=local_backend,
-            container_backend=container_backend,
-        )
-    assert exc.value.code is RefusalCode.UNCLASSIFIED_INPUT
+    outcome = invoke(
+        fetch_binding,
+        registry=registry,
+        payload={"render": True},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "refused"
+    assert outcome.envelope.refusal is not None
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
 
 
 # -- search.web ------------------------------------------------------------
@@ -350,7 +332,7 @@ def test_search_success_path(
         container_backend=container_backend,
     )
     assert outcome.status == "ok"
-    assert outcome.input_bucket == "query_form=keyword;recency=any_time;result_depth=shallow"
+    assert outcome.receipt_fields()["operation"] == "search.web"
     assert outcome.envelope.output is not None
     assert (
         json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"][
@@ -388,7 +370,7 @@ def test_search_requires_an_explicit_instance_binding(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
     assert outcome.egress.observed == ()
 
 
@@ -417,7 +399,7 @@ def test_search_credential_arrives_by_ref_over_the_descriptor(
 # -- identity --------------------------------------------------------------
 
 
-def test_two_interfaces_in_one_package_have_different_implementation_digests(
+def test_two_entrypoints_in_one_package_have_different_implementation_digests(
     registry: StubRegistry,
     manifest_path: Path,
     lock_path: Path,
@@ -443,9 +425,9 @@ def test_two_interfaces_in_one_package_have_different_implementation_digests(
         container_backend,
     )
     assert fetch.implementation_digest != search.implementation_digest
+    assert fetch.operation_signature_digest != search.operation_signature_digest
+    assert fetch.build_digest == search.build_digest
     assert fetch.implementation_digest == implementation_digest(
-        interface_id="web.fetch",
-        interface_digest=fetch.interface_digest,
         entrypoint="cruxible_provider_web.fetch:WebFetch",
         distribution_sha256=DISTRIBUTION_SHA256,
     )

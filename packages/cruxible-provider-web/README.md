@@ -2,7 +2,7 @@
 
 Cruxible provider adapters for the web plane. Apache-2.0.
 
-| Interface | Entrypoint | Engine | Extra |
+| Operation | Entrypoint | Engine | Extra |
 |---|---|---|---|
 | `web.fetch` | `cruxible_provider_web.fetch:WebFetch` | trafilatura (base), Playwright (extra) | `browser` |
 | `search.web` | `cruxible_provider_web.search:SearxngSearch` | none — an HTTP client to somebody else's instance | — |
@@ -13,9 +13,9 @@ Operators install it into a daemon by name, through a governed install:
 
 ## The base install is light
 
-The base distribution carries the adapter logic, the schemas, the bucket
-classifiers, an HTTP client, an extractor, and the recorded exchanges the
-conformance fixtures replay. `uv run pytest` therefore downloads no browser and
+The base distribution carries the adapter logic, the registration, an HTTP
+client, an extractor, and the recorded exchanges the conformance suite
+replays. `uv run pytest` therefore downloads no browser and
 opens no socket.
 
 A **browser** is the one heavy engine here, and it lives behind the `browser`
@@ -81,11 +81,12 @@ across renders is comparing a different artifact than it was. And on a rendered
 run `status_code`, `byte_count` and `body_sha256` are **nullable**: a navigation
 that yields no main-frame response — a same-document navigation, a download —
 leaves nothing true to say about the wire, and `null` says so where a hopeful
-`200` used to. The acquisition interface now refuses a navigation without a
+`200` used to. The acquisition operation now refuses a navigation without a
 retained origin body; it cannot produce a successful Capture result in that case.
 
-The interface declares ordinary Contract input fields and the shared acquisition
-result as its output. `logical_source` defaults to `web.response`; callers should
+The operation's input Contract (`web.fetch.request@1`) carries ordinary fields,
+and its output Contract (`web.fetch.result@1`) is the shared acquisition
+result. `logical_source` defaults to `web.response`; callers should
 name their dataset and pin that name in the CaptureContract. URLs remain in the
 observation bundle, while the source coordinate carries a request digest.
 `expected_format` accepts `auto`, `html`, `json`, `csv`, `text`, or `bytes`.
@@ -94,7 +95,7 @@ and bypass HTML extraction. `max_bytes` is bounded at 32 MiB, including for
 structured APIs. Set the invocation output and Capture budgets large enough for
 the bundle's base64 encoding and extraction overhead as well as the origin body.
 
-The interface effect is `external_read`; the manifest declares no mutation.
+The operation's effect is `external_read`: it reads the world and mutates nothing.
 This still contacts external systems and records egress. `credential_header`
 selects a header for an admitted `credential_ref`; rendered fetches with
 credentials are refused.
@@ -138,8 +139,8 @@ token on `x-api-key` would reach a host the run never named before the recorder
 learned that host existed.
 
 An authenticated fetch redirected to a **different origin refuses**, rather than
-following the hop anonymously. A run admitted into the `access=authenticated`
-bucket does not silently go out anonymous — the undelivered-credential refusal
+following the hop anonymously. A run that names a credential does not
+silently go out anonymous — the undelivered-credential refusal
 already says so — and stripping would hand the caller a document retrieved under
 terms the receipt no longer describes. An `http` → `https` upgrade of the same
 host is not an origin change for this purpose: the credential has already crossed
@@ -169,20 +170,27 @@ through an `httpx.MockTransport`, so the real client, the real event hook, and
 the real size cap all execute — what is replaced is the socket, and nothing above
 it.
 
-## Bucket claims
+## Operations and their refusals
 
-`web.fetch` claims static pages up to the medium weight class, one rendered face
-of the cube, and light structured endpoints. Binary payloads, heavy pages, and
-authenticated rendered pages are deliberately **unclaimed**, so an input reaching
-for them refuses at admission rather than being served badly.
+`registration.json` declares both operations (runtime protocol 2.0). Each names
+its input and output Contracts by `name@N` — the install pins them to the
+versions accepted at its base, a kit ships the bodies — and declares the typed
+refusals it may return, each with a detail Contract:
 
-`search.web` claims shallow and standard depths at any-time, and shallow at the
-recent bound. Realtime and deep are unclaimed.
+| Operation | In | Out | Effect | Refusals |
+|---|---|---|---|---|
+| `search.web` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect` |
+| `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect` |
+
+An undelivered credential (`unresolved_secret_ref`), an instance outside the
+declaration (`undeclared_egress`) and a missing browser
+(`environment_divergence`) are the runtime's own refusals, raised as such and
+not declared by either operation.
 
 Weight and freshness are declared by the caller and *checked* rather than
-trusted: a response heavier than the cap the run was admitted under refuses, and
-the recency filter is evaluated against an explicit `as_of` coordinate so the
-derivation can be reproduced from the receipt.
+trusted: a response heavier than the run's `max_bytes` refuses, and the recency
+filter is evaluated against an explicit `as_of` coordinate so the derivation can
+be reproduced from the receipt.
 
 ## Running the tests
 

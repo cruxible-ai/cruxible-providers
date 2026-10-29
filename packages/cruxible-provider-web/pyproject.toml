@@ -1,14 +1,14 @@
 # The web plane. One distribution, one lock, one identity unit; two
-# implementations, of two different interfaces.
+# implementations, each serving one operation.
 #
-# The base install is LIGHT. It carries the adapter logic, the schemas, the
-# bucket classifiers, the recorded fixtures, and an HTTP client — everything the
+# The base install is LIGHT. It carries the adapter logic, the registration,
+# the recorded exchanges, and an HTTP client — everything the
 # default conformance lane needs. The heavy engines live behind per-engine
 # extras, and each implementation's manifest declares which extra it requires.
 # `uv run pytest` therefore downloads no browser and opens no socket.
 [project]
 name = "cruxible-provider-web"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cruxible provider adapters for the web plane: page retrieval and web search."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,7 +25,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "cruxible-provider-runtime>=0.2.0",
+  "cruxible-provider-runtime>=0.3.0",
   # The HTTP client is base, not an extra: it is how both implementations reach
   # anything at all, and it is how egress gets recorded. An adapter that could
   # not make a request would have no adapter logic left to test.

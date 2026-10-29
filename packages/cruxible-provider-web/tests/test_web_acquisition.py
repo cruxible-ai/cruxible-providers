@@ -6,7 +6,6 @@ import json
 
 import pytest
 from cruxible_provider_web.fetch import WebFetch
-from cruxible_provider_web.interfaces import MAX_RESPONSE_BYTES, classify_web_fetch
 
 from .test_web_secrets import _CapturingClient, _context
 
@@ -60,24 +59,6 @@ def test_bad_or_wrong_format_cannot_become_an_observation(media, body, expected)
     )
     assert result.status == "error"
     assert result.output is None
-
-
-def test_heavy_api_is_classified_but_unbounded_request_is_not():
-    assert classify_web_fetch(
-        {
-            "url": "https://example.test/data",
-            "expected_format": "json",
-            "max_bytes": 8 * 1024 * 1024,
-        }
-    ) == {
-        "source_kind": "api_json",
-        "access": "public",
-        "page_weight": "heavy",
-    }
-    assert (
-        classify_web_fetch({"url": "https://example.test", "max_bytes": MAX_RESPONSE_BYTES + 1})
-        is None
-    )
 
 
 def test_header_credentials_are_typed_and_never_used_for_browser_rendering():

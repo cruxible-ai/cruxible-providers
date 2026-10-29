@@ -25,8 +25,13 @@ from collections.abc import Callable, Mapping
 import httpx
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError
+from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_web.http import MAX_REDIRECTS, RecordingClient
+from cruxible_provider_web.operations import (
+    CROSS_ORIGIN_CREDENTIALED_REDIRECT,
+    REDIRECT_LIMIT,
+    UNSUPPORTED_REDIRECT_SCHEME,
+)
 
 SENTINEL = "sentinel-not-a-real-key-do-not-use"
 CREDENTIAL_HEADER = "x-api-key"
@@ -99,7 +104,7 @@ def test_a_credential_never_reaches_the_second_origin_of_a_redirect() -> None:
     origins = _Origins({"a.example": _redirect(SECOND), "b.example": _document()})
     recorder = EgressRecorder()
 
-    with _client(origins, recorder) as client, pytest.raises(RefusalError):
+    with _client(origins, recorder) as client, pytest.raises(Declined):
         client.get(FIRST, headers={CREDENTIAL_HEADER: SENTINEL}, cap_bytes=CAP_BYTES)
 
     assert origins.headers_sent_to("a.example")[0][CREDENTIAL_HEADER] == SENTINEL
@@ -120,10 +125,10 @@ def test_the_cross_origin_credentialed_redirect_refuses_rather_than_downgrading(
     origins = _Origins({"a.example": _redirect(SECOND), "b.example": _document()})
     recorder = EgressRecorder()
 
-    with _client(origins, recorder) as client, pytest.raises(RefusalError) as exc:
+    with _client(origins, recorder) as client, pytest.raises(Declined) as exc:
         client.get(FIRST, headers={CREDENTIAL_HEADER: SENTINEL}, cap_bytes=CAP_BYTES)
 
-    assert exc.value.code is RefusalCode.CROSS_ORIGIN_CREDENTIALED_REDIRECT
+    assert exc.value.code == CROSS_ORIGIN_CREDENTIALED_REDIRECT
     assert exc.value.refusal.detail["redirect_to"] == "https://b.example"
     assert SENTINEL not in repr(exc.value.refusal)
     # The origin that was contacted is recorded; the one that was not, is not.
@@ -204,16 +209,16 @@ def test_an_http_to_https_upgrade_is_not_treated_as_a_new_origin() -> None:
     assert origins.headers_sent_to("https")[0][CREDENTIAL_HEADER] == SENTINEL
 
 
-def test_a_redirect_to_a_scheme_this_interface_does_not_retrieve_refuses() -> None:
+def test_a_redirect_to_a_scheme_this_adapter_does_not_retrieve_refuses() -> None:
     """``web.fetch`` needs an http or https url, and so does every hop of one."""
 
     origins = _Origins({"a.example": _redirect("ftp://a.example/doc")})
     recorder = EgressRecorder()
 
-    with _client(origins, recorder) as client, pytest.raises(RefusalError) as exc:
+    with _client(origins, recorder) as client, pytest.raises(Declined) as exc:
         client.get(FIRST, cap_bytes=CAP_BYTES)
 
-    assert exc.value.code is RefusalCode.UNSUPPORTED_REDIRECT_SCHEME
+    assert exc.value.code == UNSUPPORTED_REDIRECT_SCHEME
 
 
 def test_a_chain_that_never_settles_refuses_instead_of_running_forever() -> None:
@@ -222,8 +227,8 @@ def test_a_chain_that_never_settles_refuses_instead_of_running_forever() -> None
     origins = _Origins({"a.example": _redirect(FIRST)})
     recorder = EgressRecorder()
 
-    with _client(origins, recorder) as client, pytest.raises(RefusalError) as exc:
+    with _client(origins, recorder) as client, pytest.raises(Declined) as exc:
         client.get(FIRST, cap_bytes=CAP_BYTES)
 
-    assert exc.value.code is RefusalCode.REDIRECT_LIMIT
+    assert exc.value.code == REDIRECT_LIMIT
     assert len(origins.seen) == MAX_REDIRECTS + 1
