@@ -1,37 +1,27 @@
 # Package-side provider manifest.
 #
 # This file is a transcription SOURCE, never authority. A provider is bindable
-# only through an accepted providers/<provider-id>.yaml governed artifact whose
-# payload transcribes this document; at bind and invoke the runtime recomputes
-# this manifest's digest and refuses on any divergence.
+# only through an accepted Provider build whose payload transcribes this
+# document; at bind and invoke the runtime recomputes this manifest's digest and
+# refuses on any divergence.
+#
+# One row per entrypoint. What an entrypoint serves is declared in
+# registration.json (its operations), not here.
 #
 # The distribution's own sha256 is deliberately absent: an artifact cannot carry
 # its own hash. It is pinned by the accepted artifact, and it is what the
 # implementation digest consumes.
-schema_version: 1
+schema_version: 2
 provider_id: cruxible-provider-noop
 distribution:
   name: cruxible-provider-noop
-  version: 0.2.0
+  version: 0.3.0
 entrypoint_group: cruxible.providers
-supported_protocol_majors: [1]
+supported_protocol_majors: [2]
 implementations:
-  - interface_id: noop.echo
-    interface_digest: "sha256:0e524e363162c688dc393a224464739daeb9ff1053e095d18614a900da322e6b"
-    entrypoint: "cruxible_provider_noop.provider:NoopEcho"
+  - entrypoint: "cruxible_provider_noop.provider:NoopEcho"
     backends: [local_env, container]
-    # payload_size=large is deliberately unclaimed, so that an oversized input
-    # exercises the unclaimed_bucket refusal at admission.
-    declared_input_buckets:
-      - "payload_size=tiny;charset=*"
-      - "payload_size=small;charset=*"
-    bucket_conformance:
-      "payload_size=tiny;charset=*": noop-echo-tiny
-      "payload_size=small;charset=*": noop-echo-small
     # Zero declared endpoints: the reference provider contacts nothing, and the
     # egress-conformance lane asserts observed == declared == empty.
     declared_endpoints: []
-    capture_contract_families:
-      - noop.echo.capture.v1
     deterministic: true
-    side_effects: false

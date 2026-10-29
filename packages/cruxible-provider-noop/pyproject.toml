@@ -1,6 +1,6 @@
 [project]
 name = "cruxible-provider-noop"
-version = "0.2.0"
+version = "0.3.0"
 description = "The reference no-op Cruxible provider: the smallest package that exercises every rule the provider protocol imposes."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,7 +17,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "cruxible-provider-runtime>=0.2.0",
+  "cruxible-provider-runtime>=0.3.0",
 ]
 
 [project.entry-points."cruxible.providers"]

@@ -12,11 +12,12 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
+import cruxible_provider_noop
 import cruxible_provider_runtime.binding as binding_module
 import cruxible_provider_runtime.execute as execute_module
 import pytest
 import yaml
-from cruxible_provider_noop.provider import CREDENTIAL_REF
+from cruxible_provider_noop.provider import CREDENTIAL_REF, OPERATION, PROVIDER_DECLINED
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding, BindRequest, bind
@@ -25,6 +26,7 @@ from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
+from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_runtime.resolution import ResolvedSet
 
@@ -47,7 +49,7 @@ def _bind(
         registry,
         BindRequest(
             provider_id="cruxible-provider-noop",
-            interface_id="noop.echo",
+            operation=OPERATION,
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -88,13 +90,13 @@ def test_success_path(
         container_backend=container_backend,
     )
     assert outcome.status == "ok"
-    assert outcome.envelope.output == {
-        "echo": "hello",
-        "input_bucket": "payload_size=tiny;charset=ascii",
-    }
-    assert outcome.input_bucket == "payload_size=tiny;charset=ascii"
+    assert outcome.envelope.output == {"echo": "hello"}
     assert outcome.egress.observed == ()
-    assert outcome.receipt_fields()["implementation_digest"] == binding.implementation_digest
+    receipt = outcome.receipt_fields()
+    assert receipt["implementation_digest"] == binding.implementation_digest
+    assert receipt["operation"] == OPERATION
+    assert receipt["operation_signature_digest"] == binding.operation_signature_digest
+    assert receipt["build_digest"] == binding.build_digest
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)
@@ -114,7 +116,8 @@ def test_typed_refusal_path(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
+    assert not outcome.envelope.refusal.is_runtime
     assert outcome.envelope.output is None
 
 
@@ -257,63 +260,6 @@ def test_output_size_breach_is_a_refusal(
     assert exc.value.code is RefusalCode.BUDGET_OUTPUT_SIZE
 
 
-@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
-def test_unclaimed_bucket_refuses_before_any_process_starts(
-    binding: Binding,
-    registry: StubRegistry,
-    local_backend: LocalEnvBackend,
-    container_backend: ContainerBackend,
-    container_driver: object,
-) -> None:
-    with pytest.raises(RefusalError) as exc:
-        invoke(
-            binding,
-            registry=registry,
-            payload={"text": "x" * 2000, "mode": "echo"},
-            budgets=BUDGETS,
-            local_backend=local_backend,
-            container_backend=container_backend,
-        )
-    assert exc.value.code is RefusalCode.UNCLAIMED_BUCKET
-    assert exc.value.refusal.detail["bucket"] == "payload_size=large;charset=ascii"
-
-
-@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
-def test_unclassifiable_input_refuses(
-    binding: Binding,
-    registry: StubRegistry,
-    local_backend: LocalEnvBackend,
-    container_backend: ContainerBackend,
-) -> None:
-    with pytest.raises(RefusalError) as exc:
-        invoke(
-            binding,
-            registry=registry,
-            payload={"mode": "echo"},
-            budgets=BUDGETS,
-            local_backend=local_backend,
-            container_backend=container_backend,
-        )
-    assert exc.value.code is RefusalCode.UNCLASSIFIED_INPUT
-
-
-def test_unicode_input_classifies_into_its_own_bucket(
-    binding: Binding,
-    registry: StubRegistry,
-    local_backend: LocalEnvBackend,
-    container_backend: ContainerBackend,
-) -> None:
-    outcome = invoke(
-        binding,
-        registry=registry,
-        payload={"text": "héllo", "mode": "echo"},
-        budgets=BUDGETS,
-        local_backend=local_backend,
-        container_backend=container_backend,
-    )
-    assert outcome.input_bucket == "payload_size=tiny;charset=unicode"
-
-
 def test_implementation_digest_is_identical_across_backends(
     registry: StubRegistry,
     manifest_path: Path,
@@ -335,8 +281,6 @@ def test_implementation_digest_matches_the_documented_preimage(
     binding: Binding, accepted_artifact: ProviderArtifactPayload
 ) -> None:
     assert binding.implementation_digest == implementation_digest(
-        interface_id="noop.echo",
-        interface_digest=binding.interface_digest,
         entrypoint="cruxible_provider_noop.provider:NoopEcho",
         distribution_sha256=DISTRIBUTION_SHA256,
     )
@@ -347,7 +291,10 @@ def test_binding_snapshot_carries_all_three_identity_levels(binding: Binding) ->
     snapshot = binding.snapshot()
     assert snapshot["implementation_digest"] == binding.implementation_digest
     assert snapshot["materialization_digest"] == binding.materialization_digest
-    assert snapshot["protocol_version"] == "1.0"
+    assert snapshot["protocol_version"] == "2.0"
+    assert snapshot["operation"] == OPERATION
+    assert snapshot["operation_signature_digest"] == binding.operation_signature_digest
+    assert snapshot["build_digest"] == binding.build_digest
 
 
 def test_the_snapshot_always_states_whether_dev_sources_were_permitted(
@@ -398,8 +345,6 @@ def test_no_closure_digest_ever_reaches_a_snapshot_or_a_receipt(
 
     closure = dependency_closure_digest(resolved)
     implementation = implementation_digest(
-        interface_id="noop.echo",
-        interface_digest=binding.interface_digest,
         entrypoint="cruxible_provider_noop.provider:NoopEcho",
         distribution_sha256=DISTRIBUTION_SHA256,
     )
@@ -470,7 +415,9 @@ def test_replacing_the_accepted_artifact_refuses_a_binding_already_made(
             )
         }
     )
-    registry.register_provider(moved)
+    registry.register_provider(
+        moved, load_registration(cruxible_provider_noop.PACKAGE_ROOT).operations
+    )
 
     with pytest.raises(RefusalError) as exc:
         invoke(
@@ -482,7 +429,7 @@ def test_replacing_the_accepted_artifact_refuses_a_binding_already_made(
             container_backend=container_backend,
         )
     assert exc.value.code is RefusalCode.ACCEPTANCE_DIVERGENCE
-    assert exc.value.refusal.detail["bound"] == binding.accepted_artifact_digest
+    assert exc.value.refusal.detail["bound"] == binding.build_digest
 
 
 @pytest.mark.parametrize("backend_kind", BACKENDS)
@@ -507,7 +454,7 @@ def test_editing_the_package_manifest_refuses_a_binding_already_made(
     binding = _bind(backend_kind, registry, copied, lock_path, local_backend, container_backend)
 
     document = yaml.safe_load(copied.read_text(encoding="utf-8"))
-    document["implementations"][0]["side_effects"] = True
+    document["implementations"][0]["deterministic"] = False
     copied.write_text(yaml.safe_dump(document), encoding="utf-8")
 
     with pytest.raises(RefusalError) as exc:
@@ -756,9 +703,75 @@ def test_a_chatty_provider_does_not_corrupt_the_result_envelope(
         container_backend=container_backend,
     )
     assert outcome.status == "ok"
-    assert outcome.envelope.output == {
-        "echo": "chatty",
-        "input_bucket": "payload_size=tiny;charset=ascii",
-    }
+    assert outcome.envelope.output == {"echo": "chatty"}
     assert "Blocking time" in outcome.stderr
     assert "native library says hello" in outcome.stderr
+
+
+@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
+def test_an_undeclared_operation_refusal_is_refused_by_the_executor(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """An operation's refusals are its whole vocabulary; nothing else passes."""
+
+    with pytest.raises(RefusalError) as exc:
+        invoke(
+            binding,
+            registry=registry,
+            payload={"text": "hello", "mode": "undeclared_refusal"},
+            budgets=BUDGETS,
+            local_backend=local_backend,
+            container_backend=container_backend,
+        )
+    assert exc.value.code is RefusalCode.UNDECLARED_REFUSAL
+    assert exc.value.refusal.detail["refused_code"] == "not_a_declared_refusal"
+    assert exc.value.refusal.detail["declared"] == [PROVIDER_DECLINED]
+
+
+@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
+def test_an_operation_cannot_refuse_under_a_runtime_code(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """The runtime's codes are reserved, so the harness reports a protocol violation."""
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "runtime_code"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "refused"
+    assert outcome.envelope.refusal is not None
+    assert outcome.envelope.refusal.code == RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert outcome.envelope.refusal.detail["refused_code"] == "budget_wall_clock"
+
+
+@pytest.mark.parametrize("binding", BACKENDS, indirect=True)
+def test_a_missing_credential_is_the_runtimes_refusal(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """Raised as a runtime refusal, so no operation declaration is needed."""
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={"text": "hello", "mode": "credential"},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "refused"
+    assert outcome.envelope.refusal is not None
+    assert outcome.envelope.refusal.code == RefusalCode.UNRESOLVED_SECRET_REF
+    assert outcome.envelope.refusal.is_runtime

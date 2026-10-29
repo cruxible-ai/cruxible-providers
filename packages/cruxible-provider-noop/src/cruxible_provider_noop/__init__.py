@@ -9,10 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .interface import INTERFACE_DIGEST, INTERFACE_ID, VOCABULARY, classify, registration
-from .provider import CREDENTIAL_REF, NoopEcho
+from .provider import CREDENTIAL_REF, OPERATION, PROVIDER_DECLINED, NoopEcho
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = PACKAGE_ROOT / "manifest.yaml"
@@ -21,13 +20,10 @@ CONTAINER_DIR = PACKAGE_ROOT.parent.parent / "container"
 __all__ = [
     "CONTAINER_DIR",
     "CREDENTIAL_REF",
-    "INTERFACE_DIGEST",
-    "INTERFACE_ID",
     "MANIFEST_PATH",
+    "OPERATION",
     "PACKAGE_ROOT",
-    "VOCABULARY",
+    "PROVIDER_DECLINED",
     "NoopEcho",
     "__version__",
-    "classify",
-    "registration",
 ]

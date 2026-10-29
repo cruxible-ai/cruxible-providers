@@ -80,7 +80,7 @@ def binding(
         registry,
         BindRequest(
             provider_id="cruxible-provider-noop",
-            interface_id="noop.echo",
+            operation="noop.echo",
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -94,7 +94,9 @@ def binding(
 
 def test_the_manifest_declares_zero_endpoints(manifest_path: Path) -> None:
     manifest = load_manifest(manifest_path)
-    assert manifest.implementation("noop.echo").declared_endpoints == ()
+    assert (
+        manifest.implementation("cruxible_provider_noop.provider:NoopEcho").declared_endpoints == ()
+    )
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)

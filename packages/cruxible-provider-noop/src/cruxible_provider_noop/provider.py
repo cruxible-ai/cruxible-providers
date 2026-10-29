@@ -1,7 +1,8 @@
 """The reference no-op provider.
 
-One entrypoint, one interface, and a ``mode`` switch that reaches every branch
-the protocol has to survive: success, a typed refusal, a crash, a credential
+One entrypoint, one operation (``noop.echo``), and a ``mode`` switch that
+reaches every branch the protocol has to survive: success, a typed refusal
+the operation declares, a crash, a credential
 delivered by ref, a deliberate leak attempt, an undeclared endpoint, and both
 budget breaches. Everything it does is local and instantaneous, so the whole
 conformance suite runs without a network, a container engine, or a clock to wait
@@ -20,20 +21,21 @@ import time
 from collections.abc import Callable
 from typing import ClassVar
 
-from cruxible_provider_runtime.errors import RefusalCode
+from cruxible_provider_runtime.errors import Refusal, RefusalCode, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
-from .interface import INTERFACE_ID
+__all__ = ["CREDENTIAL_REF", "OPERATION", "PROVIDER_DECLINED", "NoopEcho"]
 
-__all__ = ["CREDENTIAL_REF", "NoopEcho"]
-
+OPERATION = "noop.echo"
 CREDENTIAL_REF = "noop.dummy_credential"
+PROVIDER_DECLINED = "provider_declined"
+"""The one refusal ``noop.echo`` declares (registration.json)."""
 
 
 class NoopEcho:
     """Echoes its input back, or takes whichever branch ``mode`` names."""
 
-    interface_id = INTERFACE_ID
+    operations = (OPERATION,)
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         mode = str(context.input.get("mode", "echo"))
@@ -45,7 +47,7 @@ class NoopEcho:
         handler = self._MODES.get(mode)
         if handler is None:
             return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
+                PROVIDER_DECLINED,
                 f"unknown mode {mode!r}",
                 mode=mode,
                 known=sorted(self._MODES),
@@ -56,16 +58,39 @@ class NoopEcho:
 
     def _mode_echo(self, context: ProviderRunContext, text: str) -> ProviderResult:
         return ProviderResult.ok(
-            {"echo": text, "input_bucket": context.input_bucket},
+            {"echo": text},
             metrics={"characters": float(len(text))},
         )
 
     def _mode_refuse(self, context: ProviderRunContext, text: str) -> ProviderResult:
         del text
         return ProviderResult.refused(
-            RefusalCode.PROVIDER_DECLINED,
+            PROVIDER_DECLINED,
             "the reference provider was asked to decline",
             run_id=context.run_id,
+        )
+
+    def _mode_undeclared_refusal(self, context: ProviderRunContext, text: str) -> ProviderResult:
+        """Refuse under a code ``noop.echo`` does not declare.
+
+        Its declared refusals are its whole vocabulary, so the executor refuses
+        this result (``undeclared_refusal``) rather than passing it through.
+        """
+
+        del context, text
+        return ProviderResult.refused("not_a_declared_refusal", "outside the declared vocabulary")
+
+    def _mode_runtime_code(self, context: ProviderRunContext, text: str) -> ProviderResult:
+        """Return the runtime's own refusal code as if it were this operation's.
+
+        Built directly rather than through ``ProviderResult.refused``, which
+        refuses to build it; the harness must catch it all the same.
+        """
+
+        del context, text
+        return ProviderResult(
+            status="refused",
+            refusal=Refusal(code=RefusalCode.BUDGET_WALL_CLOCK.value, message="not mine to say"),
         )
 
     def _mode_error(self, context: ProviderRunContext, text: str) -> ProviderResult:
@@ -76,7 +101,10 @@ class NoopEcho:
         del text
         material = context.secrets.get(CREDENTIAL_REF)
         if material is None:
-            return ProviderResult.refused(
+            # The runtime's own code, raised rather than returned: a credential
+            # that never arrived is a delivery fault, not this operation's
+            # judgement about its input.
+            raise refuse(
                 RefusalCode.UNRESOLVED_SECRET_REF,
                 f"credential {CREDENTIAL_REF!r} was not delivered",
                 ref=CREDENTIAL_REF,
@@ -85,7 +113,6 @@ class NoopEcho:
         return ProviderResult.ok(
             {
                 "echo": "credential-received",
-                "input_bucket": context.input_bucket,
                 "credential_length": len(material),
                 "credential_fingerprint": fingerprint,
             }
@@ -98,7 +125,7 @@ class NoopEcho:
         material = context.secrets.get(CREDENTIAL_REF, "")
         sys.stderr.write(f"leaking to stderr: {material}\n")
         return ProviderResult.ok(
-            {"echo": material, "input_bucket": context.input_bucket},
+            {"echo": material},
             events=[{"note": "leaking to trace", "credential": material}],
         )
 
@@ -124,7 +151,7 @@ class NoopEcho:
         # from C code does exactly this, and a guard that only replaced the
         # Python-level object would miss it.
         os.write(1, b"native library says hello\n")
-        return ProviderResult.ok({"echo": "chatty", "input_bucket": context.input_bucket})
+        return ProviderResult.ok({"echo": "chatty"})
 
     def _mode_egress(self, context: ProviderRunContext, text: str) -> ProviderResult:
         """Contact an endpoint the manifest does not declare — without a network.
@@ -136,7 +163,7 @@ class NoopEcho:
 
         del text
         context.egress.record("https://undeclared.example")
-        return ProviderResult.ok({"echo": "contacted", "input_bucket": context.input_bucket})
+        return ProviderResult.ok({"echo": "contacted"})
 
     def _mode_context_repr(self, context: ProviderRunContext, text: str) -> ProviderResult:
         """Return the run context's own repr, which must not carry credentials."""
@@ -146,7 +173,6 @@ class NoopEcho:
         return ProviderResult.ok(
             {
                 "echo": "context-repr",
-                "input_bucket": context.input_bucket,
                 "context_repr": repr(context),
             }
         )
@@ -163,12 +189,12 @@ class NoopEcho:
         import socket
 
         socket.create_connection(("egress.invalid", 80), timeout=1)
-        return ProviderResult.ok({"echo": "connected", "input_bucket": context.input_bucket})
+        return ProviderResult.ok({"echo": "connected"})
 
     def _mode_slow(self, context: ProviderRunContext, text: str) -> ProviderResult:
         del text
         time.sleep(context.budgets.wall_clock_seconds * 10 + 30)
-        return ProviderResult.ok({"echo": "never", "input_bucket": context.input_bucket})
+        return ProviderResult.ok({"echo": "never"})
 
     def _mode_loud(self, context: ProviderRunContext, text: str) -> ProviderResult:
         del text
@@ -179,11 +205,13 @@ class NoopEcho:
             sys.stdout.write(chunk)
             sys.stdout.flush()
             written += len(chunk)
-        return ProviderResult.ok({"echo": "never", "input_bucket": context.input_bucket})
+        return ProviderResult.ok({"echo": "never"})
 
     _MODES: ClassVar[dict[str, Callable[[NoopEcho, ProviderRunContext, str], ProviderResult]]] = {
         "echo": _mode_echo,
         "refuse": _mode_refuse,
+        "undeclared_refusal": _mode_undeclared_refusal,
+        "runtime_code": _mode_runtime_code,
         "error": _mode_error,
         "credential": _mode_credential,
         "chatty": _mode_chatty,

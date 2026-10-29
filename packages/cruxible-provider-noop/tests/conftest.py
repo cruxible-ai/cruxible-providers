@@ -17,7 +17,6 @@ from pathlib import Path
 
 import cruxible_provider_noop
 import pytest
-from cruxible_provider_noop.interface import registration
 from cruxible_provider_runtime.artifact import (
     ContainerBackendPin,
     DistributionPin,
@@ -43,6 +42,7 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
+    register_package,
 )
 
 PACKAGE_DIR = Path(cruxible_provider_noop.__file__).resolve().parent.parent.parent
@@ -164,8 +164,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    stub.register_interface(registration())
-    stub.register_provider(accepted_artifact)
+    register_package(stub, accepted_artifact, cruxible_provider_noop.PACKAGE_ROOT)
     return stub
 
 
