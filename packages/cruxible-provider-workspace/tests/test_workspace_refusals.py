@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import cruxible_provider_workspace
 import pytest
 import yaml
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
@@ -17,10 +18,9 @@ from cruxible_provider_runtime.binding import BindRequest, bind
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.manifest import BackendKind, load_manifest, manifest_digest
 from cruxible_provider_runtime.registry import StubRegistry
-from cruxible_provider_runtime.testing import FakeContainerDriver
-from cruxible_provider_workspace.interface import registration
+from cruxible_provider_runtime.testing import FakeContainerDriver, register_package
 
-from .conftest import INTERFACE_ID, MARKER_ENVIRONMENT, PROVIDER_ID
+from .conftest import MARKER_ENVIRONMENT, OPERATION, PROVIDER_ID
 
 
 def _request(
@@ -31,7 +31,7 @@ def _request(
 ) -> BindRequest:
     fields: dict[str, Any] = {
         "provider_id": PROVIDER_ID,
-        "interface_id": INTERFACE_ID,
+        "operation": OPERATION,
         "backend_kind": backend_kind,
         "manifest_path": manifest_path,
         "lock_path": lock_path,
@@ -52,8 +52,7 @@ def _edited(manifest_path: Path, tmp_path: Path, edit: Any) -> Path:
 
 def _registry_for(payload: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    stub.register_interface(registration())
-    stub.register_provider(payload)
+    register_package(stub, payload, cruxible_provider_workspace.PACKAGE_ROOT)
     return stub
 
 
@@ -84,7 +83,7 @@ def test_manifest_divergence_refuses(
     """A package-side manifest edited after acceptance is not authority."""
 
     def edit(document: dict[str, Any]) -> None:
-        document["implementations"][0]["side_effects"] = True
+        document["implementations"][0]["deterministic"] = False
 
     edited = _edited(manifest_path, tmp_path, edit)
     with pytest.raises(RefusalError) as exc:
@@ -108,38 +107,16 @@ def test_unknown_manifest_field_refuses(
     assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
 
 
-def test_undeclared_interface_refuses(
+def test_undeclared_operation_refuses(
     registry: StubRegistry, manifest_path: Path, lock_path: Path, local_backend: LocalEnvBackend
 ) -> None:
     with pytest.raises(RefusalError) as exc:
         bind(
             registry,
-            _request(manifest_path, lock_path, interface_id="db.row_select"),
+            _request(manifest_path, lock_path, operation="db.row_select"),
             local_backend=local_backend,
         )
-    assert exc.value.code is RefusalCode.UNDECLARED_INTERFACE
-
-
-def test_interface_digest_mismatch_refuses(
-    accepted_artifact: ProviderArtifactPayload,
-    manifest_path: Path,
-    lock_path: Path,
-    tmp_path: Path,
-    local_backend: LocalEnvBackend,
-) -> None:
-    """A manifest pinning a different interface digest cannot bind to this slot."""
-
-    def edit(document: dict[str, Any]) -> None:
-        document["implementations"][0]["interface_digest"] = "sha256:" + "ab" * 32
-
-    edited = _edited(manifest_path, tmp_path, edit)
-    payload = _reaccepted(accepted_artifact, edited)
-    stub = StubRegistry()
-    stub.register_interface(registration())
-    stub.providers[payload.provider_id] = payload
-    with pytest.raises(RefusalError) as exc:
-        bind(stub, _request(edited, lock_path), local_backend=local_backend)
-    assert exc.value.code is RefusalCode.INTERFACE_DIGEST_MISMATCH
+    assert exc.value.code is RefusalCode.UNDECLARED_OPERATION
 
 
 def test_unsupported_protocol_refuses(
@@ -150,7 +127,7 @@ def test_unsupported_protocol_refuses(
     local_backend: LocalEnvBackend,
 ) -> None:
     def edit(document: dict[str, Any]) -> None:
-        document["supported_protocol_majors"] = [2]
+        document["supported_protocol_majors"] = [1]
 
     edited = _edited(manifest_path, tmp_path, edit)
     registry = _registry_for(_reaccepted(accepted_artifact, edited))
@@ -181,40 +158,6 @@ def test_unsupported_backend_refuses(
             container_backend=container_backend,
         )
     assert exc.value.code is RefusalCode.UNSUPPORTED_BACKEND
-
-
-def test_bucket_fixture_missing_refuses_at_registration(
-    accepted_artifact: ProviderArtifactPayload, manifest_path: Path, tmp_path: Path
-) -> None:
-    def edit(document: dict[str, Any]) -> None:
-        document["implementations"][0]["bucket_conformance"] = {}
-
-    edited = _edited(manifest_path, tmp_path, edit)
-    payload = _reaccepted(accepted_artifact, edited)
-    stub = StubRegistry()
-    stub.register_interface(registration())
-    with pytest.raises(RefusalError) as exc:
-        stub.register_provider(payload)
-    assert exc.value.code is RefusalCode.BUCKET_FIXTURE_MISSING
-
-
-def test_claiming_the_large_bucket_without_a_fixture_refuses_at_registration(
-    accepted_artifact: ProviderArtifactPayload, manifest_path: Path, tmp_path: Path
-) -> None:
-    """The unclaimed class stays unclaimed until a fixture exists for it."""
-
-    def edit(document: dict[str, Any]) -> None:
-        document["implementations"][0]["declared_input_buckets"].append(
-            "content_kind=text;byte_size=large"
-        )
-
-    edited = _edited(manifest_path, tmp_path, edit)
-    stub = StubRegistry()
-    stub.register_interface(registration())
-    with pytest.raises(RefusalError) as exc:
-        stub.register_provider(_reaccepted(accepted_artifact, edited))
-    assert exc.value.code is RefusalCode.BUCKET_FIXTURE_MISSING
-    assert exc.value.refusal.detail["bucket"] == "content_kind=text;byte_size=large"
 
 
 def test_a_lock_that_is_not_the_pinned_one_refuses_on_its_bytes(

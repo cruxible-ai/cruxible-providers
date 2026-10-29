@@ -18,14 +18,17 @@ from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding, BindRequest, bind
 from cruxible_provider_runtime.canonical import canonical_json, sha256_hex
 from cruxible_provider_runtime.digests import implementation_digest
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.registry import StubRegistry
-from cruxible_provider_workspace.fixtures import load_fixtures
+from cruxible_provider_workspace.file import (
+    INVALID_PARAMETER,
+    MISMATCHED_LENGTHS,
+    PROVIDER_DECLINED,
+)
 
-from .conftest import DISTRIBUTION_SHA256, INTERFACE_ID, MARKER_ENVIRONMENT, PROVIDER_ID
+from .conftest import DISTRIBUTION_SHA256, ENTRYPOINT, MARKER_ENVIRONMENT, OPERATION, PROVIDER_ID
 
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=8_000_000)
 BACKENDS: tuple[BackendKind, ...] = ("local_env", "container")
@@ -57,7 +60,7 @@ def _bind(
         registry,
         BindRequest(
             provider_id=PROVIDER_ID,
-            interface_id=INTERFACE_ID,
+            operation=OPERATION,
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -99,9 +102,8 @@ def test_success_path(
         container_backend=container_backend,
     )
     assert outcome.status == "ok"
-    assert outcome.input_bucket == "content_kind=text;byte_size=tiny"
     assert outcome.envelope.output is not None
-    assert outcome.envelope.output["input_bucket"] == outcome.input_bucket
+    assert outcome.envelope.output["input_bucket"] == "content_kind=text;byte_size=tiny"
     assert outcome.envelope.output["source"]["bytes_digest"] == sha256_hex(data)
     assert outcome.envelope.output["content"]["lines"] == ["alpha", "beta"]
     assert outcome.egress.observed == ()
@@ -111,26 +113,36 @@ def test_success_path(
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)
-def test_a_committed_fixture_reproduces_its_body_digest_through_the_child(
+def test_a_pinned_body_digest_holds_through_the_child(
     binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    """The fixture's pinned body digest holds across the process boundary too."""
+    """CRLF text, 600 lines: the body digest the retired fixture pinned, unchanged.
 
-    fixture = load_fixtures()["workspace-file-text-small"]
+    The same bytes are one of core's parity-golden inputs for its built-in port
+    of this adapter, so a body that moved here would move there.
+    """
+
+    lines = [
+        f"line {index:05d}: the quick brown fox jumps over the lazy dog" for index in range(600)
+    ]
+    data = ("\r\n".join(lines) + "\r\n").encode("utf-8")
     outcome = invoke(
         binding,
         registry=registry,
-        payload=fixture.input,
+        payload=payload(data, logical_source="fixtures/workspace-file-text-small"),
         budgets=BUDGETS,
         local_backend=local_backend,
         container_backend=container_backend,
     )
     assert outcome.status == "ok"
-    assert outcome.input_bucket == fixture.bucket_id
-    assert sha256_hex(canonical_json(outcome.envelope.output)) == fixture.expect["output_digest"]
+    assert outcome.envelope.output is not None
+    assert outcome.envelope.output["input_bucket"] == "content_kind=text;byte_size=small"
+    assert sha256_hex(canonical_json(outcome.envelope.output)) == (
+        "sha256:14b0e10781b313067f43b2c9368855566c9ac210f5097b82cc7ae06793c04fcc"
+    )
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)
@@ -150,7 +162,7 @@ def test_typed_refusal_path(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
     assert outcome.envelope.output is None
 
 
@@ -171,51 +183,52 @@ def test_a_length_mismatch_is_a_typed_refusal_across_the_boundary(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.MISMATCHED_LENGTHS
+    assert outcome.envelope.refusal.code == MISMATCHED_LENGTHS
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)
-def test_a_large_file_refuses_as_unclaimed_before_any_process_starts(
-    binding: Binding,
-    registry: StubRegistry,
-    local_backend: LocalEnvBackend,
-    container_backend: ContainerBackend,
-    builder: object,
-    container_driver: object,
-) -> None:
-    with pytest.raises(RefusalError) as exc:
-        invoke(
-            binding,
-            registry=registry,
-            payload=payload(b"x" * 1_100_000),
-            budgets=BUDGETS,
-            local_backend=local_backend,
-            container_backend=container_backend,
-        )
-    assert exc.value.code is RefusalCode.UNCLAIMED_BUCKET
-    assert exc.value.refusal.detail["bucket"] == "content_kind=text;byte_size=large"
-    assert container_driver.runs == []  # type: ignore[attr-defined]
-
-
-def test_an_undecodable_payload_refuses_as_unclassified(
+def test_a_large_file_is_the_operations_typed_refusal(
     binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    with pytest.raises(RefusalError) as exc:
-        invoke(
-            binding,
-            registry=registry,
-            payload=payload(b"hello", bytes="this is not base64"),
-            budgets=BUDGETS,
-            local_backend=local_backend,
-            container_backend=container_backend,
-        )
-    assert exc.value.code is RefusalCode.UNCLASSIFIED_INPUT
+    """Admission no longer holds a file over 1 MiB back; the operation declines it."""
+
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload=payload(b"x" * 1_100_000),
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "refused"
+    assert outcome.envelope.refusal is not None
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
+    assert outcome.envelope.refusal.detail["byte_length"] == 1_100_000
 
 
-def test_binary_input_classifies_into_its_own_bucket(
+def test_an_undecodable_payload_is_the_operations_typed_refusal(
+    binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload=payload(b"hello", bytes="this is not base64"),
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "refused"
+    assert outcome.envelope.refusal is not None
+    assert outcome.envelope.refusal.code == INVALID_PARAMETER
+
+
+def test_binary_input_is_structured_as_bytes(
     binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
@@ -229,8 +242,8 @@ def test_binary_input_classifies_into_its_own_bucket(
         local_backend=local_backend,
         container_backend=container_backend,
     )
-    assert outcome.input_bucket == "content_kind=binary;byte_size=tiny"
     assert outcome.envelope.output is not None
+    assert outcome.envelope.output["input_bucket"] == "content_kind=binary;byte_size=tiny"
     assert outcome.envelope.output["content"]["kind"] == "bytes"
 
 
@@ -276,10 +289,7 @@ def test_implementation_digest_is_identical_across_backends(
 
 def test_implementation_digest_matches_the_documented_preimage(binding: Binding) -> None:
     assert binding.implementation_digest == implementation_digest(
-        interface_id=INTERFACE_ID,
-        interface_digest=binding.interface_digest,
-        entrypoint="cruxible_provider_workspace.file:WorkspaceFile",
-        distribution_sha256=DISTRIBUTION_SHA256,
+        entrypoint=ENTRYPOINT, distribution_sha256=DISTRIBUTION_SHA256
     )
 
 
@@ -287,7 +297,10 @@ def test_binding_snapshot_carries_all_three_identity_levels(binding: Binding) ->
     snapshot = binding.snapshot()
     assert snapshot["implementation_digest"] == binding.implementation_digest
     assert snapshot["materialization_digest"] == binding.materialization_digest
-    assert snapshot["protocol_version"] == "1.0"
+    assert snapshot["protocol_version"] == "2.0"
+    assert snapshot["operation"] == OPERATION
+    assert snapshot["operation_signature_digest"] == binding.operation_signature_digest
+    assert snapshot["build_digest"] == binding.build_digest
     assert snapshot["dev_sources_permitted"] is True
 
 
@@ -307,6 +320,7 @@ def test_the_receipt_carries_the_fields_core_records(
     )
     receipt = outcome.receipt_fields()
     assert receipt["materialization_digest"] == binding.materialization_digest
-    assert receipt["input_bucket"] == "content_kind=text;byte_size=tiny"
+    assert receipt["operation"] == OPERATION
+    assert receipt["build_digest"] == binding.build_digest
     assert receipt["status"] == "ok"
     assert json.dumps(receipt)

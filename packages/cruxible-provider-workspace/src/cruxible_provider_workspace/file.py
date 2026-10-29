@@ -8,6 +8,12 @@ What reaches this adapter is the *outcome* of that read — bytes, base64-encode
 with their declared length and digest — and the adapter's whole job is to turn
 those bytes into a structured capture body.
 
+It serves one operation, ``workspace.file``: ``workspace.file.request@1`` in,
+``workspace.file.result@1`` out, effect ``pure``, refusing under the three codes
+its registration declares (``invalid_parameter``, ``mismatched_lengths``,
+``provider_declined``) — the same signature and refusals core seeds for its own
+built-in port of this adapter.
+
 So this module is **pure** (RAT-9). It opens no file, contacts no endpoint,
 reads no clock, and consults no secret. Its output is a function of its input,
 which is what lets the same input replay to the same body under a later
@@ -38,17 +44,49 @@ from collections.abc import Mapping
 from typing import Any
 
 from cruxible_provider_runtime.canonical import SHA256_RE
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
-from .interface import (
-    CONTENT_ENCODING,
-    INTERFACE_ID,
-    content_kind_class,
-    decode_declared_bytes,
-)
+__all__ = [
+    "BYTE_SIZE_CEILINGS",
+    "CONTENT_ENCODING",
+    "INPUT_FIELDS",
+    "INVALID_PARAMETER",
+    "MAX_STRUCTURED_BYTES",
+    "MISMATCHED_LENGTHS",
+    "OPERATION",
+    "PROVIDER_DECLINED",
+    "WorkspaceFile",
+    "byte_size_class",
+    "content_kind_class",
+    "decode_declared_bytes",
+    "input_bucket_label",
+    "structure_bytes",
+]
 
-__all__ = ["INPUT_FIELDS", "WorkspaceFile", "structure_bytes"]
+OPERATION = "workspace.file"
+
+INVALID_PARAMETER = "invalid_parameter"
+MISMATCHED_LENGTHS = "mismatched_lengths"
+PROVIDER_DECLINED = "provider_declined"
+"""The refusals ``workspace.file`` declares (registration.json), each absorbable."""
+
+CONTENT_ENCODING = "base64"
+"""The only content encoding the operation admits: RFC 4648 section 4, padded, no line breaks."""
+
+BYTE_SIZE_CEILINGS: tuple[tuple[str, int], ...] = (
+    ("tiny", 4_096),
+    ("small", 65_536),
+    ("medium", 1_048_576),
+)
+"""Inclusive upper bounds per size class, in order; above the last is ``large``."""
+
+MAX_STRUCTURED_BYTES = BYTE_SIZE_CEILINGS[-1][1]
+"""The most bytes the adapter structures (1 MiB). A larger payload refuses, typed.
+
+Admission used to hold larger files back (the ``large`` size class was never
+claimed); with no input classification, the adapter refuses them itself, the
+way core's built-in port does.
+"""
 
 INPUT_FIELDS: tuple[str, ...] = (
     "logical_source",
@@ -63,10 +101,59 @@ INPUT_FIELDS: tuple[str, ...] = (
 _BOM = "\ufeff"
 
 
+def decode_declared_bytes(payload: Mapping[str, Any]) -> bytes | None:
+    """Decode the run input's payload, or ``None`` when it is not a base64 string.
+
+    Strict: the alphabet is RFC 4648 section 4 with padding, and a stray
+    character (a line break included) is not a payload.
+    """
+
+    if payload.get("content_encoding") != CONTENT_ENCODING:
+        return None
+    encoded = payload.get("bytes")
+    if not isinstance(encoded, str):
+        return None
+    try:
+        return base64.b64decode(encoded.encode("ascii"), validate=True)
+    except (UnicodeEncodeError, ValueError):
+        return None
+
+
+def content_kind_class(data: bytes) -> str:
+    """``text`` for strict UTF-8 without a NUL byte, ``binary`` otherwise."""
+
+    if b"\x00" in data:
+        return "binary"
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return "binary"
+    return "text"
+
+
+def byte_size_class(length: int) -> str:
+    for class_id, ceiling in BYTE_SIZE_CEILINGS:
+        if length <= ceiling:
+            return class_id
+    return "large"
+
+
+def input_bucket_label(data: bytes) -> str:
+    """The ``input_bucket`` string the result has always carried, from the bytes alone.
+
+    Nothing classifies the input any more, so nothing hands the adapter a
+    measured bucket. The result keeps the field (``workspace.file.result@1``
+    declares it), derived here exactly as the retired classifier measured it,
+    so the result for every input previously admitted is unchanged.
+    """
+
+    return f"content_kind={content_kind_class(data)};byte_size={byte_size_class(len(data))}"
+
+
 class WorkspaceFile:
     """Structure the bytes core read from one workspace file."""
 
-    interface_id = INTERFACE_ID
+    operations = (OPERATION,)
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         # Secrets are neither needed nor read. The context carries whatever the
@@ -80,7 +167,7 @@ class WorkspaceFile:
         data = decode_declared_bytes(payload)
         if data is None:
             return ProviderResult.refused(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "bytes is not a base64 payload under the declared content encoding",
                 field="bytes",
                 content_encoding=CONTENT_ENCODING,
@@ -89,7 +176,7 @@ class WorkspaceFile:
         declared_length = payload["byte_length"]
         if len(data) != declared_length:
             return ProviderResult.refused(
-                RefusalCode.MISMATCHED_LENGTHS,
+                MISMATCHED_LENGTHS,
                 "the declared byte_length does not match the decoded payload",
                 declared=declared_length,
                 decoded=len(data),
@@ -99,11 +186,19 @@ class WorkspaceFile:
         declared_digest = payload["bytes_digest"]
         if computed_digest != declared_digest:
             return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
+                PROVIDER_DECLINED,
                 "the declared bytes_digest does not match the decoded payload; the adapter "
                 "will not structure bytes whose identity disagrees with the read receipt",
                 declared=declared_digest,
                 computed=computed_digest,
+            )
+
+        if len(data) > MAX_STRUCTURED_BYTES:
+            return ProviderResult.refused(
+                PROVIDER_DECLINED,
+                "the adapter structures at most 1 MiB; read a smaller file",
+                byte_length=len(data),
+                max_bytes=MAX_STRUCTURED_BYTES,
             )
 
         content = structure_bytes(data)
@@ -113,7 +208,7 @@ class WorkspaceFile:
             metrics["character_count"] = float(content["character_count"])
         return ProviderResult.ok(
             {
-                "input_bucket": context.input_bucket,
+                "input_bucket": input_bucket_label(data),
                 "source": {
                     "logical_source": payload["logical_source"],
                     "commitment_digest": payload["commitment_digest"],
@@ -132,7 +227,7 @@ def _validate_shape(payload: Mapping[str, Any]) -> ProviderResult | None:
     unknown = sorted(set(payload) - set(INPUT_FIELDS))
     if unknown:
         return ProviderResult.refused(
-            RefusalCode.INVALID_PARAMETER,
+            INVALID_PARAMETER,
             "the run input carries fields the interface does not declare",
             unknown=unknown,
             declared=list(INPUT_FIELDS),
@@ -140,7 +235,7 @@ def _validate_shape(payload: Mapping[str, Any]) -> ProviderResult | None:
     missing = [name for name in INPUT_FIELDS if name not in payload]
     if missing:
         return ProviderResult.refused(
-            RefusalCode.INVALID_PARAMETER,
+            INVALID_PARAMETER,
             "the run input is missing required fields",
             missing=missing,
         )
@@ -152,7 +247,7 @@ def _validate_shape(payload: Mapping[str, Any]) -> ProviderResult | None:
         or any(ord(character) < 0x20 or ord(character) == 0x7F for character in logical_source)
     ):
         return ProviderResult.refused(
-            RefusalCode.INVALID_PARAMETER,
+            INVALID_PARAMETER,
             "logical_source must be a non-empty string without control characters",
             field="logical_source",
         )
@@ -160,26 +255,24 @@ def _validate_shape(payload: Mapping[str, Any]) -> ProviderResult | None:
         value = payload[field]
         if not isinstance(value, str) or not SHA256_RE.match(value):
             return ProviderResult.refused(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 f"{field} must be spelled sha256:<64 lowercase hex>",
                 field=field,
             )
     if payload["content_encoding"] != CONTENT_ENCODING:
         return ProviderResult.refused(
-            RefusalCode.INVALID_PARAMETER,
+            INVALID_PARAMETER,
             f"content_encoding must be {CONTENT_ENCODING!r}",
             field="content_encoding",
             declared=payload["content_encoding"],
             supported=[CONTENT_ENCODING],
         )
     if not isinstance(payload["bytes"], str):
-        return ProviderResult.refused(
-            RefusalCode.INVALID_PARAMETER, "bytes must be a string", field="bytes"
-        )
+        return ProviderResult.refused(INVALID_PARAMETER, "bytes must be a string", field="bytes")
     length = payload["byte_length"]
     if not isinstance(length, int) or isinstance(length, bool) or length < 0:
         return ProviderResult.refused(
-            RefusalCode.INVALID_PARAMETER,
+            INVALID_PARAMETER,
             "byte_length must be a non-negative integer",
             field="byte_length",
         )

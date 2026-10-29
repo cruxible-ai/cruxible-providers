@@ -22,7 +22,7 @@ that does not trust the registry's metadata reads.
 ## Why the materialization digest is on the image
 
 A backend switch must not split track record. The **implementation digest** —
-interface id, interface digest, entrypoint object path, distribution sha256 — is
+entrypoint object path, distribution sha256 — is
 identical whether the provider runs from a local environment or from this image,
 and it is the track-record key. The **materialization digest** differs by
 backend: locally it is the hashed resolution for a marker environment, in cloud

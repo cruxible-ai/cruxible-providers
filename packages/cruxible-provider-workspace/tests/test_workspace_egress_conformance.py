@@ -26,7 +26,7 @@ from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_runtime.testing import FakeContainerDriver, InjectedEnvironmentBuilder
 
-from .conftest import INTERFACE_ID, MARKER_ENVIRONMENT, PROVIDER_ID
+from .conftest import ENTRYPOINT, MARKER_ENVIRONMENT, OPERATION, PROVIDER_ID
 
 pytestmark = pytest.mark.egress_conformance
 
@@ -76,7 +76,7 @@ def binding(
         registry,
         BindRequest(
             provider_id=PROVIDER_ID,
-            interface_id=INTERFACE_ID,
+            operation=OPERATION,
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -90,7 +90,7 @@ def binding(
 
 def test_the_manifest_declares_zero_endpoints(manifest_path: Path) -> None:
     manifest = load_manifest(manifest_path)
-    assert manifest.implementation(INTERFACE_ID).declared_endpoints == ()
+    assert manifest.implementation(ENTRYPOINT).declared_endpoints == ()
 
 
 @pytest.mark.parametrize("binding", BACKENDS, indirect=True)

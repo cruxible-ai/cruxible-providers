@@ -8,7 +8,7 @@
 # digests this package produces; it does not vendor the code.
 [project]
 name = "cruxible-provider-workspace"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cruxible built-in Source adapter for the workspace plane: workspace.file."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,7 +28,7 @@ dependencies = [
   # The runtime and nothing else. The adapter is a base64 decode, a UTF-8
   # decode, and a digest; a dependency here would be a dependency in the seed
   # bundle's materialization pin, for no work it does.
-  "cruxible-provider-runtime>=0.2.0",
+  "cruxible-provider-runtime>=0.3.0",
 ]
 
 [project.entry-points."cruxible.providers"]
