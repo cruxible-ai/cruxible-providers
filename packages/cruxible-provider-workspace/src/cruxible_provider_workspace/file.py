@@ -282,8 +282,8 @@ def _validate_shape(payload: Mapping[str, Any]) -> ProviderResult | None:
 def structure_bytes(data: bytes) -> dict[str, Any]:
     """The capture body for ``data``: a text view when it is text, bytes otherwise.
 
-    A pure function of the bytes, exposed so that the conformance fixtures can
-    pin its output digest and core's classifier re-proof can call it directly.
+    A pure function of the bytes, exposed so that a test can pin its output
+    digest and core's built-in port can be checked against it directly.
     """
 
     if content_kind_class(data) != "text":
