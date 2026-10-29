@@ -88,10 +88,13 @@ def test_each_operation_declares_exactly_the_refusals_its_implementation_returns
     module_name = BUNDLE.operation(operation).entrypoint.partition(":")[0]
     source = Path(importlib.import_module(module_name).__file__ or "").read_text(encoding="utf-8")
     named = set(re.findall(r"decline\(\s*([A-Z_]+)", source))
+    named |= set(re.findall(r"ProviderResult\.refused\(\s*([A-Z_]+)", source))
     returned = {getattr(refusals_module, name) for name in named} | SHARED_REFUSALS
     declared = BUNDLE.operation(operation).refusals
     assert set(declared) == returned
-    assert set(declared) <= set(refusals_module.QUANT_DECLINES)
+    assert set(declared) <= set(refusals_module.QUANT_DECLINES) | set(
+        refusals_module.INTEGRITY_REFUSALS
+    )
 
 
 ABSORBABLE = frozenset(refusals_module.QUANT_DECLINES) - {"non_finite_result"}

@@ -28,11 +28,10 @@ cannot be served, not a file that has been altered.
 
 A *byte* mismatch says something else entirely. The file exists, it was read,
 and it is **not the artifact that was reviewed** — the one event on this path
-that is an integrity signal rather than a capability limit. That raises
-the runtime's ``RefusalCode.ARTIFACT_HASH_MISMATCH``, which the runtime already
-defines for exactly this ("bytes do not hash to the pinned sha256"), so it
-reaches a receipt and a track record wearing its own name and can be counted
-apart from ordinary declines.
+that is an integrity signal rather than a capability limit. That refuses under
+``score.rank``'s declared ``model_digest_mismatch`` (not absorbable), outside
+the plane's decline set, so it reaches a receipt and a track record wearing its
+own name and can be counted apart from ordinary declines.
 
 The honest boundary on ``pinned_model``
 ---------------------------------------
@@ -71,7 +70,6 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .numeric import canonical_call
@@ -79,6 +77,7 @@ from .outputs import ok_if_finite
 from .refusals import (
     INVALID_PARAMETER,
     MALFORMED_MODEL_REF,
+    MODEL_DIGEST_MISMATCH,
     NON_FINITE_INPUT,
     UNKNOWN_COLUMN,
     UNKNOWN_METHOD,
@@ -274,14 +273,13 @@ class Rank:
             )
         observed = "sha256:" + hashlib.sha256(blob).hexdigest()
         if observed != pin:
-            # The integrity signal. Not a decline: the runtime's own codes
-            # already name this event, and it has to be countable apart from the
-            # capability limits above — a provider that cannot serve a request
-            # and a provider handed an artifact nobody approved are different
-            # things for a track record to have seen. Raised, because a runtime
-            # code is never an operation's to return.
-            raise refuse(
-                RefusalCode.ARTIFACT_HASH_MISMATCH,
+            # The integrity signal. Not a decline: it has to be countable apart
+            # from the capability limits above -- a provider that cannot serve a
+            # request and a provider handed an artifact nobody approved are
+            # different things for a track record to have seen. Declared by
+            # score.rank on its own, since runtime codes are the runtime's.
+            return ProviderResult.refused(
+                MODEL_DIGEST_MISMATCH,
                 "the model file does not hash to its pin; this is not the artifact that "
                 "was reviewed",
                 pinned=pin,

@@ -9,15 +9,15 @@ and ``tests/test_registration_stability.py`` that each operation declares
 exactly the ones its implementation can return.
 
 **Why a closed set at all.** The runtime keeps its own codes — a budget breach,
-a cache-integrity failure, an artifact whose bytes do not hash to their pin —
-and reserves them: an operation cannot declare one, and an implementation that
-returned one would be claiming an authority it does not have. Those conditions
-are raised as the runtime's ``RefusalError`` instead.
+a cache-integrity failure — and reserves them for its own machinery: an
+operation cannot declare one, and provider code that returns or raises one is a
+protocol violation.
 
 **This never extended to integrity.** A model file whose bytes do not hash to
-their pin raises the runtime's ``artifact_hash_mismatch``, and always did,
-because routing it through here would convert an integrity signal into a
-capability limit. The set below deliberately does not carry it.
+their pin is not a capability limit, so it is not in :data:`QUANT_DECLINES`. It
+is ``score.rank``'s separately declared :data:`MODEL_DIGEST_MISMATCH`
+(:data:`INTEGRITY_REFUSALS`), not absorbable, countable apart from every
+decline.
 """
 
 from __future__ import annotations
@@ -30,9 +30,11 @@ __all__ = [
     "DECLARED_FAMILY_MISMATCH",
     "DEGENERATE_SCALE",
     "INSUFFICIENT_SERIES_LENGTH",
+    "INTEGRITY_REFUSALS",
     "INVALID_PARAMETER",
     "MALFORMED_MODEL_REF",
     "MISMATCHED_LENGTHS",
+    "MODEL_DIGEST_MISMATCH",
     "NON_FINITE_INPUT",
     "NON_FINITE_RESULT",
     "QUANT_DECLINES",
@@ -74,6 +76,12 @@ QUANT_DECLINES: tuple[str, ...] = (
     INVALID_PARAMETER,
 )
 """Every rule a quantitative operation may decline under."""
+
+MODEL_DIGEST_MISMATCH = "model_digest_mismatch"
+"""score.rank: the model file was read and its bytes do not hash to their pin."""
+
+INTEGRITY_REFUSALS: tuple[str, ...] = (MODEL_DIGEST_MISMATCH,)
+"""Refusals that report an artifact that is not the one reviewed; never declines."""
 
 
 def decline(code: str, message: str, **detail: Any) -> ProviderResult:

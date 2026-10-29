@@ -17,6 +17,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+import cruxible_provider_quant
 import pytest
 from cruxible_provider_quant.refusals import (
     DECLARED_FAMILY_MISMATCH,
@@ -25,6 +26,7 @@ from cruxible_provider_quant.refusals import (
     INVALID_PARAMETER,
     MALFORMED_MODEL_REF,
     MISMATCHED_LENGTHS,
+    MODEL_DIGEST_MISMATCH,
     NON_FINITE_INPUT,
     NON_FINITE_RESULT,
     QUANT_DECLINES,
@@ -36,9 +38,14 @@ from cruxible_provider_quant.refusals import (
     decline,
 )
 from cruxible_provider_runtime.errors import RefusalCode
+from cruxible_provider_runtime.registration import load_registration
 
 from .conftest import run_in_process
 from .fixtures import FIXTURES
+
+BUNDLE_REFUSALS = (
+    load_registration(cruxible_provider_quant.PACKAGE_ROOT).operation("score.rank").refusals
+)
 
 
 def _declined(operation: str, payload: dict[str, Any]) -> str:
@@ -255,9 +262,10 @@ def test_a_model_whose_bytes_do_not_match_its_pin_is_an_integrity_refusal(
     assert result.status == "refused", result.output
     assert result.refusal is not None
     # An integrity event, not a capability decline. It must be countable apart
-    # from the shape failures above, so it wears the taxonomy's own name.
-    assert result.refusal.code == RefusalCode.ARTIFACT_HASH_MISMATCH
-    assert result.refusal.is_runtime
+    # from the shape failures above, so it is declared on its own.
+    assert result.refusal.code == MODEL_DIGEST_MISMATCH
+    assert not result.refusal.is_runtime
+    assert BUNDLE_REFUSALS["model_digest_mismatch"].absorbable is False
     assert result.refusal.detail["pinned"] == pin
     assert result.refusal.detail["observed"] != pin
     assert result.refusal.code not in QUANT_DECLINES

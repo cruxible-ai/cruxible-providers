@@ -94,6 +94,10 @@
           "contract": "score.rank.refusal.malformed_model_ref@1",
           "absorbable": true
         },
+        "model_digest_mismatch": {
+          "contract": "score.rank.refusal.model_digest_mismatch@1",
+          "absorbable": false
+        },
         "non_finite_input": {
           "contract": "score.rank.refusal.non_finite_input@1",
           "absorbable": true

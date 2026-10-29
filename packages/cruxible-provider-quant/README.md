@@ -101,7 +101,7 @@ are two different things:
 | Failure | Refusal |
 |---|---|
 | no `model_ref`, unsupported `kind`, missing path, absent or ill-formed pin, unnamed score scale, missing `feature_order`, **unreadable path** | `malformed_model_ref` — a request this implementation cannot serve |
-| the file was read and its bytes do not hash to the pin | `artifact_hash_mismatch` — an **integrity** signal, from the runtime taxonomy, countable on a track record apart from ordinary declines |
+| the file was read and its bytes do not hash to the pin | `model_digest_mismatch` — an **integrity** signal, declared by `score.rank` apart from its declines (not absorbable), countable on a track record apart from them |
 
 A file that is not there has not been altered; folding a missing path into the
 tampering signal would put one on a track record every time somebody mistyped a
@@ -134,10 +134,10 @@ broken, and distinct from `non_finite_input`, which is the caller's to fix.
 ## Refusals
 
 Executor-side refusals — budget breaches, `undeclared_egress` — are the
-runtime's own codes, and so is `artifact_hash_mismatch`, which the runtime
-defines for the one event on this plane that is about integrity rather than
-capability. `score.rank` raises it as the runtime's refusal; no operation
-declares it, and none may.
+runtime's own codes, produced by its machinery only; no operation declares one,
+and provider code never returns or raises one. The one event on this plane that
+is about integrity rather than capability — a model file that misses its pin —
+is `score.rank`'s separately declared `model_digest_mismatch`.
 
 The conditions only a quantitative implementation can detect — a series too short
 for the declared seasonal model, a test name that is not a test, a model

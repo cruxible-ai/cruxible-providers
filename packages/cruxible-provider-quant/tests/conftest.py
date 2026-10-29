@@ -297,9 +297,10 @@ def run_in_process(
     and the executor-side behaviour it would re-test is the runtime's, already
     covered by the runtime's own suite and by the reference provider's.
 
-    Two of those laws still hold here. A runtime refusal raised by the provider
-    comes back as a refused result, as the child renders it; and an operation
-    refusal the registration does not declare for this operation raises
+    Two of those laws still hold here. A runtime code raised or returned by the
+    provider raises ``provider_protocol_violation``, as the child reports it
+    (runtime codes are the runtime machinery's only); and an operation refusal
+    the registration does not declare for this operation raises
     ``undeclared_refusal``, as the executor would.
     """
 
@@ -324,9 +325,19 @@ def run_in_process(
     try:
         result = entrypoint(operation)(context)
     except RefusalError as exc:
-        return ProviderResult(status="refused", refusal=exc.refusal)
+        raise refuse(
+            RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+            f"operation {operation!r} raised the runtime's own refusal code",
+            refused_code=exc.refusal.code,
+        ) from exc
     refusal = result.refusal
-    if refusal is not None and not refusal.is_runtime and refusal.code not in declared.refusals:
+    if refusal is not None and refusal.is_runtime:
+        raise refuse(
+            RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+            f"operation {operation!r} returned the runtime's own refusal code",
+            refused_code=refusal.code,
+        )
+    if refusal is not None and refusal.code not in declared.refusals:
         raise refuse(
             RefusalCode.UNDECLARED_REFUSAL,
             f"operation {operation!r} declares no refusal {refusal.code!r}",
