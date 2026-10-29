@@ -3,7 +3,7 @@
 ## One distribution per plane
 
 `cruxible-provider-<plane>` is the identity, lock, and digest unit. One package
-may implement several interfaces within its plane.
+may serve several typed operations within its plane.
 
 The rejected alternative was a single distribution with per-plane extras. It
 fails for a specific reason rather than an aesthetic one: the implementation
@@ -128,8 +128,8 @@ package's local materialization digest moved**, including base environments and
 extras sets whose selected wheels did not change. That global re-key was
 deliberate, pre-acceptance, and free: no accepted Provider artifact carried the
 old pins, so nothing needed re-issuance. The marker environments do not enter the
-backend-invariant implementation preimage, and this slice changes no interface,
-entrypoint, or released distribution pin; implementation digests do not move.
+backend-invariant implementation preimage, and this slice changes no entrypoint
+or released distribution pin; implementation digests do not move.
 
 Windows development uses WSL2 now. Native Windows is demand-gated and, if
 needed, arrives later as an **additive** marker environment. It will create new
@@ -234,43 +234,44 @@ deliberate, separate act.
 | `pyproject.toml` | Distribution metadata, dependencies, `cruxible.providers` entry points |
 | `uv.lock` | The identity source. Committed, and compared byte-for-byte at bind against what the accepted artifact pinned. |
 | `src/<module>/manifest.yaml` | The package-side manifest. A transcription source, **never** authority. |
-| `src/<module>/registration.json` | Versioned registration descriptor: hashed manifest, interface definitions, vocabularies, classifier sources, fixture sets, and runtime requirements |
-| `src/<module>/contracts/*.json` | Current operation contracts; the Python interface helpers read these same files |
-| `src/<module>/contracts/history/*.json` | Frozen predecessor definitions; retain their original digest domain and bytes |
-| `src/<module>/registration-fixtures/*.json` | Self-contained canonical request-classification fixtures, usable without the test tree |
+| `src/<module>/registration.json` | The registration descriptor (schema 2): the manifest by path and digest, the package's typed operations (each `{name, in, out, effect, refusals, entrypoint}`, Contracts named `name@N`), and runtime requirements keyed by entrypoint |
 | `src/<module>/py.typed` | Typing marker |
 | `LICENSE`, `NOTICE` | Apache-2.0, per package |
 | `container/Dockerfile` | The container backend's build, when the package declares that backend |
 | `container/provenance.md` | The four provenance fields the executor checks |
-| `src/<module>/vocab/*.yaml` | The bucket vocabularies the package classifies against, copied from `vocab/interfaces/`; a repository test asserts the copies do not fork |
-| `src/<module>/recordings/`, `fixtures/` | Recorded exchanges or engine responses, and the per-bucket conformance fixtures that replay them |
+| `src/<module>/recordings/` | Recorded exchanges or engine responses the default lane replays |
 | `tests/` | The conformance suite, which every plane package inherits. No `__init__.py` |
 
 ### Reading registration metadata
 
-`cruxible_provider_runtime.registration.load_registration(package_root)` verifies
-all package-relative resource hashes and interface/manifest/fixture cross-links
-without importing provider code. `registration_from_distribution(distribution)`
-locates that descriptor through installed wheel metadata and additionally checks
-the package name, version, entry points and extras. Neither function installs,
-authorizes, or accepts a provider. Metadata remains a source for an ordinary
-Core proposal. The host must pin the complete wheel before loading a classifier,
-validate operation contracts under its selected compiler, and verify fixtures.
+`cruxible_provider_runtime.registration.load_registration(package_root)` reads
+`registration.json` (schema 2 only; a schema-1 descriptor is refused whole),
+verifies the manifest's package-relative path and digest, and checks the
+cross-links without importing provider code: every operation names an
+entrypoint the manifest declares, every manifest implementation serves at least
+one operation, operations are sorted and named once, no operation declares one
+of the runtime's reserved refusal codes, and every runtime requirement belongs
+to a declared implementation. `registration_from_distribution(distribution)`
+locates the descriptor through installed wheel metadata and additionally checks
+the package name, version, extras, and that the `cruxible.providers` entry
+points are exactly the registered operations (one per operation, named by it).
+Neither function installs, authorizes, or accepts a provider.
 
-Node-type contracts use `contracts.input` and `contracts.output`, plus explicit
-`effect_class`. Package dependencies and operator configuration remain separate.
-Local Python installation does not imply a container deployment. Runtime resource
-requirements, such as Playwright's browser executable, are declared separately
-from Python extras and must not be reported ready merely because a wheel exists.
-
-The interface digest domain retains its historical `stub.v1` spelling. It is an
-identity rule, not a statement that current contracts are provisional. A changed
-contract increments its version and retains the predecessor definition and digest.
+The package names Contracts by `name@N` and ships neither their bodies nor
+their digests: the install pins each to the version accepted at its base (a kit
+ships them), and a Line binds one exact `{build, operation}`. An operation's
+`refusals` are its whole refusal vocabulary, each with a detail Contract; there
+is no shared decline vocabulary, and the runtime's own closed codes are
+reserved for runtime conditions. An operation's `effect` (`pure`,
+`external_read`, `external_mutation`) is declared once, there; the manifest no
+longer repeats it. Runtime resource requirements, such as Playwright's browser
+executable, are declared separately from Python extras and must not be reported
+ready merely because a wheel exists.
 
 The cross-repository check accepts `CRUXIBLE_CORE_PYTHON`; the built-wheel check
 accepts `CRUXIBLE_PROVIDER_WHEEL_DIR`. These are explicit test inputs, not developer
-paths. Run `tests/test_package_registration.py` with them to check actual provider
-outputs against Core and descriptors from built distributions.
+paths. Run `tests/test_package_registration.py` with them to read every package
+through Core's own schema-2 reader and descriptors from built distributions.
 
 ### Test packages carry no `__init__.py`
 

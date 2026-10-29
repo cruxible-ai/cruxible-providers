@@ -8,12 +8,13 @@ enters the core install:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Core** (`cruxible`) | Machinery only — slot grammar, interface registry, LineSpec closure, executor, provider protocol. Zero heavy dependencies. | the core repository |
+| **Core** (`cruxible`) | Machinery only — Contracts, Procedure slots, Lines binding each slot to an exact `{build, operation}`, executor, provider protocol. Zero heavy dependencies. | the core repository |
 | **Rails** | Accepted artifacts in forkable reference repositories: generic assemblies plus domain packs. Imported via change-set proposals, never baked into the install. | reference repositories |
 | **Providers** | Separate uv-locked packages, installed into isolated environments by an explicit, governed operator install. **This repository.** | here |
 
 The program that governs this work is `rails-providers-program-v1.md`; §7 is the
-RP-0 contract these packages implement.
+RP-0 contract these packages implement; provider runtime protocol 2.0 (one
+operation of one build per run) is the protocol they speak.
 
 ## Layout
 
@@ -25,15 +26,14 @@ packages/cruxible-provider-web/       the web plane: web.fetch, search.web
 packages/cruxible-provider-docs/       the document plane: doc.to_markdown, ocr.extract
 packages/cruxible-providers/          the umbrella meta-package: zero code, plane extras
 packages/cruxible-provider-quant/     the quantitative plane: classical
-                                      baselines on the seven quant interfaces
+                                      baselines on the seven quant operations
 packages/cruxible-provider-workspace/ the workspace built-in: workspace.file,
                                       the pure Source adapter core seeds by
                                       proposal (B4)
 packages/_template/                   copy this to start a new plane package
-vocab/interfaces/                     the launch bucket vocabularies, as draft data
-vocab/stub/                           the stub interface's vocabulary
 ci/marker-environments.json           the environments every digest is computed for
-scripts/                              digest computation and the packaging checks
+scripts/                              digest computation, the packaging checks, and
+                                      the protocol 2.0 contract export core vendors
 docs/                                 the packaging rules and the core seam
 ```
 
@@ -42,11 +42,13 @@ docs/                                 the packaging rules and the core seam
 A provider carries three identifiers, and confusing them is the mistake this
 design exists to prevent.
 
-**`implementation_digest`** — backend-invariant, and *the* track-record key. It
-covers the interface id, the interface digest, the entrypoint object path, and
-the provider distribution's own sha256. Never a bare version, which is a claim
-rather than an identity. Switching a provider from local execution to a
-container does not change it and does not split earned track record.
+**`implementation_digest`** — backend-invariant. It covers the entrypoint object
+path and the provider distribution's own sha256. Never a bare version, which is
+a claim rather than an identity. Switching a provider from local execution to a
+container does not change it and does not split earned track record. Which
+operation a run executed — and under which exact `{in, out, effect}` signature
+and build — is recorded beside it, because one entrypoint may serve several
+operations.
 
 **`materialization_digest`** — a per-backend environment pin. Locally it is the
 root distribution's identity plus the hashed *resolution* of the package's lock
@@ -66,7 +68,7 @@ executor upgrade must not split track records.
 A browser, a document-conversion stack, an OCR runtime: each is gigabytes, and
 none of them belongs in an install somebody does by accident. So a plane
 package's **base** distribution carries the adapter logic, the schemas, the
-bucket classifiers, and the recorded fixtures, while each engine sits behind an
+registration, and the recorded fixtures, while each engine sits behind an
 extra that the implementation needing it declares in its manifest
 (`requires_extras`).
 
@@ -81,7 +83,7 @@ linux-cp311+browser         the same lock, resolved with a browser in it
 linux-cp311+docling
 ```
 
-Two implementations of two interfaces in one package may therefore bind two
+Two implementations of two operations in one package may therefore bind two
 different environments — `doc.to_markdown` binds one with a conversion engine,
 `ocr.extract` one with an OCR runtime — and an artifact that pins only one of
 them refuses the other rather than falling back.
@@ -106,11 +108,13 @@ it still produces what the recording claims.
 ## Fail closed, everywhere
 
 Every path in this repository refuses rather than guessing: an unknown manifest
-field, an undeclared interface, an unsupported protocol major, a lock that
-resolves away from its pin, a cache entry whose seal does not verify, an input
-that classifies into an unclaimed bucket, a budget breach, an endpoint contacted
-outside the declaration. Refusals are typed and enumerated in
-`cruxible_provider_runtime.errors.RefusalCode`.
+field, an operation the entrypoint does not declare, an unsupported protocol
+major (a 1.x run context included), a lock that resolves away from its pin, a
+cache entry whose seal does not verify, a refusal code the operation does not
+declare, a budget breach, an endpoint contacted outside the declaration. The
+runtime's own refusals are closed and enumerated in
+`cruxible_provider_runtime.errors.RefusalCode`; an operation's refusals are the
+ones its registration declares, and the two never overlap.
 
 ## Honest boundaries
 
