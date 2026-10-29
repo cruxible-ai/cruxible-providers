@@ -1,8 +1,12 @@
-"""Package metadata is complete without the monorepo or a Core provider catalog."""
+"""Package registration (schema 2) is complete without the monorepo or core.
+
+Every package ships one ``registration.json`` declaring its typed operations
+and naming its manifest by path and digest. Reading it imports no provider
+code; every cross-link between the two declarations is checked.
+"""
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import importlib
 import json
@@ -14,31 +18,13 @@ from typing import Any
 from zipfile import ZipFile
 
 import pytest
-from cruxible_provider_runtime.canonical import canonical_json, domain_digest
-from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalError
-from cruxible_provider_runtime.protocol import Budgets
-from cruxible_provider_runtime.provider_api import ProviderRunContext
-from cruxible_provider_runtime.registration import (
-    INTERFACE_DOMAIN,
-    load_registration,
-)
+from cruxible_provider_runtime.canonical import canonical_json
+from cruxible_provider_runtime.registration import load_registration
+from cruxible_provider_runtime.registry import stub_contract_digest
 from cruxible_provider_runtime.wheels import wheel_registration
-from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = tuple(sorted(ROOT.glob("packages/*/src/*/registration.json")))
-
-
-def _check_nested_schema(definition: dict[str, Any], direction: str, payload: Any) -> None:
-    schema = definition["contracts"][direction]
-    if not isinstance(schema, dict):
-        return
-    for name, field in schema["fields"].items():
-        if "json_schema" in field:
-            Draft202012Validator.check_schema(field["json_schema"])
-            if name in payload:
-                Draft202012Validator(field["json_schema"]).validate(payload[name])
 
 
 @pytest.mark.parametrize("descriptor", PACKAGES, ids=lambda p: p.parent.name)
@@ -46,25 +32,27 @@ def test_package_metadata_is_self_contained(descriptor: Path, tmp_path: Path) ->
     package = tmp_path / descriptor.parent.name
     shutil.copytree(descriptor.parent, package)
     bundle = load_registration(package)
-    assert bundle.definitions
-    for item in bundle.descriptor.interfaces:
-        assert bundle.definitions[item.interface_id]["contracts"]["input"]["allow_extra"] is False
-        module, member = item.classifier.entrypoint.split(":")
-        classifier = getattr(importlib.import_module(module), member)
-        for fixture in bundle.fixtures[item.interface_id]:
-            _check_nested_schema(
-                bundle.definitions[item.interface_id], "input", fixture.canonical_input
-            )
-            measured = classifier(fixture.canonical_input)
-            assert measured is not None
-            assert (
-                bundle.vocabularies[item.interface_id].bucket_id(measured)
-                == fixture.measured_bucket_id
-            )
-        for previous in item.predecessors:
-            definition = json.loads(previous.definition.read(package))
-            assert domain_digest(INTERFACE_DOMAIN, definition) == previous.interface_digest
-            assert definition["version"] < bundle.definitions[item.interface_id]["version"]
+    assert bundle.operations
+    for operation in bundle.operations:
+        assert operation.entrypoint in {item.entrypoint for item in bundle.manifest.implementations}
+        assert not operation.pinned, "a package names Contracts by name@N; the install pins them"
+    assert bundle.manifest.supported_protocol_majors == (2,)
+
+
+@pytest.mark.parametrize("descriptor", PACKAGES, ids=lambda p: p.parent.name)
+def test_every_entrypoint_declares_exactly_the_operations_registered_for_it(
+    descriptor: Path,
+) -> None:
+    """The child dispatches by entrypoint and checks the operation against this."""
+
+    bundle = load_registration(descriptor.parent)
+    for implementation in bundle.manifest.implementations:
+        module, member = implementation.entrypoint.split(":")
+        declared = getattr(importlib.import_module(module), member).operations
+        registered = [
+            item.name for item in bundle.operations if item.entrypoint == implementation.entrypoint
+        ]
+        assert sorted(declared) == registered
 
 
 @pytest.mark.parametrize("descriptor", PACKAGES, ids=lambda p: p.parent.name)
@@ -84,11 +72,17 @@ def test_inspection_does_not_import_provider_code(
     assert load_registration(descriptor.parent).manifest
 
 
-def _rewrite_descriptor(root: Path, document: dict[str, Any]) -> None:
+def _document(root: Path) -> dict[str, Any]:
+    document: dict[str, Any] = json.loads((root / "registration.json").read_text())
+    return document
+
+
+def _rewrite(root: Path, document: dict[str, Any]) -> None:
     (root / "registration.json").write_text(json.dumps(document))
 
 
-def _refresh_ref(root: Path, ref: dict[str, str]) -> None:
+def _refresh_manifest(root: Path, document: dict[str, Any]) -> None:
+    ref = document["manifest"]
     ref["digest"] = "sha256:" + hashlib.sha256((root / ref["path"]).read_bytes()).hexdigest()
 
 
@@ -100,97 +94,165 @@ def package_copy(tmp_path: Path) -> Path:
     return target
 
 
-@pytest.mark.parametrize("component", ["definition", "vocabulary", "fixtures", "classifier"])
-def test_tampered_resource_is_refused(package_copy: Path, component: str) -> None:
-    doc = json.loads((package_copy / "registration.json").read_text())
-    ref = doc["interfaces"][0][component]
-    if component == "classifier":
-        ref = ref["source"]
-    path = package_copy / ref["path"]
-    path.write_bytes(path.read_bytes() + b" ")
+@pytest.fixture()
+def docs_copy(tmp_path: Path) -> Path:
+    """A package with two entrypoints and a runtime requirement on each."""
+
+    source = next(p.parent for p in PACKAGES if p.parent.name == "cruxible_provider_docs")
+    target = tmp_path / "docs"
+    shutil.copytree(source, target)
+    return target
+
+
+def test_a_tampered_manifest_is_refused(package_copy: Path) -> None:
+    path = package_copy / "manifest.yaml"
+    path.write_bytes(path.read_bytes() + b"\n")
     with pytest.raises(ValueError, match="resource digest mismatch"):
         load_registration(package_copy)
 
 
 @pytest.mark.parametrize(
-    "path",
-    ["../outside.json", "/tmp/outside.json", "contracts/../../x", "contracts\\x", "./contracts/x"],
+    "path", ["../outside.yaml", "/tmp/outside.yaml", "a/../../x", "a\\x", "./manifest.yaml"]
 )
-def test_resource_path_cannot_escape(package_copy: Path, path: str) -> None:
-    doc = json.loads((package_copy / "registration.json").read_text())
-    doc["interfaces"][0]["definition"]["path"] = path
-    _rewrite_descriptor(package_copy, doc)
+def test_the_manifest_path_cannot_escape(package_copy: Path, path: str) -> None:
+    document = _document(package_copy)
+    document["manifest"]["path"] = path
+    _rewrite(package_copy, document)
     with pytest.raises(ValueError, match="package-relative"):
         load_registration(package_copy)
 
 
-def test_symlink_escape_is_refused(package_copy: Path, tmp_path: Path) -> None:
-    doc = json.loads((package_copy / "registration.json").read_text())
-    path = package_copy / doc["interfaces"][0]["definition"]["path"]
-    outside = tmp_path / "outside.json"
+def test_a_symlink_escape_is_refused(package_copy: Path, tmp_path: Path) -> None:
+    path = package_copy / "manifest.yaml"
+    outside = tmp_path / "outside.yaml"
     path.rename(outside)
     path.symlink_to(outside)
     with pytest.raises(ValueError, match="escapes package"):
         load_registration(package_copy)
 
 
-def test_duplicate_exports_and_unknown_fields_refuse(package_copy: Path) -> None:
-    doc = json.loads((package_copy / "registration.json").read_text())
-    doc["interfaces"] *= 2
-    _rewrite_descriptor(package_copy, doc)
-    with pytest.raises(ValueError, match="duplicate"):
-        load_registration(package_copy)
-    doc["interfaces"] = doc["interfaces"][:1]
-    doc["trust_me"] = True
-    _rewrite_descriptor(package_copy, doc)
-    with pytest.raises(ValueError):
-        load_registration(package_copy)
+@pytest.mark.parametrize("version", [1, 3, None])
+def test_only_schema_2_is_read(package_copy: Path, version: int | None) -> None:
+    """A schema-1 registration exported interfaces; it is refused as such."""
 
-
-def test_uncovered_selector_refuses_even_with_valid_resource_hash(package_copy: Path) -> None:
-    doc = json.loads((package_copy / "registration.json").read_text())
-    ref = doc["interfaces"][0]["fixtures"]
-    rows = json.loads((package_copy / ref["path"]).read_text())
-    (package_copy / ref["path"]).write_text(json.dumps(rows[:1]))
-    _refresh_ref(package_copy, ref)
-    _rewrite_descriptor(package_copy, doc)
-    with pytest.raises(ValueError, match="cover declared selector"):
+    document = _document(package_copy)
+    if version is None:
+        del document["schema_version"]
+    else:
+        document["schema_version"] = version
+    _rewrite(package_copy, document)
+    with pytest.raises(ValueError, match="is not read"):
         load_registration(package_copy)
 
 
-def test_wrong_interface_and_predecessor_refuse(package_copy: Path) -> None:
-    doc = json.loads((package_copy / "registration.json").read_text())
-    doc["interfaces"][0]["predecessors"][0]["interface_digest"] = "sha256:" + "0" * 64
-    _rewrite_descriptor(package_copy, doc)
-    with pytest.raises(ValueError, match="predecessor"):
+def test_a_schema_1_registration_is_refused_whole(package_copy: Path) -> None:
+    document = {
+        "schema_version": 1,
+        "manifest": _document(package_copy)["manifest"],
+        "interfaces": [{"interface_id": "noop.echo"}],
+        "runtime_requirements": [],
+    }
+    _rewrite(package_copy, document)
+    with pytest.raises(ValueError, match="schema 1"):
         load_registration(package_copy)
 
 
-def test_fixture_measurement_cannot_be_a_wildcard(package_copy: Path) -> None:
-    doc = json.loads((package_copy / "registration.json").read_text())
-    ref = doc["interfaces"][0]["fixtures"]
-    path = package_copy / ref["path"]
-    rows = json.loads(path.read_text())
-    dimension = rows[0]["measured_bucket_id"].split("=", 1)[0]
-    rows[0]["measured_bucket_id"] = dimension + "=*"
-    path.write_text(json.dumps(rows))
-    _refresh_ref(package_copy, ref)
-    _rewrite_descriptor(package_copy, doc)
-    with pytest.raises(RefusalError, match="not registered"):
+def test_duplicate_operations_and_unknown_fields_refuse(package_copy: Path) -> None:
+    document = _document(package_copy)
+    document["operations"] *= 2
+    _rewrite(package_copy, document)
+    with pytest.raises(ValueError, match="sorted by name and each named once"):
+        load_registration(package_copy)
+    document["operations"] = document["operations"][:1]
+    document["trust_me"] = True
+    _rewrite(package_copy, document)
+    with pytest.raises(ValueError, match="trust_me"):
         load_registration(package_copy)
 
 
-def test_non_object_definition_refuses(package_copy: Path) -> None:
-    doc = json.loads((package_copy / "registration.json").read_text())
-    ref = doc["interfaces"][0]["definition"]
-    (package_copy / ref["path"]).write_text("[]")
-    _refresh_ref(package_copy, ref)
-    _rewrite_descriptor(package_copy, doc)
-    with pytest.raises(ValueError, match="identity"):
+def test_operations_must_be_sorted(docs_copy: Path) -> None:
+    document = _document(docs_copy)
+    document["operations"].reverse()
+    _rewrite(docs_copy, document)
+    with pytest.raises(ValueError, match="sorted by name"):
+        load_registration(docs_copy)
+
+
+def test_an_operation_naming_an_undeclared_entrypoint_refuses(package_copy: Path) -> None:
+    document = _document(package_copy)
+    document["operations"][0]["entrypoint"] = "cruxible_provider_noop.provider:Elsewhere"
+    _rewrite(package_copy, document)
+    with pytest.raises(ValueError, match="which the manifest does not declare"):
         load_registration(package_copy)
 
 
-def test_built_wheels_are_discoverable_without_imports(tmp_path: Path) -> None:
+def test_an_implementation_serving_no_operation_refuses(docs_copy: Path) -> None:
+    document = _document(docs_copy)
+    document["operations"] = document["operations"][:1]
+    document["runtime_requirements"] = [
+        item
+        for item in document["runtime_requirements"]
+        if item["entrypoint"] == document["operations"][0]["entrypoint"]
+    ]
+    _rewrite(docs_copy, document)
+    with pytest.raises(ValueError, match="serves at least one operation"):
+        load_registration(docs_copy)
+
+
+def test_one_entrypoint_may_serve_two_operations(package_copy: Path) -> None:
+    document = _document(package_copy)
+    second = {**document["operations"][0], "name": "noop.shout"}
+    document["operations"].append(second)
+    _rewrite(package_copy, document)
+    bundle = load_registration(package_copy)
+    assert bundle.entry_points() == {
+        "noop.echo": "cruxible_provider_noop.provider:NoopEcho",
+        "noop.shout": "cruxible_provider_noop.provider:NoopEcho",
+    }
+
+
+@pytest.mark.parametrize("code", ["budget_wall_clock", "undeclared_operation", "secret_leak"])
+def test_an_operation_may_not_declare_a_runtime_refusal_code(package_copy: Path, code: str) -> None:
+    document = _document(package_copy)
+    document["operations"][0]["refusals"] = {code: {"contract": "noop.echo.refusal.x@1"}}
+    _rewrite(package_copy, document)
+    with pytest.raises(ValueError, match="reserved by the runtime"):
+        load_registration(package_copy)
+
+
+def test_a_runtime_requirement_belongs_to_a_declared_implementation(docs_copy: Path) -> None:
+    document = _document(docs_copy)
+    document["runtime_requirements"][0]["entrypoint"] = "cruxible_provider_docs.x:Absent"
+    _rewrite(docs_copy, document)
+    with pytest.raises(ValueError, match="undeclared implementation"):
+        load_registration(docs_copy)
+    document["runtime_requirements"][0]["entrypoint"] = document["operations"][1]["entrypoint"]
+    _rewrite(docs_copy, document)
+    with pytest.raises(ValueError, match="undeclared extra"):
+        load_registration(docs_copy)
+
+
+def test_a_runtime_requirement_is_keyed_by_entrypoint_not_interface(docs_copy: Path) -> None:
+    document = _document(docs_copy)
+    requirement = document["runtime_requirements"][0]
+    requirement["interface_id"] = requirement.pop("entrypoint")
+    _rewrite(docs_copy, document)
+    with pytest.raises(ValueError, match="interface_id"):
+        load_registration(docs_copy)
+
+
+def test_a_manifest_edit_needs_the_registration_digest_refreshed(package_copy: Path) -> None:
+    path = package_copy / "manifest.yaml"
+    path.write_text(path.read_text().replace("deterministic: true", "deterministic: false"))
+    with pytest.raises(ValueError, match="resource digest mismatch"):
+        load_registration(package_copy)
+    document = _document(package_copy)
+    _refresh_manifest(package_copy, document)
+    _rewrite(package_copy, document)
+    assert load_registration(package_copy).manifest.implementations[0].deterministic is False
+
+
+def test_built_wheels_are_discoverable_without_imports() -> None:
     directory = os.environ.get("CRUXIBLE_PROVIDER_WHEEL_DIR")
     if not directory:
         pytest.skip("set CRUXIBLE_PROVIDER_WHEEL_DIR to verify built distributions")
@@ -207,164 +269,76 @@ def test_built_wheels_are_discoverable_without_imports(tmp_path: Path) -> None:
 
 
 def test_exported_packages_lower_through_core_without_provider_imports() -> None:
+    """Core's own schema-2 reader, pinning and build lowering, in core's interpreter.
+
+    Each package directory is read with ``read_package_registration``; every
+    Contract it names is pinned to the stub digest this repository uses; the
+    build is lowered and round-trips through core's Provider law; and core's
+    signature digest of every pinned operation equals this runtime's.
+    """
+
     core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
     if not core_python:
         pytest.skip("set CRUXIBLE_CORE_PYTHON for package-to-Core registration integration")
-    documents = [load_registration(path.parent).export_document() for path in PACKAGES]
-    code = """
-import json, sys
-from cruxible_core.providers.package_registration import PackageRegistrationDocumentV1
-from cruxible_client.contracts.providers import ProviderLocalDistributionPinV1, ProviderLocalEnvBackendPinV1
-from cruxible_client.contracts.provider_interfaces import evaluate_provider_interface_law, provider_interface_path
-from cruxible_client.contracts.providers import provider_digest, render_provider, parse_provider, provider_path
-count = 0
-for document in json.load(sys.stdin):
-    package = PackageRegistrationDocumentV1.model_validate(document)
-    interfaces = package.interface_registrations()
-    for interface in interfaces:
-        verdict = evaluate_provider_interface_law(interface, path=provider_interface_path(interface.interface_id),
-                                                  predecessor=None, conformance_fixtures={})
-        assert verdict.verdict == 'accepted', verdict
-        count += 1
-    distribution = package.manifest.distribution
-    provider = package.provider_definition(
-        distribution=ProviderLocalDistributionPinV1(name=distribution.name, version=distribution.version,
-            filename='fixture.whl', sha256='sha256:'+'a'*64),
-        local_env=ProviderLocalEnvBackendPinV1(lock_sha256='sha256:'+'b'*64,
-                                             materialization_digests={'linux-cp312':'sha256:'+'c'*64}),
-        control_domain='operator', interfaces=interfaces)
-    assert provider_digest(parse_provider(render_provider(provider), path=provider_path(provider.identity.name))) == provider_digest(provider)
-assert count == 13, count
-assert not any(name.startswith('cruxible_provider_') for name in sys.modules)
-"""
-    result = subprocess.run(
-        [core_python, "-c", code], input=canonical_json(documents), capture_output=True
-    )
-    assert result.returncode == 0, result.stderr.decode()
-
-
-def test_fixture_inputs_and_real_outputs_pass_core_contracts() -> None:
-    """Exercise the real provider engines, then validate in Core's own interpreter.
-
-    The explicit environment setting avoids developer paths and a production
-    dependency on Core. This is a cross-repository integration check.
-    """
-    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
-    if not core_python:
-        pytest.skip("set CRUXIBLE_CORE_PYTHON to validate against the Core contract reader")
     cases = []
     for descriptor in PACKAGES:
         bundle = load_registration(descriptor.parent)
-        for ident, definition in bundle.definitions.items():
-            impl = bundle.manifest.implementation(ident)
-            module, member = impl.entrypoint.split(":")
-            provider = getattr(importlib.import_module(module), member)()
-            for fixture in bundle.fixtures[ident]:
-                # These require separately installed heavy document engines.
-                if ident in {"doc.to_markdown", "ocr.extract"}:
-                    cases.append({"definition": definition, "input": fixture.canonical_input})
-                    continue
-                context = ProviderRunContext(
-                    run_id="contract-parity",
-                    interface_id=ident,
-                    interface_digest=impl.interface_digest,
-                    implementation_digest="sha256:" + "0" * 64,
-                    input_bucket=fixture.measured_bucket_id,
-                    input=fixture.canonical_input,
-                    coordinates={
-                        "instance_url": "https://fixture.invalid",
-                        "as_of": "2026-04-01T00:00:00Z",
-                    },
-                    budgets=Budgets(wall_clock_seconds=120, output_bytes=16_000_000),
-                    declared_endpoints=impl.declared_endpoints,
-                    capture_contract=None,
-                    secrets={},
-                    egress=EgressRecorder(),
-                )
-                result = provider(context)
-                assert result.status == "ok", (ident, fixture.fixture_id, result)
-                _check_nested_schema(definition, "output", result.output)
-                cases.append(
-                    {
-                        "definition": definition,
-                        "input": fixture.canonical_input,
-                        "output": result.output,
-                    }
-                )
-                if ident == "search.web":
-                    assert result.output is not None
-                    material = json.loads(base64.b64decode(result.output["content_base64"]))
-                    raw = base64.b64decode(material["retrieved"]["body_base64"])
-                    assert (
-                        "sha256:" + hashlib.sha256(raw).hexdigest()
-                        == material["retrieved"]["body_sha256"]
-                    )
-                    assert json.loads(raw)["results"]
-                    assert material["derived"]["kind"] == "recency_filtered_ranking"
+        cases.append(
+            {
+                "root": str(descriptor.parent),
+                "digests": {
+                    ref.spelling: stub_contract_digest(ref)
+                    for operation in bundle.operations
+                    for ref in operation.contract_refs()
+                },
+                "signatures": {
+                    operation.name: operation.model_copy(
+                        update={
+                            "in_": operation.in_.model_copy(
+                                update={"digest": stub_contract_digest(operation.in_)}
+                            ),
+                            "out": operation.out.model_copy(
+                                update={"digest": stub_contract_digest(operation.out)}
+                            ),
+                        }
+                    ).signature_digest()
+                    for operation in bundle.operations
+                },
+            }
+        )
     code = """
-import json,sys
-from cruxible_client.contracts.provider_contracts import read_provider_operation_contract,validate_provider_value
-errors=[]
-checked_required=set()
+import json, sys
+from pathlib import Path
+from cruxible_client.contracts.provider_operations import operation_signature_digest
+from cruxible_client.contracts.providers import (
+    ProviderLocalDistributionPin, ProviderLocalEnvBackendPin, parse_provider, provider_digest,
+    provider_path, render_provider,
+)
+from cruxible_core.providers.package_metadata import read_package_registration
+count = 0
 for case in json.load(sys.stdin):
-    definition=case['definition']
-    contract=read_provider_operation_contract(json.dumps(definition).encode().hex())
-    if contract.material is not None and 'output' in case:
-        import base64
-        from cruxible_client.contracts.canonical import canonical_bytes
-        from cruxible_client.contracts.records import Record
-        material=json.loads(base64.b64decode(case['output']['content_base64']))
-        record=Record(contract.material, material)
-        assert record.retrieved.body_sha256 == material['retrieved']['body_sha256']
-        for invalid in (None, 7):
-            bad=json.loads(json.dumps(material))
-            bad['retrieved']['body_sha256']=invalid
-            output={**case['output'], 'content_base64':base64.b64encode(canonical_bytes(bad)).decode()}
-            try: validate_provider_value(contract,output,direction='output')
-            except ValueError: pass
-            else: errors.append((definition['interface_id'],'untyped material accepted'))
-    for direction in ('input','output'):
-        if direction in case:
-            try: validate_provider_value(contract,case[direction],direction=direction)
-            except Exception as e: errors.append((definition['interface_id'],direction,str(e)))
-            schema=definition['contracts'][direction]
-            if not isinstance(schema,dict): continue
-            for name,field in schema['fields'].items():
-                key=(definition['interface_id'],direction,name)
-                if field.get('optional',False) or key in checked_required: continue
-                checked_required.add(key)
-                missing={k:v for k,v in case[direction].items() if k!=name}
-                try: validate_provider_value(contract,missing,direction=direction)
-                except Exception: pass
-                else: errors.append((*key,'missing required field accepted'))
-assert not errors, errors
+    document = read_package_registration(Path(case["root"]))
+    pinned = document.pinned_operations(lambda ref: case["digests"].get(ref.spelling))
+    for operation in pinned:
+        assert operation_signature_digest(operation.signature()) == case["signatures"][operation.name]
+        count += 1
+    distribution = document.manifest.distribution
+    provider = document.provider_definition(
+        distribution=ProviderLocalDistributionPin(
+            name=distribution.name, version=distribution.version,
+            filename="fixture.whl", sha256="sha256:" + "a" * 64),
+        local_env=ProviderLocalEnvBackendPin(
+            lock_sha256="sha256:" + "b" * 64,
+            materialization_digests={"linux-cp312": "sha256:" + "c" * 64}),
+        control_domain="operator",
+        operations=pinned,
+    )
+    parsed = parse_provider(render_provider(provider), path=provider_path(provider.identity.name))
+    assert provider_digest(parsed) == provider_digest(provider)
+assert count == 13, count
+assert not any(name.startswith("cruxible_provider_") for name in sys.modules)
 """
     result = subprocess.run(
         [core_python, "-c", code], input=canonical_json(cases), capture_output=True
     )
     assert result.returncode == 0, result.stderr.decode()
-
-
-def test_document_output_exposes_typed_fields_and_retains_old_contract() -> None:
-    from jsonschema import ValidationError
-
-    package = next(p.parent for p in PACKAGES if p.parent.name == "cruxible_provider_docs")
-    bundle = load_registration(package)
-    current = bundle.definitions["doc.to_markdown"]
-    assert current["version"] == 3
-    schema = current["contracts"]["output"]["fields"]["derived"]["json_schema"]
-    assert schema["properties"]["text"] == {"type": "string"}
-    good = {
-        "kind": "markdown",
-        "engine": "plain-text",
-        "text": "# Report",
-        "page_count": 1,
-        "metadata": {},
-    }
-    Draft202012Validator(schema).validate(good)
-    with pytest.raises(ValidationError):
-        Draft202012Validator(schema).validate({**good, "text": 12})
-    entry = next(i for i in bundle.descriptor.interfaces if i.interface_id == "doc.to_markdown")
-    assert {
-        json.loads(item.definition.read(package))["version"] for item in entry.predecessors
-    } == {1, 2}

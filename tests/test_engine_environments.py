@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 from cruxible_provider_runtime.manifest import load_manifest
+from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_runtime.resolution import (
     MarkerEnvironment,
     ResolvedSet,
@@ -93,9 +94,13 @@ EXPECTED_ENGINE_ENVIRONMENTS = {
 ENGINE_ENVIRONMENTS: list[tuple[str, str, tuple[str, ...]]] = []
 for manifest_path in sorted((REPO_ROOT / "packages").glob("*/src/*/manifest.yaml")):
     manifest = load_manifest(manifest_path)
+    served = load_registration(manifest_path.parent).operations
     for implementation in manifest.implementations:
         if implementation.requires_extras:
-            subject = f"{implementation.interface_id}+{'+'.join(implementation.requires_extras)}"
+            operations = ",".join(
+                item.name for item in served if item.entrypoint == implementation.entrypoint
+            )
+            subject = f"{operations}+{'+'.join(implementation.requires_extras)}"
             ENGINE_ENVIRONMENTS.append(
                 (subject, manifest.distribution.name, implementation.requires_extras)
             )

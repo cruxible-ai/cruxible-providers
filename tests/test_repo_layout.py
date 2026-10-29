@@ -318,17 +318,17 @@ def test_the_release_check_refuses_a_wheel_without_its_lock(tmp_path: Path) -> N
     from check_release_wheel import check
 
     package = PACKAGES / "cruxible-provider-noop"
-    dist_info = "cruxible_provider_noop-0.2.0.dist-info/"
-    wheel = tmp_path / "cruxible_provider_noop-0.2.0-py3-none-any.whl"
+    dist_info = "cruxible_provider_noop-0.3.0.dist-info/"
+    wheel = tmp_path / "cruxible_provider_noop-0.3.0-py3-none-any.whl"
     with ZipFile(wheel, "w") as archive:
         archive.writestr(dist_info + "METADATA", "")
         archive.writestr("cruxible_provider_noop/registration.json", "{}")
-    assert check(package, wheel, "cruxible-provider-noop-v0.2.0") == [
+    assert check(package, wheel, "cruxible-provider-noop-v0.3.0") == [
         f"{wheel.name} does not embed its package lock"
     ]
     with ZipFile(wheel, "a") as archive:
         archive.writestr(dist_info + "extra_metadata/uv.lock", b"stale")
     assert check(package, wheel, "cruxible-provider-noop-v0.1.0") == [
-        "tag 'cruxible-provider-noop-v0.1.0' does not name cruxible-provider-noop 0.2.0",
+        "tag 'cruxible-provider-noop-v0.1.0' does not name cruxible-provider-noop 0.3.0",
         f"{wheel.name} embeds a lock that differs from the committed one",
     ]
