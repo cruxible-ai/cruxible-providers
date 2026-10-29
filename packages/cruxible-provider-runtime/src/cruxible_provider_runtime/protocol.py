@@ -59,6 +59,7 @@ __all__ = [
     "SecretChannelSpec",
     "SecretRef",
     "Trace",
+    "Unencodable",
     "parse_result_envelope",
     "parse_run_context",
     "reject_non_finite",
@@ -69,6 +70,26 @@ OPERATION_NAME_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,255}$")
 """An operation name: the spelling core's ``ProviderOperation`` accepts."""
 
 _MAX_REPORTED_PATHS = 10
+
+
+class Unencodable:
+    """Stands in for a value no JSON type holds, copied out of provider code.
+
+    The child harness copies a provider's result into plain JSON types before
+    any check reads it, so that no provider-defined method runs outside the
+    guard around provider code. A value it cannot copy is replaced by this,
+    carrying only the original type's name, and refused here exactly as the
+    original would have been.
+    """
+
+    __slots__ = ("type_name",)
+
+    def __init__(self, type_name: str) -> None:
+        self.type_name = type_name
+
+
+def _type_name(value: Any) -> str:
+    return value.type_name if type(value) is Unencodable else type(value).__name__
 
 
 def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
@@ -96,7 +117,7 @@ def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
         for index, (key, item) in enumerate(value.items()):
             if not isinstance(key, str):
                 prefix = f"{path}." if path else ""
-                yield ("non_string_key", f"{prefix}<key[{index}]> ({type(key).__name__})")
+                yield ("non_string_key", f"{prefix}<key[{index}]> ({_type_name(key)})")
                 yield from _walk(item, f"{prefix}<value[{index}]>")
                 continue
             yield from _walk(item, f"{path}.{key}" if path else key)
@@ -105,7 +126,7 @@ def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
         for index, item in enumerate(value):
             yield from _walk(item, f"{path}[{index}]")
         return
-    yield ("unsupported", f"{path or '<root>'} ({type(value).__name__})")
+    yield ("unsupported", f"{path or '<root>'} ({_type_name(value)})")
 
 
 def reject_non_finite(value: Any, *, where: str) -> None:

@@ -72,6 +72,80 @@ class Forger:
         raise refuse(RefusalCode(context.input["code"]), "provider invented this")
 
 
+class ConstructionForger:
+    operations = ("sample.forge",)
+
+    def __init__(self):
+        from cruxible_provider_runtime.errors import RefusalCode, refuse
+
+        raise refuse(RefusalCode.UNRESOLVED_SECRET_REF, "provider invented this")
+
+    def __call__(self, context):
+        return ProviderResult.ok({})
+
+
+class DeclarationForger:
+    @property
+    def operations(self):
+        from cruxible_provider_runtime.errors import RefusalCode, refuse
+
+        raise refuse(RefusalCode.UNRESOLVED_SECRET_REF, "provider invented this")
+
+    def __call__(self, context):
+        return ProviderResult.ok({})
+
+
+class _ForgingMapping(dict):
+    def items(self):
+        from cruxible_provider_runtime.errors import RefusalCode, refuse
+
+        raise refuse(RefusalCode.UNRESOLVED_SECRET_REF, "provider invented this")
+
+
+class ResultForger:
+    """Returns an output whose own methods assert a runtime code once read."""
+
+    operations = ("sample.forge",)
+
+    def __call__(self, context):
+        return ProviderResult.ok(_ForgingMapping(value=1))
+
+
+class _ForgingException(Exception):
+    def __str__(self):
+        from cruxible_provider_runtime.errors import RefusalCode, refuse
+
+        raise refuse(RefusalCode.UNRESOLVED_SECRET_REF, "provider invented this")
+
+
+class DescriptionForger:
+    """Fails with an exception whose description asserts a runtime code."""
+
+    operations = ("sample.forge",)
+
+    def __call__(self, context):
+        raise _ForgingException()
+
+
+class EarlyDecliner:
+    operations = ("sample.forge",)
+
+    def __init__(self):
+        from cruxible_provider_runtime.errors import decline
+
+        raise decline("too_long", "declined before running")
+
+    def __call__(self, context):
+        return ProviderResult.ok({})
+
+
+class NonFinite:
+    operations = ("sample.nan",)
+
+    def __call__(self, context):
+        return ProviderResult.ok({"statistic": float("nan")})
+
+
 class Echo:
     operations = ("sample.echo",)
 
@@ -91,9 +165,17 @@ BUILD = "sha256:" + "b1" * 32
 IMPLEMENTATION = "sha256:" + "1a" * 32
 
 
+_IMPORT_FORGER = """
+from cruxible_provider_runtime.errors import RefusalCode, refuse
+
+raise refuse(RefusalCode.UNRESOLVED_SECRET_REF, "provider invented this at import")
+"""
+
+
 @pytest.fixture()
 def provider_root(tmp_path: Path) -> Path:
     (tmp_path / "child_sample_providers.py").write_text(_PROVIDERS, encoding="utf-8")
+    (tmp_path / "child_import_forger.py").write_text(_IMPORT_FORGER, encoding="utf-8")
     return tmp_path
 
 
@@ -236,3 +318,99 @@ def test_provider_code_cannot_raise_a_runtime_refusal(
     assert envelope.refusal.code == RefusalCode.PROVIDER_PROTOCOL_VIOLATION
     assert envelope.refusal.detail["refused_code"] == code.value
     assert envelope.refusal.detail["operation"] == "sample.forge"
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "stage"),
+    [
+        ("child_import_forger:Anything", "import"),
+        ("child_sample_providers:ConstructionForger", "construction"),
+        ("child_sample_providers:DeclarationForger", "operation declaration"),
+        ("child_sample_providers:ResultForger", "call"),
+    ],
+)
+def test_a_harness_code_from_provider_code_at_any_stage_is_a_protocol_violation(
+    provider_root: Path, entrypoint: str, stage: str
+) -> None:
+    """``unresolved_secret_ref`` is one the harness produces itself, so it is the
+    code a forgery would choose; provider code asserting it -- importing,
+    constructing, declaring, or in what it returns -- is reported as what it is."""
+
+    document = _context("sample.forge", "Forger")
+    document["entrypoint"] = entrypoint
+    envelope = _run(provider_root, document)
+    assert envelope.status == "refused"
+    assert envelope.refusal is not None
+    assert envelope.refusal.code == RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert envelope.refusal.detail["stage"] == stage
+    assert envelope.refusal.detail["refused_code"] == "unresolved_secret_ref"
+    assert envelope.refusal.detail["entrypoint"] == entrypoint
+
+
+def test_an_exception_whose_description_asserts_a_runtime_code_is_still_a_failure(
+    provider_root: Path,
+) -> None:
+    """Describing a provider's exception runs its code too; the assertion does not escape."""
+
+    envelope = _run(provider_root, _context("sample.forge", "DescriptionForger"))
+    assert envelope.status == "error"
+    assert envelope.refusal is None
+    assert envelope.error is not None
+    assert envelope.error.kind == "_ForgingException"
+    assert envelope.error.message == "the provider raised an exception it would not describe"
+
+
+def test_a_decline_before_the_operation_runs_is_a_protocol_violation(provider_root: Path) -> None:
+    envelope = _run(provider_root, _context("sample.forge", "EarlyDecliner"))
+    assert envelope.status == "refused"
+    assert envelope.refusal is not None
+    assert envelope.refusal.code == RefusalCode.PROVIDER_PROTOCOL_VIOLATION
+    assert envelope.refusal.detail == {
+        "stage": "construction",
+        "entrypoint": "child_sample_providers:EarlyDecliner",
+        "operation": "sample.forge",
+        "refused_code": "too_long",
+    }
+
+
+def test_the_harness_still_observes_a_non_finite_output(provider_root: Path) -> None:
+    """Copying the result out of provider code does not hide what the harness checks."""
+
+    envelope = _run(provider_root, _context("sample.nan", "NonFinite"))
+    assert envelope.status == "refused"
+    assert envelope.refusal is not None
+    assert envelope.refusal.code == RefusalCode.NON_FINITE_OUTPUT
+    assert envelope.refusal.detail["paths"] == ["statistic"]
+
+
+def test_the_harness_still_observes_a_missing_secret_ref(provider_root: Path) -> None:
+    """A secret channel short of a ref it names is the harness's own observation."""
+
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, json.dumps({"present": "value"}).encode("utf-8"))
+    os.close(write_fd)
+    document = _context(
+        "sample.echo",
+        "Echo",
+        secret_channel={"kind": "fd", "fd": read_fd, "refs": [{"ref": "absent"}]},
+    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", CHILD_MODULE, "--entrypoint", document["entrypoint"]],
+            input=json.dumps(document).encode("utf-8"),
+            capture_output=True,
+            env={
+                **os.environ,
+                "PYTHONPATH": os.pathsep.join((str(RUNTIME_SRC), str(provider_root))),
+            },
+            pass_fds=(read_fd,),
+            check=True,
+            timeout=60,
+        )
+    finally:
+        os.close(read_fd)
+    envelope = parse_result_envelope(completed.stdout)
+    assert envelope.status == "refused"
+    assert envelope.refusal is not None
+    assert envelope.refusal.code == RefusalCode.UNRESOLVED_SECRET_REF
+    assert envelope.refusal.detail["refs"] == ["absent"]

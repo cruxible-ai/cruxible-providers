@@ -61,8 +61,10 @@ not declare, and a protocol violation for an entrypoint that declares none or an
 A refused envelope's `refusal.code` is one of two disjoint vocabularies: the
 runtime's own closed `RefusalCode` (reserved; no operation may declare one), or a
 code the bound operation declares. Runtime codes are produced by runtime
-machinery only: provider code that raises or returns one is reported by the
-child as `provider_protocol_violation`, and conditions only a provider can see
+machinery only: provider code that raises or returns one — at import,
+construction, declaration access or the call, or from inside the result it
+returns — is reported by the child as `provider_protocol_violation` naming the
+stage, and conditions only a provider can see
 (a missing engine, a model file that misses its pin, a credential the run named
 but did not deliver) are refusals its operation declares. The child harness
 produces only the runtime codes in `HARNESS_REFUSAL_CODES` (exported in the

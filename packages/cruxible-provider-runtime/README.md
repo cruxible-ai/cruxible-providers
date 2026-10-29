@@ -56,8 +56,9 @@ reserved for the runtime's machinery. `decline(code, message, **detail)` raises
 the same refusal from deep inside a call.
 
 Runtime codes come from runtime machinery only. A `RefusalError` raised by
-provider code, or a runtime code returned in a `ProviderResult`, is reported as
-`provider_protocol_violation`: a provider cannot report a budget breach, a cache
+provider code — while its module is imported, its object constructed, its
+`operations` read, or during the call — or a runtime code returned in a
+`ProviderResult`, is reported as `provider_protocol_violation` naming the stage: a provider cannot report a budget breach, a cache
 failure or an undelivered credential on its own say-so. The executor also
 refuses an envelope carrying a runtime code outside the few the child harness
 produces (`HARNESS_REFUSAL_CODES`). A condition only the provider can detect —

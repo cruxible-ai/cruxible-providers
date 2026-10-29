@@ -7,8 +7,11 @@ writes a result envelope on the process's original standard output.
 
 **Only the harness produces runtime refusals.** A refusal the harness raises
 from its own checks carries a runtime code; a refusal from provider code --
-returned or raised -- must use a code the operation declares, and one using a
-runtime code is reported as a protocol violation.
+returned or raised, at import, construction, declaration access or call --
+must use a code the operation declares, and one using a runtime code is
+reported as a protocol violation. Every provider-controlled step runs inside
+one guard (``_provider_code``), the result is copied into plain JSON values
+inside it, and the harness's own refusals are raised outside it.
 
 **Dispatch is by entrypoint, checked against the operation.** The run context
 names one entrypoint and one operation. The entrypoint object declares the
@@ -42,12 +45,13 @@ import importlib
 import json
 import os
 import sys
-from typing import Any
+from collections.abc import Iterator, Mapping
+from typing import Any, cast
 
 from .egress import EgressRecorder
-from .errors import Declined, ProviderErrorPayload, RefusalCode, RefusalError, refuse
-from .protocol import PROTOCOL_VERSION, ResultEnvelope, Trace, parse_run_context
-from .provider_api import ProviderResult, ProviderRunContext
+from .errors import Declined, ProviderErrorPayload, Refusal, RefusalCode, RefusalError, refuse
+from .protocol import PROTOCOL_VERSION, ResultEnvelope, Trace, Unencodable, parse_run_context
+from .provider_api import ProviderResult, ProviderRunContext, ProviderStatus
 from .secrets import Redactor, read_secrets
 
 __all__ = ["declared_operations", "main", "reserve_stdout", "resolve_entrypoint"]
@@ -69,8 +73,71 @@ def reserve_stdout() -> int:
     return reserved
 
 
-def resolve_entrypoint(path: str) -> Any:
-    """Resolve ``module:object``, instantiating a class with no arguments."""
+def _describe(value: object, fallback: str) -> str:
+    """``str(value)`` as an exact string, or ``fallback`` if provider code refuses to say."""
+
+    try:
+        text = str(value)
+        return str.__str__(text) if isinstance(text, str) else fallback
+    except BaseException:
+        return fallback
+
+
+def _asserted_code(exc: BaseException) -> str:
+    """The code a provider-raised refusal names, read without trusting it."""
+
+    try:
+        code = exc.refusal.code  # type: ignore[attr-defined]
+        return str.__str__(code) if isinstance(code, str) else "unreadable"
+    except BaseException:
+        return "unreadable"
+
+
+@contextlib.contextmanager
+def _provider_code(stage: str, entrypoint: str, operation: str | None) -> Iterator[None]:
+    """Run provider code: its import, its construction, its declarations, its call.
+
+    Runtime codes name conditions only the runtime's machinery observes, so a
+    ``RefusalError`` escaping provider code -- at any of these stages -- is a
+    provider asserting one, and is reported as a protocol violation naming the
+    code it tried to assert. A ``Declined`` outside the call is too: an
+    operation refuses only when it runs. The harness's own refusals are raised
+    outside this block, so they keep their codes.
+    """
+
+    try:
+        yield
+    except RefusalError as exc:
+        raise refuse(
+            RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+            f"provider code raised the runtime's own refusal code {_asserted_code(exc)!r} "
+            f"during {stage}; runtime codes come from runtime machinery only, and an "
+            "operation refuses under codes it declares",
+            stage=stage,
+            entrypoint=entrypoint,
+            operation=operation,
+            refused_code=_asserted_code(exc),
+        ) from None
+    except Declined as exc:
+        if stage == "call":
+            raise
+        raise refuse(
+            RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+            f"provider code declined during {stage}; an operation refuses only when it runs",
+            stage=stage,
+            entrypoint=entrypoint,
+            operation=operation,
+            refused_code=_asserted_code(exc),
+        ) from None
+
+
+def resolve_entrypoint(path: str, *, operation: str | None = None) -> Any:
+    """Resolve ``module:object``, instantiating a class with no arguments.
+
+    The import, the attribute walk and the construction are provider code and
+    run inside :func:`_provider_code`; what the harness concludes from them is
+    refused outside it.
+    """
 
     module_name, _, object_name = path.partition(":")
     if not module_name or not object_name:
@@ -79,28 +146,39 @@ def resolve_entrypoint(path: str) -> Any:
             f"entrypoint {path!r} is not 'module:object'",
             entrypoint=path,
         )
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError as exc:
+    import_failure: str | None = None
+    with _provider_code("import", path, operation):
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError as exc:
+            import_failure = _describe(exc, "ImportError")
+    if import_failure is not None:
         raise refuse(
             RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
             f"entrypoint module {module_name!r} could not be imported",
             entrypoint=path,
-            detail_message=str(exc),
-        ) from exc
+            detail_message=import_failure,
+        )
     target: Any = module
-    for part in object_name.split("."):
-        try:
-            target = getattr(target, part)
-        except AttributeError as exc:
-            raise refuse(
-                RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
-                f"entrypoint {path!r} does not resolve",
-                entrypoint=path,
-            ) from exc
-    if isinstance(target, type):
-        target = target()
-    if not callable(target):
+    unresolved = False
+    with _provider_code("entrypoint resolution", path, operation):
+        for part in object_name.split("."):
+            try:
+                target = getattr(target, part)
+            except AttributeError:
+                unresolved = True
+                break
+    if unresolved:
+        raise refuse(
+            RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+            f"entrypoint {path!r} does not resolve",
+            entrypoint=path,
+        )
+    with _provider_code("construction", path, operation):
+        if isinstance(target, type):
+            target = target()
+        is_callable = callable(target)
+    if not is_callable:
         raise refuse(
             RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
             f"entrypoint {path!r} resolved to a non-callable",
@@ -109,25 +187,125 @@ def resolve_entrypoint(path: str) -> Any:
     return target
 
 
-def declared_operations(provider: Any, entrypoint: str) -> tuple[str, ...]:
+def declared_operations(
+    provider: Any, entrypoint: str, *, operation: str | None = None
+) -> tuple[str, ...]:
     """The operations an entrypoint object serves, or a protocol-violation refusal.
 
     Read from its ``operations`` attribute: a non-empty tuple, list or frozenset
-    of operation names. Absent or malformed is not "serves everything".
+    of operation names. Absent or malformed is not "serves everything". The
+    attribute is the provider's, so it is read -- and copied into exact strings
+    -- inside :func:`_provider_code`.
     """
 
-    declared = getattr(provider, "operations", None)
-    if (
-        not isinstance(declared, tuple | list | frozenset)
-        or not declared
-        or not all(isinstance(item, str) for item in declared)
-    ):
+    names: tuple[str, ...] | None = None
+    with _provider_code("operation declaration", entrypoint, operation):
+        declared = getattr(provider, "operations", None)
+        if isinstance(declared, tuple | list | frozenset):
+            items = tuple(declared)
+            if items and all(isinstance(item, str) for item in items):
+                names = tuple(str.__str__(item) for item in items)
+    if not names:
         raise refuse(
             RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
             f"entrypoint {entrypoint!r} declares no operations it serves",
             entrypoint=entrypoint,
         )
-    return tuple(sorted(declared))
+    return tuple(sorted(names))
+
+
+def _plain(value: Any) -> Any:
+    """``value`` copied into exact JSON types; anything else becomes :class:`Unencodable`.
+
+    Called inside :func:`_provider_code` on everything a provider returned, so
+    that no provider-defined method -- a mapping's ``items``, a string
+    subclass's ``__hash__``, a ``__class__`` property -- runs once the harness
+    starts judging the result.
+    """
+
+    if value is None or value is True or value is False:
+        return value
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, int):
+        return int.__int__(value)
+    if isinstance(value, float):
+        return float.__float__(value)
+    if isinstance(value, Mapping):
+        return {_plain(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_plain(item) for item in value]
+    name = type(value).__name__
+    return Unencodable(str.__str__(name) if isinstance(name, str) else "object")
+
+
+def _plain_detail(value: Any) -> dict[str, Any]:
+    copied = _plain(value)
+    return copied if isinstance(copied, dict) else {"detail": copied}
+
+
+def _captured(returned: Any) -> tuple[ProviderResult | None, str | None]:
+    """The provider's result rebuilt from plain values, or why it cannot be.
+
+    Runs inside :func:`_provider_code`. Never raises a runtime refusal itself:
+    a problem is returned as a message for the harness to refuse with outside.
+    """
+
+    if type(returned) is not ProviderResult:
+        return (
+            None,
+            f"provider returned {_describe(type(returned).__name__, 'an object')}, "
+            "not a ProviderResult",
+        )
+    status: Any = returned.status
+    if type(status) is not str or status not in ("ok", "refused", "error"):
+        return None, "provider returned a result with no valid status"
+    refusal: Refusal | None = None
+    if returned.refusal is not None:
+        if type(returned.refusal) is not Refusal:
+            return None, "provider returned a refusal that is not a Refusal"
+        refusal = Refusal(
+            code=_plain(returned.refusal.code),
+            message=_plain(returned.refusal.message),
+            detail=_plain_detail(returned.refusal.detail),
+        )
+    error: ProviderErrorPayload | None = None
+    if returned.error is not None:
+        if type(returned.error) is not ProviderErrorPayload:
+            return None, "provider returned an error that is not a ProviderErrorPayload"
+        error = ProviderErrorPayload(
+            kind=_plain(returned.error.kind),
+            message=_plain(returned.error.message),
+            detail=_plain_detail(returned.error.detail),
+        )
+    output = _plain(returned.output) if returned.output is not None else None
+    events = _plain(returned.events)
+    metrics = _plain(returned.metrics)
+    result = ProviderResult(
+        status=cast(ProviderStatus, status),
+        output=output,
+        refusal=refusal,
+        error=error,
+        metrics=metrics if isinstance(metrics, dict) else {},
+        events=events if isinstance(events, list) else [],
+    )
+    return result, None
+
+
+def _declined(exc: Declined) -> ProviderResult:
+    """A refusal raised from inside the call, copied out of provider code."""
+
+    raised = exc.refusal
+    if type(raised) is not Refusal:
+        raise TypeError("a Declined carries a Refusal")
+    return ProviderResult(
+        status="refused",
+        refusal=Refusal(
+            code=_plain(raised.code),
+            message=_plain(raised.message),
+            detail=_plain_detail(raised.detail),
+        ),
+    )
 
 
 def _envelope(run_id: str, result: ProviderResult, trace: Trace) -> ResultEnvelope:
@@ -184,8 +362,8 @@ def main(argv: list[str] | None = None) -> int:
                     context_entrypoint=context.entrypoint,
                 )
         entrypoint = context.entrypoint
-        provider = resolve_entrypoint(entrypoint)
-        operations = declared_operations(provider, entrypoint)
+        provider = resolve_entrypoint(entrypoint, operation=context.operation)
+        operations = declared_operations(provider, entrypoint, operation=context.operation)
         if context.operation not in operations:
             raise refuse(
                 RefusalCode.UNDECLARED_OPERATION,
@@ -218,25 +396,15 @@ def main(argv: list[str] | None = None) -> int:
             egress=recorder,
             additive=context.additive,
         )
-        try:
-            result = provider(provider_context)
-        except RefusalError as exc:
-            # Runtime codes name conditions only the runtime's machinery
-            # observes. Provider code asserting one -- a budget breach, a cache
-            # failure, an undelivered credential -- would be forging a runtime
-            # observation, so it is reported as what it is.
+        with _provider_code("call", entrypoint, context.operation):
+            try:
+                result, problem = _captured(provider(provider_context))
+            except Declined as exc:
+                result, problem = _declined(exc), None
+        if result is None:
             raise refuse(
                 RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
-                f"operation {context.operation!r} raised the runtime's own refusal code "
-                f"{exc.refusal.code!r}; runtime codes come from runtime machinery only, "
-                "and an operation refuses under codes it declares",
-                operation=context.operation,
-                refused_code=exc.refusal.code,
-            ) from exc
-        if not isinstance(result, ProviderResult):
-            raise refuse(
-                RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
-                f"provider returned {type(result).__name__}, not a ProviderResult",
+                problem or "provider returned no result",
                 entrypoint=entrypoint,
             )
         if result.refusal is not None and result.refusal.is_runtime:
@@ -253,7 +421,10 @@ def main(argv: list[str] | None = None) -> int:
             metrics=dict(result.metrics),
         )
         envelope = _envelope(context.run_id, result, trace)
-    except (RefusalError, Declined) as exc:
+    except RefusalError as exc:
+        # Only the harness's own refusals reach here: provider code runs inside
+        # _provider_code, which turns a refusal it raises into a protocol
+        # violation.
         envelope = ResultEnvelope(
             protocol_version=PROTOCOL_VERSION.render(),
             run_id=run_id,
@@ -266,7 +437,10 @@ def main(argv: list[str] | None = None) -> int:
             protocol_version=PROTOCOL_VERSION.render(),
             run_id=run_id,
             status="error",
-            error=ProviderErrorPayload(kind=type(exc).__name__, message=str(exc)),
+            error=ProviderErrorPayload(
+                kind=_describe(type(exc).__name__, "Exception"),
+                message=_describe(exc, "the provider raised an exception it would not describe"),
+            ),
             trace=Trace(endpoints_contacted=recorder.observed()),
         )
 
