@@ -46,10 +46,12 @@ The umbrella `cruxible-providers[PLANE]` remains a development convenience.
   the CaptureContract.
 - Read a credential from argv or the environment.
 - Put a heavy engine in the base install, or import one at module scope. Import
-  it inside the method that needs it and turn a missing import into a typed
-  `environment_divergence` refusal: an environment lacking the engine its
-  implementation declared has diverged from the resolution it was meant to be,
-  which is not a failed answer.
+  it inside the method that needs it and turn a missing import into a declared
+  operation refusal (`engine_unavailable`, not absorbable): an environment
+  lacking the engine its implementation declared is not a failed answer.
+- Raise or return one of the runtime's own codes (`RefusalCode`, `refuse`).
+  They are produced by runtime machinery only; from provider code the harness
+  reports them as `provider_protocol_violation`.
 - Print to standard output on purpose. The harness reserves it for the result
   envelope and hands the provider stderr, so stray output is harmless -- but
   trace material belongs in the result's events, where something can read it.

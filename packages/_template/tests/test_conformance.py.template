@@ -30,9 +30,11 @@ The obligations, in the order the contract states them:
 12. every extra the manifest requires exists in the distribution, and an
     artifact that pins some other implementation's environment refuses
     (lock_mismatch, naming the environment pin key) rather than binding it;
-13. a run that needs an engine the environment does not carry refuses
-    (environment_divergence) rather than raising ImportError across the process
-    boundary.
+13. a run that needs an engine the environment does not carry refuses under
+    the operation's declared ``engine_unavailable`` rather than raising
+    ImportError across the process boundary;
+14. provider code that raises or returns one of the runtime's own codes is
+    reported as provider_protocol_violation, never as the condition it names.
 
 No test in the default lane may require a network, a container engine, or a
 heavy engine. Tests that drive a real engine are marked `engine`, are excluded

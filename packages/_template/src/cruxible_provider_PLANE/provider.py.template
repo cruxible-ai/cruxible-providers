@@ -42,8 +42,10 @@ class Implementation:
         # A refusal code is one the operation declares; its detail must be its
         # declared Contract. From deep in a call, `raise decline(code, ...)`
         # (cruxible_provider_runtime.errors) does the same. The runtime's own
-        # codes (RefusalCode) are reserved for runtime conditions -- an engine
-        # the environment lacks is `raise refuse(RefusalCode.ENVIRONMENT_DIVERGENCE, ...)`.
+        # codes (RefusalCode, refuse) are produced by runtime machinery only;
+        # raised or returned here, the harness reports a protocol violation. A
+        # condition only this provider can see -- an engine its environment
+        # lacks -- is a refusal the operation declares (`engine_unavailable`).
         #
         # Output is never world-state truth. It enters core as the operation's
         # declared output Contract.
