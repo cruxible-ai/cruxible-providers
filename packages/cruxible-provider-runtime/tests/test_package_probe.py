@@ -35,9 +35,13 @@ def test_resource_probe_refuses_invalid_entrypoint_before_import(monkeypatch):
         package_probe.ResourceProbe()(SimpleNamespace(input={"entrypoint": "../../run"}))
 
 
+def test_the_resource_probe_declares_its_one_operation():
+    assert package_probe.ResourceProbe.operations == ("cruxible.package.resource",)
+
+
 def test_resource_requirement_needs_a_probe_but_python_extra_does_not():
     fields = {
-        "interface_id": "web.browser",
+        "entrypoint": "example.web:Fetch",
         "name": "chromium",
         "description": "Browser executable",
     }

@@ -42,7 +42,7 @@ def golden() -> dict[str, dict[str, str]]:
 
 
 def test_domain_tags_are_the_contract_spelling() -> None:
-    assert IMPLEMENTATION_DOMAIN_TAG == "cruxible.provider.implementation.v1"
+    assert IMPLEMENTATION_DOMAIN_TAG == "cruxible.provider.implementation.v2"
     assert MATERIALIZATION_DOMAIN_TAG == "cruxible.provider.materialization.v1"
     assert CLOSURE_DOMAIN_TAG == "cruxible.provider.closure.v1"
 
@@ -52,14 +52,15 @@ def test_implementation_digest_golden(case: str, golden: dict[str, dict[str, str
     assert implementation_digest(**IMPLEMENTATION_CASES[case]) == golden["implementation"][case]
 
 
-def test_implementation_preimage_has_exactly_four_fields() -> None:
+def test_implementation_preimage_has_exactly_two_fields() -> None:
+    """The code that ran and the artifact it came from; nothing about what it served.
+
+    One entrypoint may serve several operations, so the operation is the run's
+    to record beside this digest, never part of it.
+    """
+
     preimage = implementation_preimage(**IMPLEMENTATION_CASES["sample-echo"])
-    assert sorted(preimage) == [
-        "distribution_sha256",
-        "entrypoint",
-        "interface_digest",
-        "interface_id",
-    ]
+    assert sorted(preimage) == ["distribution_sha256", "entrypoint"]
 
 
 def test_implementation_digest_ignores_version_and_backend() -> None:

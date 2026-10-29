@@ -1,10 +1,15 @@
 """The surface a provider package implements.
 
-A provider is a callable object resolved from ``module:object``. It receives a
-:class:`ProviderRunContext` and returns a :class:`ProviderResult`. It never sees
-raw JSON, never opens the secret channel itself, and never enforces its own
-budgets — all three are the executor's job, and a provider that did them itself
-would be self-certifying.
+A provider entrypoint is a callable object resolved from ``module:object``. It
+declares the operations it serves in ``operations``, receives a
+:class:`ProviderRunContext` naming the one operation this run executes, and
+returns a :class:`ProviderResult`. It never sees raw JSON, never opens the
+secret channel itself, and never enforces its own budgets — all three are the
+executor's job, and a provider that did them itself would be self-certifying.
+
+One entrypoint may serve several operations; it reads ``context.operation`` to
+tell which. The child harness refuses a run whose operation the entrypoint does
+not declare before any provider code runs.
 """
 
 from __future__ import annotations
@@ -14,10 +19,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from .egress import EgressRecorder
-from .errors import ProviderErrorPayload, Refusal, RefusalCode
+from .errors import ProviderErrorPayload, Refusal, check_operation_refusal_code
 from .protocol import Budgets
 
-__all__ = ["Provider", "ProviderResult", "ProviderRunContext"]
+__all__ = ["Provider", "ProviderResult", "ProviderRunContext", "ProviderStatus"]
 
 
 @dataclass(frozen=True)
@@ -25,10 +30,10 @@ class ProviderRunContext:
     """Everything a provider is given for one run."""
 
     run_id: str
-    interface_id: str
-    interface_digest: str
+    operation: str
+    operation_signature_digest: str
+    build_digest: str
     implementation_digest: str
-    input_bucket: str
     input: Mapping[str, Any]
     coordinates: Mapping[str, Any]
     budgets: Budgets
@@ -76,7 +81,14 @@ class ProviderResult:
         )
 
     @classmethod
-    def refused(cls, code: RefusalCode, message: str, **detail: Any) -> ProviderResult:
+    def refused(cls, code: str, message: str, **detail: Any) -> ProviderResult:
+        """An operation refusal under ``code``, which the operation declares.
+
+        A runtime code is not an operation's to return; it raises here, and the
+        harness reports it as a protocol violation.
+        """
+
+        check_operation_refusal_code(code)
         return cls(status="refused", refusal=Refusal(code=code, message=message, detail=detail))
 
     @classmethod
@@ -91,6 +103,6 @@ class ProviderResult:
 class Provider(Protocol):
     """The structural contract an entrypoint object satisfies."""
 
-    interface_id: str
+    operations: tuple[str, ...]
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult: ...

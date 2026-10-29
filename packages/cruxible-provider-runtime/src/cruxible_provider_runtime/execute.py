@@ -2,20 +2,22 @@
 
 The order is load-bearing:
 
-1. **revalidate** — the accepted artifact, the package-side manifest, and the
+1. **revalidate** — the accepted build, the package-side manifest, and the
    sealed environment are re-checked against what the binding was made under; a
    binding is reusable and all three live somewhere mutable, so a stale one
    refuses rather than executing under a withdrawn acceptance;
-2. **admit** — the bucket is derived from the actual input by the interface's
-   registered classifier and matched against what the implementation claims; an
-   unclaimed bucket refuses before any process is started;
-3. **deliver** — credential material goes over an inherited descriptor, never
+2. **deliver** — credential material goes over an inherited descriptor, never
    argv and never the environment block;
-4. **execute** — under executor-enforced wall-clock and output-size caps, a
-   breach of which is a typed refusal rather than a provider error;
-5. **check** — endpoints actually contacted are compared against the accepted
-   declaration, and credential material is asserted absent from everything
-   destined for exhaust.
+3. **execute** — the run context names the bound operation, its signature
+   digest and the build, under executor-enforced wall-clock and output-size
+   caps, a breach of which is a typed refusal rather than a provider error;
+4. **check** — endpoints actually contacted are compared against the accepted
+   declaration, credential material is asserted absent from everything
+   destined for exhaust, and an operation refusal must be one the bound
+   operation declares (``undeclared_refusal``).
+
+No input is classified. What an operation admits is its input Contract, which
+core validates before the run and this library never interprets.
 """
 
 from __future__ import annotations
@@ -44,7 +46,13 @@ from .protocol import (
 from .registry import StubRegistry
 from .secrets import Redactor, SecretBundle, assert_no_secret_leak, open_secret_channel
 
-__all__ = ["InvocationOutcome", "invoke", "observed_vs_declared", "refusal_envelope"]
+__all__ = [
+    "InvocationOutcome",
+    "check_declared_refusal",
+    "invoke",
+    "observed_vs_declared",
+    "refusal_envelope",
+]
 
 
 @dataclass(frozen=True)
@@ -53,7 +61,9 @@ class InvocationOutcome:
 
     envelope: ResultEnvelope
     egress: EgressComparison
-    input_bucket: str
+    build_digest: str
+    operation: str
+    operation_signature_digest: str
     implementation_digest: str
     materialization_digest: str
     duration_seconds: float
@@ -67,10 +77,12 @@ class InvocationOutcome:
         """The fields a receipt records about this run."""
 
         return {
+            "build_digest": self.build_digest,
+            "operation": self.operation,
+            "operation_signature_digest": self.operation_signature_digest,
             "implementation_digest": self.implementation_digest,
             "materialization_digest": self.materialization_digest,
             "protocol_version": self.envelope.protocol_version,
-            "input_bucket": self.input_bucket,
             "status": self.envelope.status,
             "endpoints_contacted": list(self.egress.observed),
             # Always present. An empty list means the declaration was a concrete
@@ -100,10 +112,6 @@ def invoke(
 
     binding.revalidate(registry)
 
-    input_bucket = registry.admit(
-        binding.interface_id, binding.implementation.declared_input_buckets, payload
-    )
-
     with ExitStack() as stack:
         # The descriptor is opened before the run context is built so that the
         # context names the fd number the child will actually see. Nothing
@@ -119,13 +127,13 @@ def invoke(
         context = RunContext(
             protocol_version=PROTOCOL_VERSION.render(),
             run_id=run_id,
-            interface_id=binding.interface_id,
-            interface_digest=binding.interface_digest,
+            operation=binding.operation.name,
+            operation_signature_digest=binding.operation_signature_digest,
+            build_digest=binding.build_digest,
             implementation_digest=binding.implementation_digest,
             entrypoint=binding.implementation.entrypoint,
             coordinates=dict(coordinates or {}),
             input=dict(payload),
-            input_bucket=input_bucket,
             capture_contract=capture_contract,
             budgets=budgets,
             declared_endpoints=binding.implementation.declared_endpoints,
@@ -166,16 +174,40 @@ def invoke(
         envelope.trace.endpoints_contacted,
         implementation_digest=binding.implementation_digest,
     )
+    check_declared_refusal(binding, envelope)
 
     return InvocationOutcome(
         envelope=envelope,
         egress=egress,
-        input_bucket=input_bucket,
+        build_digest=binding.build_digest,
+        operation=binding.operation.name,
+        operation_signature_digest=binding.operation_signature_digest,
         implementation_digest=binding.implementation_digest,
         materialization_digest=binding.materialization_digest,
         duration_seconds=outcome.duration_seconds,
         stderr=stderr,
     )
+
+
+def check_declared_refusal(binding: Binding, envelope: ResultEnvelope) -> None:
+    """Refuse an operation refusal the bound operation does not declare.
+
+    A runtime refusal is the runtime's own and needs no declaration. Anything
+    else is the operation's, and its ``refusals`` are its whole vocabulary: an
+    undeclared code is not passed through as if it meant something.
+    """
+
+    refusal = envelope.refusal
+    if envelope.status != "refused" or refusal is None or refusal.is_runtime:
+        return
+    if not binding.operation.declares_refusal(refusal.code):
+        raise refuse(
+            RefusalCode.UNDECLARED_REFUSAL,
+            f"operation {binding.operation.name!r} declares no refusal {refusal.code!r}",
+            operation=binding.operation.name,
+            refused_code=refusal.code,
+            declared=sorted(binding.operation.refusals),
+        )
 
 
 def _execute(

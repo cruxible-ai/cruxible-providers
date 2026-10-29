@@ -1,9 +1,8 @@
-"""Stub registry: registration-time checks and measured bucket admission."""
+"""Stub registry: registration-time checks over a build's pinned operations."""
 
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -12,70 +11,38 @@ from cruxible_provider_runtime.artifact import (
     LocalEnvBackendPin,
     ProviderArtifactPayload,
 )
-from cruxible_provider_runtime.buckets import BucketClass, BucketDimension, BucketVocabulary
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.manifest import load_manifest_document, manifest_digest
-from cruxible_provider_runtime.registry import InterfaceRegistration, StubRegistry
+from cruxible_provider_runtime.operations import ContractRef, ProviderOperation
+from cruxible_provider_runtime.registry import StubRegistry, stub_contract_digest
 
-INTERFACE_DIGEST = "sha256:" + "aa" * 32
 OTHER_DIGEST = "sha256:" + "bb" * 32
 DISTRIBUTION_DIGEST = "sha256:" + "cc" * 32
-
-VOCABULARY = BucketVocabulary(
-    interface_id="sample.echo",
-    dimensions=(
-        BucketDimension(
-            name="size",
-            description="input size",
-            classes=(
-                BucketClass(id="small", description="at most 10 characters"),
-                BucketClass(id="large", description="more than 10 characters"),
-            ),
-        ),
-    ),
-)
-
-
-def classify(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
-    text = payload.get("text")
-    if not isinstance(text, str):
-        return None
-    return {"size": "small" if len(text) <= 10 else "large"}
-
+ENTRYPOINT = "sample_provider.impl:Echo"
 
 MANIFEST: dict[str, Any] = {
     "provider_id": "cruxible-provider-sample",
     "distribution": {"name": "cruxible-provider-sample", "version": "0.1.0"},
-    "supported_protocol_majors": [1],
+    "supported_protocol_majors": [2],
     "implementations": [
-        {
-            "interface_id": "sample.echo",
-            "interface_digest": INTERFACE_DIGEST,
-            "entrypoint": "sample_provider.impl:Echo",
-            "backends": ["local_env"],
-            "declared_input_buckets": ["size=small"],
-            "bucket_conformance": {"size=small": "fixture-small"},
-            "deterministic": True,
-            "side_effects": False,
-        }
+        {"entrypoint": ENTRYPOINT, "backends": ["local_env"], "deterministic": True}
     ],
 }
 
+ECHO = ProviderOperation.model_validate(
+    {
+        "name": "sample.echo",
+        "in": "sample.echo.request@1",
+        "out": "sample.echo.result@1",
+        "effect": "pure",
+        "refusals": {"too_long": {"contract": "sample.echo.refusal.too_long@1"}},
+        "entrypoint": ENTRYPOINT,
+    }
+)
+SHOUT = ECHO.model_copy(update={"name": "sample.shout"})
 
-def _registry() -> StubRegistry:
-    registry = StubRegistry()
-    registry.register_interface(
-        InterfaceRegistration(
-            interface_id="sample.echo",
-            interface_digest=INTERFACE_DIGEST,
-            bucket_vocabulary=VOCABULARY,
-            classifier=classify,
-        )
-    )
-    return registry
 
-
-def _payload(manifest_document: dict[str, Any]) -> ProviderArtifactPayload:
+def _payload(manifest_document: dict[str, Any] = MANIFEST) -> ProviderArtifactPayload:
     manifest = load_manifest_document(manifest_document)
     return ProviderArtifactPayload(
         provider_id=manifest.provider_id,
@@ -96,107 +63,99 @@ def _payload(manifest_document: dict[str, Any]) -> ProviderArtifactPayload:
     )
 
 
-def test_registration_accepts_a_well_formed_provider() -> None:
-    registry = _registry()
-    registry.register_provider(_payload(MANIFEST))
-    assert registry.accepted_provider("cruxible-provider-sample").provider_id == (
-        "cruxible-provider-sample"
+def test_registration_accepts_a_build_and_pins_every_contract() -> None:
+    registry = StubRegistry()
+    build = registry.register_provider(_payload(), (ECHO,))
+    assert registry.accepted_build("cruxible-provider-sample") is build
+    (operation,) = build.operations
+    assert operation.pinned
+    assert operation.in_.digest == stub_contract_digest(ECHO.in_)
+    assert operation.refusals["too_long"].contract.digest == stub_contract_digest(
+        ECHO.refusals["too_long"].contract
     )
 
 
-def test_unknown_interface_refuses() -> None:
+def test_one_entrypoint_may_serve_several_operations() -> None:
+    build = StubRegistry().register_provider(_payload(), (ECHO, SHOUT))
+    assert [item.name for item in build.operations] == ["sample.echo", "sample.shout"]
+    assert {item.entrypoint for item in build.operations} == {ENTRYPOINT}
+
+
+def test_an_undeclared_operation_refuses() -> None:
+    build = StubRegistry().register_provider(_payload(), (ECHO,))
     with pytest.raises(RefusalError) as exc:
-        StubRegistry().interface("sample.absent")
-    assert exc.value.code is RefusalCode.UNKNOWN_INTERFACE
+        build.operation("sample.absent")
+    assert exc.value.code is RefusalCode.UNDECLARED_OPERATION
+    assert exc.value.refusal.detail["declared"] == ["sample.echo"]
 
 
-def test_interface_digest_mismatch_refuses() -> None:
+def test_an_operation_naming_an_undeclared_entrypoint_refuses() -> None:
+    stray = ECHO.model_copy(update={"entrypoint": "sample_provider.impl:Other"})
     with pytest.raises(RefusalError) as exc:
-        _registry().interface("sample.echo", OTHER_DIGEST)
-    assert exc.value.code is RefusalCode.INTERFACE_DIGEST_MISMATCH
+        StubRegistry().register_provider(_payload(), (stray,))
+    assert exc.value.code is RefusalCode.MANIFEST_DIVERGENCE
 
 
-def test_claimed_bucket_without_a_fixture_refuses_at_registration() -> None:
+def test_an_implementation_that_serves_nothing_refuses() -> None:
     document = copy.deepcopy(MANIFEST)
-    document["implementations"][0]["bucket_conformance"] = {}
+    document["implementations"].append(
+        {
+            "entrypoint": "sample_provider.impl:Idle",
+            "backends": ["local_env"],
+            "deterministic": True,
+        }
+    )
     with pytest.raises(RefusalError) as exc:
-        _registry().register_provider(_payload(document))
-    assert exc.value.code is RefusalCode.BUCKET_FIXTURE_MISSING
+        StubRegistry().register_provider(_payload(document), (ECHO,))
+    assert exc.value.code is RefusalCode.MANIFEST_DIVERGENCE
+    assert exc.value.refusal.detail["unserved"] == ["sample_provider.impl:Idle"]
 
 
-def test_fixture_for_an_unclaimed_bucket_refuses_at_registration() -> None:
-    document = copy.deepcopy(MANIFEST)
-    document["implementations"][0]["bucket_conformance"]["size=large"] = "fixture-large"
+def test_operations_must_be_sorted_and_named_once() -> None:
+    with pytest.raises(ValueError, match="sorted"):
+        StubRegistry().register_provider(_payload(), (SHOUT, ECHO))
+    with pytest.raises(ValueError, match="sorted"):
+        StubRegistry().register_provider(_payload(), (ECHO, ECHO))
+
+
+def test_a_package_pinned_contract_must_agree_with_the_install_base() -> None:
+    prepinned = ECHO.model_copy(
+        update={"in_": ECHO.in_.model_copy(update={"digest": "sha256:" + "ee" * 32})}
+    )
+    with pytest.raises(ValueError, match=r"pins sample\.echo\.request@1"):
+        StubRegistry().register_provider(_payload(), (prepinned,))
+
+
+def test_the_build_digest_moves_with_an_operation() -> None:
+    """The build a run names covers its operations, not only the runtime artifact."""
+
+    one = StubRegistry().register_provider(_payload(), (ECHO,))
+    other = StubRegistry().register_provider(
+        _payload(), (ECHO.model_copy(update={"effect": "external_read"}),)
+    )
+    assert one.build_digest != other.build_digest
+
+
+def test_the_build_digest_moves_with_a_contract_pin() -> None:
+    one = StubRegistry().register_provider(_payload(), (ECHO,))
+
+    def shifted(ref: ContractRef) -> str:
+        return OTHER_DIGEST if ref.name == "sample.echo.result" else stub_contract_digest(ref)
+
+    other = StubRegistry().register_provider(_payload(), (ECHO,), contract_digests=shifted)
+    assert one.build_digest != other.build_digest
+    assert one.operations[0].signature_digest() != other.operations[0].signature_digest()
+
+
+def test_unknown_provider_refuses() -> None:
     with pytest.raises(RefusalError) as exc:
-        _registry().register_provider(_payload(document))
-    assert exc.value.code is RefusalCode.BUCKET_FIXTURE_MISSING
-
-
-def test_unaccepted_provider_refuses() -> None:
-    registry = _registry()
-    payload = _payload(MANIFEST)
-    registry.providers[payload.provider_id] = payload.model_copy(update={"status": "proposed"})
-    with pytest.raises(RefusalError) as exc:
-        registry.accepted_provider(payload.provider_id)
+        StubRegistry().accepted_build("cruxible-provider-absent")
     assert exc.value.code is RefusalCode.UNACCEPTED_PROVIDER
 
 
-def test_bucket_is_derived_from_the_input_not_the_manifest() -> None:
-    registry = _registry()
-    assert registry.classify("sample.echo", {"text": "short"}) == "size=small"
-    assert registry.classify("sample.echo", {"text": "x" * 40}) == "size=large"
-
-
-def test_unclaimed_bucket_refuses_at_admission() -> None:
-    registry = _registry()
+def test_unaccepted_provider_refuses() -> None:
+    registry = StubRegistry()
+    registry.register_provider(_payload().model_copy(update={"status": "proposed"}), (ECHO,))
     with pytest.raises(RefusalError) as exc:
-        registry.admit("sample.echo", ("size=small",), {"text": "x" * 40})
-    assert exc.value.code is RefusalCode.UNCLAIMED_BUCKET
-    assert exc.value.refusal.detail["bucket"] == "size=large"
-
-
-def test_unclassifiable_input_refuses() -> None:
-    registry = _registry()
-    with pytest.raises(RefusalError) as exc:
-        registry.admit("sample.echo", ("size=small",), {"not_text": 1})
-    assert exc.value.code is RefusalCode.UNCLASSIFIED_INPUT
-
-
-def test_vocabulary_must_belong_to_its_interface() -> None:
-    with pytest.raises(ValueError, match="belongs to interface"):
-        InterfaceRegistration(
-            interface_id="other.slot",
-            interface_digest=INTERFACE_DIGEST,
-            bucket_vocabulary=VOCABULARY,
-            classifier=classify,
-        )
-
-
-def test_re_registering_an_interface_at_a_new_digest_refuses() -> None:
-    """A registry that silently overwrites is a mutable tag by another name."""
-
-    registry = _registry()
-    with pytest.raises(RefusalError) as exc:
-        registry.register_interface(
-            InterfaceRegistration(
-                interface_id="sample.echo",
-                interface_digest=OTHER_DIGEST,
-                bucket_vocabulary=VOCABULARY,
-                classifier=classify,
-            )
-        )
-    assert exc.value.code is RefusalCode.INTERFACE_DIGEST_MISMATCH
-    assert registry.interfaces["sample.echo"].interface_digest == INTERFACE_DIGEST
-
-
-def test_re_registering_the_same_interface_is_allowed() -> None:
-    registry = _registry()
-    registry.register_interface(
-        InterfaceRegistration(
-            interface_id="sample.echo",
-            interface_digest=INTERFACE_DIGEST,
-            bucket_vocabulary=VOCABULARY,
-            classifier=classify,
-        )
-    )
-    assert registry.interfaces["sample.echo"].interface_digest == INTERFACE_DIGEST
+        registry.accepted_build("cruxible-provider-sample")
+    assert exc.value.code is RefusalCode.UNACCEPTED_PROVIDER

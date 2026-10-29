@@ -8,37 +8,63 @@ Refusals are distinct from provider *errors*. A refusal means the runtime (or
 the provider, deliberately) declined to produce an answer under a named rule; an
 error means an attempted answer failed. Budget breaches are refusals, not
 errors, per the RP-0 contract.
+
+There are two refusal vocabularies and they never overlap. The runtime's own is
+:class:`RefusalCode`, closed, raised as :class:`RefusalError`. An operation's is
+whatever its registration declares, raised by provider code as
+:class:`Declined` (or returned as ``ProviderResult.refused``).
 """
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-__all__ = ["ProviderErrorPayload", "Refusal", "RefusalCode", "RefusalError"]
+__all__ = [
+    "REFUSAL_CODE_RE",
+    "RUNTIME_REFUSAL_CODES",
+    "Declined",
+    "ProviderErrorPayload",
+    "Refusal",
+    "RefusalCode",
+    "RefusalError",
+    "check_operation_refusal_code",
+    "decline",
+    "refuse",
+]
 
 
 class RefusalCode(StrEnum):
-    """The closed set of refusal codes RP-0 defines."""
+    """The runtime's own closed refusal codes.
+
+    These are the refusals of the runtime *machinery*: the manifest and
+    registration readers, the protocol, resolution and materialization, the
+    cache, budgets, egress and secret delivery. A provider's own judgement about
+    its input is not here. Each operation declares the refusals it may return
+    (``registration.json`` ``operations[].refusals``), and those codes are the
+    operation's vocabulary, not this one's.
+
+    The two vocabularies are kept disjoint by construction: an operation may not
+    declare a code spelled like one of these (registration refuses it), and a
+    provider's operation refusal using one is a protocol violation. So a code
+    on the wire says by its spelling whose refusal it is.
+    """
 
     # --- registration / manifest -------------------------------------------
     UNKNOWN_MANIFEST_FIELD = "unknown_manifest_field"
     MANIFEST_DIVERGENCE = "manifest_divergence"
     ACCEPTANCE_DIVERGENCE = "acceptance_divergence"
     UNACCEPTED_PROVIDER = "unaccepted_provider"
-    UNDECLARED_INTERFACE = "undeclared_interface"
-    AMBIGUOUS_IMPLEMENTATION = "ambiguous_implementation"
-    UNKNOWN_INTERFACE = "unknown_interface"
-    INTERFACE_DIGEST_MISMATCH = "interface_digest_mismatch"
-    BUCKET_FIXTURE_MISSING = "bucket_fixture_missing"
-    INVALID_BUCKET_VOCABULARY = "invalid_bucket_vocabulary"
+    UNDECLARED_OPERATION = "undeclared_operation"
 
     # --- protocol ----------------------------------------------------------
     UNSUPPORTED_PROTOCOL = "unsupported_protocol"
     UNKNOWN_RUN_CONTEXT_FIELD = "unknown_run_context_field"
     PROVIDER_PROTOCOL_VIOLATION = "provider_protocol_violation"
+    UNDECLARED_REFUSAL = "undeclared_refusal"
     UNSUPPORTED_BACKEND = "unsupported_backend"
 
     # --- resolution / distribution -----------------------------------------
@@ -60,62 +86,68 @@ class RefusalCode(StrEnum):
     CACHE_INTEGRITY = "cache_integrity"
     ENVIRONMENT_DIVERGENCE = "environment_divergence"
 
-    # --- admission ---------------------------------------------------------
-    UNCLAIMED_BUCKET = "unclaimed_bucket"
-    UNCLASSIFIED_INPUT = "unclassified_input"
-
     # --- execution ---------------------------------------------------------
     BUDGET_WALL_CLOCK = "budget_wall_clock"
     BUDGET_OUTPUT_SIZE = "budget_output_size"
     BUDGET_COST = "budget_cost"
     UNDECLARED_EGRESS = "undeclared_egress"
     SECRET_LEAK = "secret_leak"
-    PROVIDER_DECLINED = "provider_declined"
     UNRESOLVED_SECRET_REF = "unresolved_secret_ref"
     SECRET_BUNDLE_TOO_LARGE = "secret_bundle_too_large"
     NON_FINITE_OUTPUT = "non_finite_output"
-
-    # --- provider declines --------------------------------------------------
-    # Conditions only an implementation is positioned to detect: the declared
-    # method cannot be run on what was supplied, or the request names something
-    # the implementation does not do. They are a provider's judgement rather
-    # than the executor's, which is what ``provider_declined`` above says in
-    # general -- but they live in this one closed set all the same. A plane
-    # package carrying its own vocabulary inside a detail payload is a second
-    # taxonomy, and a second taxonomy is somewhere for the first one to drift
-    # away from without anything noticing.
-    INSUFFICIENT_SERIES_LENGTH = "insufficient_series_length"
-    NON_FINITE_INPUT = "non_finite_input"
-    NON_FINITE_RESULT = "non_finite_result"
-    DEGENERATE_SCALE = "degenerate_scale"
-    MISMATCHED_LENGTHS = "mismatched_lengths"
-    UNKNOWN_METHOD = "unknown_method"
-    UNKNOWN_TEST_NAME = "unknown_test_name"
-    DECLARED_FAMILY_MISMATCH = "declared_family_mismatch"
-    UNSUPPORTED_AGGREGATION = "unsupported_aggregation"
-    UNKNOWN_COLUMN = "unknown_column"
-    MALFORMED_MODEL_REF = "malformed_model_ref"
-    UNDECLARED_MATCH_PARAMETERS = "undeclared_match_parameters"
-    INVALID_PARAMETER = "invalid_parameter"
-    CROSS_ORIGIN_CREDENTIALED_REDIRECT = "cross_origin_credentialed_redirect"
-    UNSUPPORTED_REDIRECT_SCHEME = "unsupported_redirect_scheme"
-    REDIRECT_LIMIT = "redirect_limit"
 
     # --- container ---------------------------------------------------------
     IMAGE_PROVENANCE_MISMATCH = "image_provenance_mismatch"
 
 
+RUNTIME_REFUSAL_CODES: frozenset[str] = frozenset(code.value for code in RefusalCode)
+"""Every code the runtime reserves; no operation may declare one of these."""
+
+REFUSAL_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+"""The spelling of any refusal code, the runtime's or an operation's."""
+
+
+def check_operation_refusal_code(code: str) -> str:
+    """``code`` if an operation may declare it; ``ValueError`` otherwise."""
+
+    if not REFUSAL_CODE_RE.fullmatch(code):
+        raise ValueError(f"refusal code {code!r} is not a canonical identifier")
+    if code in RUNTIME_REFUSAL_CODES:
+        raise ValueError(
+            f"refusal code {code!r} is reserved by the runtime; an operation declares its own"
+        )
+    return code
+
+
 class Refusal(BaseModel):
-    """A typed refusal, serialisable into receipts and result envelopes."""
+    """A typed refusal, serialisable into receipts and result envelopes.
+
+    ``code`` is either one of the runtime's :class:`RefusalCode` values or a
+    code the bound operation declares. Which one is decided by the spelling,
+    because the two vocabularies are disjoint.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    code: RefusalCode
+    code: str
     message: str
     detail: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("code")
+    @classmethod
+    def _canonical_code(cls, value: str) -> str:
+        if not REFUSAL_CODE_RE.fullmatch(value):
+            raise ValueError(f"refusal code {value!r} is not a canonical identifier")
+        return value
+
+    @property
+    def is_runtime(self) -> bool:
+        """Whether this is one of the runtime's own refusals."""
+
+        return self.code in RUNTIME_REFUSAL_CODES
+
     def __str__(self) -> str:  # pragma: no cover - trivial
-        return f"{self.code.value}: {self.message}"
+        return f"{self.code}: {self.message}"
 
 
 class ProviderErrorPayload(BaseModel):
@@ -129,7 +161,7 @@ class ProviderErrorPayload(BaseModel):
 
 
 class RefusalError(Exception):
-    """Raised whenever the runtime declines to proceed."""
+    """Raised whenever the runtime declines to proceed, under one of its own codes."""
 
     def __init__(
         self,
@@ -137,15 +169,39 @@ class RefusalError(Exception):
         message: str,
         **detail: Any,
     ) -> None:
-        self.refusal = Refusal(code=code, message=message, detail=detail)
+        self.refusal = Refusal(code=RefusalCode(code).value, message=message, detail=detail)
         super().__init__(str(self.refusal))
 
     @property
     def code(self) -> RefusalCode:
-        return self.refusal.code
+        return RefusalCode(self.refusal.code)
 
 
 def refuse(code: RefusalCode, message: str, **detail: Any) -> RefusalError:
     """Build a :class:`RefusalError` (call sites ``raise refuse(...)``)."""
 
     return RefusalError(code, message, **detail)
+
+
+class Declined(Exception):
+    """An operation refusal, raised from anywhere inside provider code.
+
+    The same thing ``ProviderResult.refused`` returns, for a provider that
+    detects the condition deep in a call stack. ``code`` is one the operation
+    declares; a runtime code here is refused as a protocol violation.
+    """
+
+    def __init__(self, code: str, message: str, **detail: Any) -> None:
+        check_operation_refusal_code(code)
+        self.refusal = Refusal(code=code, message=message, detail=detail)
+        super().__init__(str(self.refusal))
+
+    @property
+    def code(self) -> str:
+        return self.refusal.code
+
+
+def decline(code: str, message: str, **detail: Any) -> Declined:
+    """Build a :class:`Declined` (call sites ``raise decline(...)``)."""
+
+    return Declined(code, message, **detail)

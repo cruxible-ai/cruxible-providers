@@ -1,6 +1,6 @@
 [project]
 name = "cruxible-provider-runtime"
-version = "0.2.0"
+version = "0.3.0"
 description = "Support library for Cruxible provider packages: manifest and protocol schemas, identity digests, fetch-on-bind resolution, cache integrity, secret delivery, budgets and egress instrumentation."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,7 +18,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "pydantic>=2.7,<3",
+  "pydantic>=2.12,<3",
   "packaging>=24.0",
   "pyyaml>=6.0",
 ]

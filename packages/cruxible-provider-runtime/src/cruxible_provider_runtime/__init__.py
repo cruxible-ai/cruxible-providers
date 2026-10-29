@@ -1,15 +1,17 @@
 """Support library for Cruxible provider packages.
 
 A provider is one Python package with its own committed lock, a package-side
-manifest, and one or more entrypoints. This library is what makes such a package
-bindable: it owns the manifest and protocol schemas, both identity digests, the
-fetch-on-bind resolver, the materialization cache, secret delivery, budget
-enforcement, egress instrumentation, and the typed refusal taxonomy that keeps
-every path fail-closed.
+manifest, a registration declaring its typed operations, and one or more
+entrypoints serving them. This library is what makes such a package bindable: it
+owns the manifest, registration and protocol schemas (protocol 2.0: a run names
+one operation of one build), both identity digests, the fetch-on-bind resolver,
+the materialization cache, secret delivery, budget enforcement, egress
+instrumentation, and the runtime's own closed refusal codes that keep every path
+fail-closed.
 
-It does **not** own governance. The Provider artifact kind, interface
-registration, and bucket-vocabulary registration live in core; this package ships
-schemas and a conformance harness against a stub registry. See
+It does **not** own governance. The Provider build artifact, the Contracts an
+operation names, and Line bindings live in core; this package ships schemas and
+a conformance harness against a stub registry. See
 ``docs/core-integration-seam.md``.
 """
 
@@ -20,7 +22,6 @@ from typing import TYPE_CHECKING, Any
 from .artifact import ProviderArtifactPayload, artifact_digest, load_provider_artifact
 from .backends import MaterializationRequest, UvSyncBuilder, verify_environment
 from .binding import Binding, BindRequest, bind
-from .buckets import BucketDimension, BucketSelector, BucketVocabulary
 from .budget import ProcessOutcome, enforce_cost_budget, run_with_budget
 from .cache import MaterializationCache
 from .canonical import canonical_json, domain_digest
@@ -44,13 +45,22 @@ from .egress import (
     enforce_egress,
     write_child_guard,
 )
-from .errors import ProviderErrorPayload, Refusal, RefusalCode, RefusalError
+from .errors import (
+    Declined,
+    ProviderErrorPayload,
+    Refusal,
+    RefusalCode,
+    RefusalError,
+    decline,
+)
 from .execute import InvocationOutcome, invoke
 from .index import ArtifactFetcher, IndexConfig
 from .manifest import ProviderManifest, load_manifest, manifest_digest
+from .operations import ContractRef, ProviderOperation, operation_signature_digest
 from .protocol import PROTOCOL_VERSION, Budgets, ResultEnvelope, RunContext
 from .provider_api import Provider, ProviderResult, ProviderRunContext, ProviderStatus
-from .registry import InterfaceRegistration, StubRegistry
+from .registration import RegistrationBundle, load_registration
+from .registry import AcceptedBuild, StubRegistry
 from .resolution import (
     MarkerEnvironment,
     ResolvedSet,
@@ -62,7 +72,7 @@ from .resolution import (
 if TYPE_CHECKING:  # pragma: no cover - resolved lazily at runtime, see __getattr__
     from .container_entry import SECRET_CHANNEL_FD, container_secret_channel
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "DYNAMIC_ENDPOINT_FORMS",
@@ -71,16 +81,15 @@ __all__ = [
     "MATERIALIZATION_DOMAIN_TAG",
     "PROTOCOL_VERSION",
     "SECRET_CHANNEL_FD",
+    "AcceptedBuild",
     "ArtifactFetcher",
     "BindRequest",
     "Binding",
-    "BucketDimension",
-    "BucketSelector",
-    "BucketVocabulary",
     "Budgets",
+    "ContractRef",
+    "Declined",
     "EgressRecorder",
     "IndexConfig",
-    "InterfaceRegistration",
     "InvocationOutcome",
     "MarkerEnvironment",
     "MaterializationCache",
@@ -90,12 +99,14 @@ __all__ = [
     "ProviderArtifactPayload",
     "ProviderErrorPayload",
     "ProviderManifest",
+    "ProviderOperation",
     "ProviderResult",
     "ProviderRunContext",
     "ProviderStatus",
     "Refusal",
     "RefusalCode",
     "RefusalError",
+    "RegistrationBundle",
     "ResolvedSet",
     "ResultEnvelope",
     "RunContext",
@@ -107,6 +118,7 @@ __all__ = [
     "canonical_json",
     "compare_egress",
     "container_secret_channel",
+    "decline",
     "domain_digest",
     "enforce_cost_budget",
     "enforce_egress",
@@ -115,9 +127,11 @@ __all__ = [
     "invoke",
     "load_manifest",
     "load_provider_artifact",
+    "load_registration",
     "load_uv_lock",
     "manifest_digest",
     "materialization_digest",
+    "operation_signature_digest",
     "resolve",
     "run_with_budget",
     "verify_environment",

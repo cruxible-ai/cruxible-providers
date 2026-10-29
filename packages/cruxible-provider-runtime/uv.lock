@@ -90,7 +90,7 @@ wheels = [
 
 [[package]]
 name = "cruxible-provider-runtime"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "packaging" },
@@ -109,7 +109,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "packaging", specifier = ">=24.0" },
-    { name = "pydantic", specifier = ">=2.7,<3" },
+    { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 

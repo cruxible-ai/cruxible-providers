@@ -946,7 +946,7 @@ from cruxible_provider_runtime.provider_api import ProviderResult
 
 
 class Fingerprint:
-    interface_id = "conformance.secret_channel"
+    operations = ("conformance.secret_channel",)
 
     def __call__(self, context):
         return ProviderResult.ok(
@@ -1352,11 +1352,11 @@ def test_the_child_harness_reads_the_bundle_the_shim_installed(tmp_path: Path) -
     context = RunContext(
         protocol_version=PROTOCOL_VERSION.render(),
         run_id="run-shim-conformance",
-        interface_id="conformance.secret_channel",
-        interface_digest="sha256:" + "11" * 32,
+        operation="conformance.secret_channel",
+        operation_signature_digest="sha256:" + "11" * 32,
+        build_digest="sha256:" + "33" * 32,
         implementation_digest="sha256:" + "22" * 32,
         entrypoint="shim_conformance_provider:Fingerprint",
-        input_bucket="size=tiny",
         budgets=Budgets(wall_clock_seconds=60.0, output_bytes=65536),
         secret_channel=container_secret_channel(BUNDLE),
     )

@@ -159,7 +159,7 @@ def local_index(tmp_path_factory: pytest.TempPathFactory) -> LocalIndex:
     )
     (root / "src" / "sample_provider" / "provider.py").write_text(
         "class Echo:\n"
-        '    interface_id = "sample.echo"\n\n'
+        '    operations = ("sample.echo",)\n\n'
         "    def __call__(self, text: str) -> dict[str, str]:\n"
         '        return {"echo": text, "module": __name__}\n',
         encoding="utf-8",

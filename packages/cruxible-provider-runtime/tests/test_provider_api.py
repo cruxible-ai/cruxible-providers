@@ -6,7 +6,7 @@ import dataclasses
 
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode
+from cruxible_provider_runtime.errors import Declined, RefusalCode, decline
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
@@ -16,10 +16,10 @@ CREDENTIAL = "dummy-credential-c0ffee"
 def _context() -> ProviderRunContext:
     return ProviderRunContext(
         run_id="run-1",
-        interface_id="test.slot",
-        interface_digest="sha256:" + "1" * 64,
+        operation="test.op",
+        operation_signature_digest="sha256:" + "1" * 64,
+        build_digest="sha256:" + "3" * 64,
         implementation_digest="sha256:" + "2" * 64,
-        input_bucket="size=small",
         input={"text": "x"},
         coordinates={},
         budgets=Budgets(wall_clock_seconds=5.0, output_bytes=1024),
@@ -50,13 +50,37 @@ def test_a_result_carries_exactly_one_outcome() -> None:
     assert ok.status == "ok"
     assert ok.refusal is None and ok.error is None
 
-    refused = ProviderResult.refused(RefusalCode.PROVIDER_DECLINED, "no")
+    refused = ProviderResult.refused("provider_declined", "no")
     assert refused.status == "refused"
     assert refused.output is None and refused.error is None
 
     failed = ProviderResult.failed("Kind", "boom")
     assert failed.status == "error"
     assert failed.output is None and failed.refusal is None
+
+
+@pytest.mark.parametrize("code", sorted(RefusalCode))
+def test_an_operation_refusal_cannot_use_a_runtime_code(code: RefusalCode) -> None:
+    """The runtime's codes are reserved; an operation refuses under its own."""
+
+    with pytest.raises(ValueError, match="reserved by the runtime"):
+        ProviderResult.refused(code.value, "no")
+    with pytest.raises(ValueError, match="reserved by the runtime"):
+        Declined(code.value, "no")
+
+
+@pytest.mark.parametrize("code", ["Not A Code", "", "9lives", "x" * 65])
+def test_an_operation_refusal_code_is_a_canonical_identifier(code: str) -> None:
+    with pytest.raises(ValueError, match="canonical identifier"):
+        ProviderResult.refused(code, "no")
+
+
+def test_a_decline_raised_from_depth_carries_the_operation_code() -> None:
+    error = decline("too_long", "the text is too long", limit=10)
+    assert isinstance(error, Declined)
+    assert error.refusal.code == "too_long"
+    assert error.refusal.detail == {"limit": 10}
+    assert not error.refusal.is_runtime
 
 
 def test_result_status_is_a_closed_literal() -> None:

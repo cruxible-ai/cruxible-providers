@@ -1,10 +1,14 @@
 """The package-side provider manifest.
 
 The manifest ships inside the provider distribution and declares, per
-implementation: slot interface + exact interface digest, entrypoint object path,
-backend kinds, declared input buckets, declared external endpoints,
-CaptureContract families, and the determinism/side-effect flags inherited from
-the legacy in-process provider protocol.
+implementation — one row per **entrypoint** object path — the backend kinds it
+runs under, the external endpoints it contacts, the per-engine extras its
+environment needs, and whether it is deterministic.
+
+What an implementation *serves* is not here. The package's ``registration.json``
+declares its typed operations, each naming the entrypoint that serves it; an
+entrypoint may serve several. The operation's ``effect`` is the one declaration
+of whether it mutates the world, so the manifest no longer repeats it.
 
 **The package-side manifest is never authority.** It is a transcription source;
 authority is the accepted ``providers/<provider-id>.yaml`` governed artifact.
@@ -25,7 +29,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from .canonical import SHA256_RE, domain_digest
+from .canonical import domain_digest
 from .egress import DYNAMIC_ENDPOINT_FORMS, normalize_endpoint
 from .errors import RefusalCode, RefusalError, refuse
 
@@ -47,12 +51,6 @@ ENTRYPOINT_GROUP = "cruxible.providers"
 BackendKind = Literal["local_env", "container"]
 
 
-def _validate_digest(value: str) -> str:
-    if not SHA256_RE.match(value):
-        raise ValueError(f"expected a sha256:<hex> digest, got {value!r}")
-    return value
-
-
 class DistributionRef(BaseModel):
     """Names the distribution this manifest belongs to.
 
@@ -69,21 +67,13 @@ class DistributionRef(BaseModel):
 
 
 class ImplementationManifest(BaseModel):
-    """One (interface, entrypoint) implementation inside a provider package."""
+    """One entrypoint inside a provider package: how and where it runs."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    interface_id: str
-    interface_digest: str
     entrypoint: str = Field(description="module path and object, e.g. 'pkg.mod:Object'")
     backends: tuple[BackendKind, ...]
-    declared_input_buckets: tuple[str, ...]
-    bucket_conformance: dict[str, str] = Field(
-        default_factory=dict,
-        description="declared bucket selector -> conformance fixture id",
-    )
     declared_endpoints: tuple[str, ...] = ()
-    capture_contract_families: tuple[str, ...] = ()
     requires_extras: tuple[str, ...] = ()
     """The package extras this implementation's environment must carry.
 
@@ -91,15 +81,12 @@ class ImplementationManifest(BaseModel):
     live behind per-engine extras so that the base distribution stays light and
     the default conformance lane installs no engine at all. An implementation
     that needs one says so here, and the extras it names are what the resolver
-    is asked for when the environment is materialized. Two implementations of
-    two interfaces in one package may therefore require different extras and
-    bind to different environments from the same lock.
+    is asked for when the environment is materialized. Two implementations in
+    one package may therefore require different extras and bind to different
+    environments from the same lock.
     """
 
     deterministic: bool
-    side_effects: bool
-
-    _validate_interface_digest = field_validator("interface_digest")(_validate_digest)
 
     @field_validator("requires_extras")
     @classmethod
@@ -157,20 +144,13 @@ class ImplementationManifest(BaseModel):
             raise ValueError(f"duplicate backend kinds: {value}")
         return value
 
-    @field_validator("declared_input_buckets")
-    @classmethod
-    def _buckets_non_empty(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if not value:
-            raise ValueError("an implementation must declare at least one input bucket")
-        return value
-
 
 class ProviderManifest(BaseModel):
     """The whole package-side manifest."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     provider_id: str
     distribution: DistributionRef
     entrypoint_group: Literal["cruxible.providers"] = "cruxible.providers"
@@ -191,38 +171,28 @@ class ProviderManifest(BaseModel):
     ) -> tuple[ImplementationManifest, ...]:
         if not value:
             raise ValueError("a manifest must declare at least one implementation")
-        keys = [(impl.interface_id, impl.entrypoint) for impl in value]
-        if len(set(keys)) != len(keys):
-            raise ValueError(f"duplicate (interface, entrypoint) pairs: {keys}")
+        entrypoints = [impl.entrypoint for impl in value]
+        if len(set(entrypoints)) != len(entrypoints):
+            raise ValueError(f"each implementation has its own entrypoint: {entrypoints}")
         return value
 
-    def implementation(self, interface_id: str) -> ImplementationManifest:
-        """Look up the implementation for ``interface_id`` or refuse."""
+    def implementation(self, entrypoint: str) -> ImplementationManifest:
+        """The implementation row for ``entrypoint``, or a divergence refusal.
 
-        matches = [impl for impl in self.implementations if impl.interface_id == interface_id]
-        if not matches:
-            raise refuse(
-                RefusalCode.UNDECLARED_INTERFACE,
-                f"provider {self.provider_id!r} declares no implementation of {interface_id!r}",
-                provider_id=self.provider_id,
-                declared=[impl.interface_id for impl in self.implementations],
-            )
-        if len(matches) > 1:
-            # Terminal in RP-0. There is no disambiguation mechanism: the bind
-            # request names an interface, not an entrypoint, and inventing a
-            # local tie-break would make which implementation ran depend on
-            # manifest ordering. Artifact-level disambiguation is a core-seam
-            # TODO, recorded in docs/core-integration-seam.md.
-            raise refuse(
-                RefusalCode.AMBIGUOUS_IMPLEMENTATION,
-                f"provider {self.provider_id!r} declares {len(matches)} implementations of "
-                f"{interface_id!r}; RP-0 has no way to choose between them, so this is "
-                "terminal — a package may implement an interface at most once",
-                provider_id=self.provider_id,
-                interface_id=interface_id,
-                entrypoints=[impl.entrypoint for impl in matches],
-            )
-        return matches[0]
+        An operation names its entrypoint in the registration; a manifest
+        without that row is a package whose two declarations disagree.
+        """
+
+        for impl in self.implementations:
+            if impl.entrypoint == entrypoint:
+                return impl
+        raise refuse(
+            RefusalCode.MANIFEST_DIVERGENCE,
+            f"provider {self.provider_id!r} declares no implementation at {entrypoint!r}",
+            provider_id=self.provider_id,
+            entrypoint=entrypoint,
+            declared=[impl.entrypoint for impl in self.implementations],
+        )
 
     def canonical_payload(self) -> dict[str, Any]:
         """The manifest as a plain JSON-able mapping, for digesting/transcription."""
@@ -238,8 +208,20 @@ def manifest_digest(manifest: ProviderManifest) -> str:
 
 
 def load_manifest_document(document: Any) -> ProviderManifest:
-    """Validate a already-parsed manifest document, failing closed on extras."""
+    """Validate an already-parsed manifest document, failing closed on extras.
 
+    Only schema 2 is read. A schema-1 manifest keyed its rows by interface and
+    claimed input buckets; it is refused as such, not field by field.
+    """
+
+    if isinstance(document, dict) and document.get("schema_version", 2) != 2:
+        raise refuse(
+            RefusalCode.UNKNOWN_MANIFEST_FIELD,
+            f"manifest schema {document.get('schema_version')!r} is not read; a schema-2 "
+            "manifest keys implementations by entrypoint and the registration declares "
+            "the operations they serve",
+            schema_version=document.get("schema_version"),
+        )
     try:
         return ProviderManifest.model_validate(document)
     except ValidationError as exc:

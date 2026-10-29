@@ -3,23 +3,26 @@
 Bind is where every registration-time law is re-checked at use time, in a fixed
 order, each failure typed:
 
-1. the provider has an **accepted** artifact (``unaccepted_provider``);
+1. the provider has an **accepted** build (``unaccepted_provider``);
 2. the package-side manifest re-digests to what the accepted artifact recorded
    (``manifest_divergence``) — the manifest is a transcription source, never
    authority;
-3. the manifest declares the requested interface (``undeclared_interface``) at
-   the registry's digest (``interface_digest_mismatch``);
+3. the accepted build serves the requested operation (``undeclared_operation``),
+   and the manifest declares the entrypoint that operation names
+   (``manifest_divergence``);
 4. the manifest supports this executor's protocol major
    (``unsupported_protocol``);
 5. the implementation supports the requested backend kind
    (``unsupported_backend``);
-6. every claimed bucket has a conformance fixture (``bucket_fixture_missing``);
-7. the lock's bytes are the ones the accepted artifact pinned
+6. the lock's bytes are the ones the accepted artifact pinned
    (``lock_bytes_mismatch``) and it resolves, for the target marker environment,
    to the materialization digest the accepted artifact pinned
    (``lock_mismatch``);
-8. the environment materializes into a verified cache entry whose contents were
+7. the environment materializes into a verified cache entry whose contents were
    checked against the resolution before it was sealed.
+
+A binding is one exact ``{build, operation}``: the build digest, the operation's
+pinned declaration and its signature digest travel into every run context.
 
 On the two lock checks: the byte comparison is cheap tamper-evidence over the
 exact file that was reviewed, and the resolution comparison is the primary gate.
@@ -35,13 +38,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .artifact import ProviderArtifactPayload, artifact_digest
+from .artifact import ProviderArtifactPayload
 from .backends import ContainerBackend, LocalEnvBackend
-from .buckets import BucketSelector
 from .cache import tree_digest
 from .digests import container_materialization_digest, implementation_digest, materialization_digest
 from .errors import RefusalCode, refuse
 from .manifest import BackendKind, ImplementationManifest, load_manifest, manifest_digest
+from .operations import ProviderOperation
 from .protocol import PROTOCOL_VERSION, ProtocolVersion
 from .registry import StubRegistry
 from .resolution import (
@@ -60,7 +63,7 @@ _VANISHED_TREE_FINGERPRINT = (-1, -1.0)
 @dataclass(frozen=True)
 class BindRequest:
     provider_id: str
-    interface_id: str
+    operation: str
     backend_kind: BackendKind
     manifest_path: Path
     lock_path: Path | None = None
@@ -102,9 +105,9 @@ class Binding:
     """A verified, materialized pin, ready to invoke.
 
     A binding is reusable, and everything bind checked lives somewhere mutable:
-    the registry's accepted artifact can be replaced, the package-side manifest
+    the registry's accepted build can be replaced, the package-side manifest
     is a file on disk, and the materialized tree is a directory. So the binding
-    keeps the three digests bind established — accepted artifact, package
+    keeps the three digests bind established — accepted build, package
     manifest, sealed tree — and :meth:`revalidate` recomputes each from its live
     source before every run. Retaining them here rather than re-binding per
     invocation keeps the expensive half (resolution, materialization) once per
@@ -112,8 +115,11 @@ class Binding:
     """
 
     provider_id: str
-    interface_id: str
-    interface_digest: str
+    operation: ProviderOperation
+    """The bound operation as the accepted build declares it, every Contract pinned."""
+
+    operation_signature_digest: str
+    build_digest: str
     implementation: ImplementationManifest
     implementation_digest: str
     materialization_digest: str
@@ -121,7 +127,6 @@ class Binding:
     backend_kind: BackendKind
     artifact: ProviderArtifactPayload
     manifest_path: Path
-    accepted_artifact_digest: str
     manifest_digest: str
     sealed_tree_digest: str | None = None
     """The materialized tree's digest as bind sealed it; ``None`` for a container.
@@ -159,8 +164,9 @@ class Binding:
 
         snapshot: dict[str, str | bool | list[str]] = {
             "provider_id": self.provider_id,
-            "interface_id": self.interface_id,
-            "interface_digest": self.interface_digest,
+            "build_digest": self.build_digest,
+            "operation": self.operation.name,
+            "operation_signature_digest": self.operation_signature_digest,
             "implementation_digest": self.implementation_digest,
             "materialization_digest": self.materialization_digest,
             "protocol_version": self.protocol_version.render(),
@@ -209,13 +215,13 @@ class Binding:
         immutable across the call, which the local backend does not claim to do.
         """
 
-        current = artifact_digest(registry.accepted_provider(self.provider_id))
-        if current != self.accepted_artifact_digest:
+        current = registry.accepted_build(self.provider_id).build_digest
+        if current != self.build_digest:
             raise refuse(
                 RefusalCode.ACCEPTANCE_DIVERGENCE,
-                "the accepted Provider artifact changed after this binding was made",
+                "the accepted provider build changed after this binding was made",
                 provider_id=self.provider_id,
-                bound=self.accepted_artifact_digest,
+                bound=self.build_digest,
                 current=current,
             )
         recomputed = manifest_digest(load_manifest(self.manifest_path))
@@ -255,7 +261,8 @@ def bind(
     local_backend: LocalEnvBackend | None = None,
     container_backend: ContainerBackend | None = None,
 ) -> Binding:
-    payload = registry.accepted_provider(request.provider_id)
+    build = registry.accepted_build(request.provider_id)
+    payload = build.payload
 
     package_manifest = load_manifest(request.manifest_path)
     recomputed = manifest_digest(package_manifest)
@@ -268,8 +275,8 @@ def bind(
             recomputed=recomputed,
         )
 
-    implementation = package_manifest.implementation(request.interface_id)
-    registration = registry.interface(request.interface_id, implementation.interface_digest)
+    operation = build.operation(request.operation)
+    implementation = package_manifest.implementation(operation.entrypoint)
 
     if PROTOCOL_VERSION.major not in package_manifest.supported_protocol_majors:
         raise refuse(
@@ -285,58 +292,58 @@ def bind(
     if request.backend_kind not in implementation.backends:
         raise refuse(
             RefusalCode.UNSUPPORTED_BACKEND,
-            f"implementation of {request.interface_id!r} does not support backend "
+            f"the implementation serving {request.operation!r} does not support backend "
             f"{request.backend_kind!r}",
             provider_id=request.provider_id,
-            interface_id=request.interface_id,
+            operation=request.operation,
             supported=list(implementation.backends),
         )
 
-    for selector_text in implementation.declared_input_buckets:
-        BucketSelector.parse(selector_text, registration.bucket_vocabulary)
-        if selector_text not in implementation.bucket_conformance:
-            raise refuse(
-                RefusalCode.BUCKET_FIXTURE_MISSING,
-                f"claimed bucket {selector_text!r} has no conformance fixture",
-                provider_id=request.provider_id,
-                interface_id=request.interface_id,
-                bucket=selector_text,
-            )
-
-    impl_digest = implementation_digest(
-        interface_id=implementation.interface_id,
-        interface_digest=implementation.interface_digest,
-        entrypoint=implementation.entrypoint,
-        distribution_sha256=payload.distribution.sha256,
+    identity = _BoundIdentity(
+        operation=operation,
+        operation_signature_digest=operation.signature_digest(),
+        build_digest=build.build_digest,
+        implementation=implementation,
+        implementation_digest=implementation_digest(
+            entrypoint=implementation.entrypoint,
+            distribution_sha256=payload.distribution.sha256,
+        ),
     )
 
     if request.backend_kind == "local_env":
         return _bind_local(
-            registry=registry,
             request=request,
             payload=payload,
-            implementation=implementation,
-            impl_digest=impl_digest,
+            identity=identity,
             local_backend=local_backend,
         )
     return _bind_container(
         request=request,
         payload=payload,
-        implementation=implementation,
-        impl_digest=impl_digest,
+        identity=identity,
         container_backend=container_backend,
     )
 
 
+@dataclass(frozen=True)
+class _BoundIdentity:
+    """What bind established before choosing a backend: the exact build and operation."""
+
+    operation: ProviderOperation
+    operation_signature_digest: str
+    build_digest: str
+    implementation: ImplementationManifest
+    implementation_digest: str
+
+
 def _bind_local(
     *,
-    registry: StubRegistry,
     request: BindRequest,
     payload: ProviderArtifactPayload,
-    implementation: ImplementationManifest,
-    impl_digest: str,
+    identity: _BoundIdentity,
     local_backend: LocalEnvBackend | None,
 ) -> Binding:
+    implementation = identity.implementation
     if payload.local_env is None:
         raise refuse(
             RefusalCode.UNSUPPORTED_BACKEND,
@@ -407,19 +414,18 @@ def _bind_local(
         lock_path=request.lock_path,
         distribution=payload.distribution,
     )
-    del registry  # the registry's work is done before materialization
     return Binding(
         provider_id=request.provider_id,
-        interface_id=request.interface_id,
-        interface_digest=implementation.interface_digest,
+        operation=identity.operation,
+        operation_signature_digest=identity.operation_signature_digest,
+        build_digest=identity.build_digest,
         implementation=implementation,
-        implementation_digest=impl_digest,
+        implementation_digest=identity.implementation_digest,
         materialization_digest=computed,
         protocol_version=PROTOCOL_VERSION,
         backend_kind="local_env",
         artifact=payload,
         manifest_path=request.manifest_path,
-        accepted_artifact_digest=artifact_digest(payload),
         manifest_digest=payload.manifest_digest,
         sealed_tree_digest=tree_digest(env_path),
         extras=extras,
@@ -433,10 +439,10 @@ def _bind_container(
     *,
     request: BindRequest,
     payload: ProviderArtifactPayload,
-    implementation: ImplementationManifest,
-    impl_digest: str,
+    identity: _BoundIdentity,
     container_backend: ContainerBackend | None,
 ) -> Binding:
+    implementation = identity.implementation
     if payload.container is None:
         raise refuse(
             RefusalCode.UNSUPPORTED_BACKEND,
@@ -452,16 +458,16 @@ def _bind_container(
     container_backend.verify_image(payload)
     return Binding(
         provider_id=request.provider_id,
-        interface_id=request.interface_id,
-        interface_digest=implementation.interface_digest,
+        operation=identity.operation,
+        operation_signature_digest=identity.operation_signature_digest,
+        build_digest=identity.build_digest,
         implementation=implementation,
-        implementation_digest=impl_digest,
+        implementation_digest=identity.implementation_digest,
         materialization_digest=container_materialization_digest(payload.container.image_digest),
         protocol_version=PROTOCOL_VERSION,
         backend_kind="container",
         artifact=payload,
         manifest_path=request.manifest_path,
-        accepted_artifact_digest=artifact_digest(payload),
         manifest_digest=payload.manifest_digest,
         # The image already contains whatever the extras pulled in; the field
         # records what the implementation asked for, so the two backends'

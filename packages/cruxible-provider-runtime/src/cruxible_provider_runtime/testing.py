@@ -17,13 +17,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .artifact import ImageProvenance
+from .artifact import ImageProvenance, ProviderArtifactPayload
 from .backends import CHILD_MODULE, MaterializationRequest, verify_environment
 from .budget import ProcessOutcome, minimal_env, run_with_budget
 from .canonical import canonical_json
 from .errors import RefusalCode, refuse
 from .index import TransportResponse
 from .protocol import Budgets
+from .registration import load_registration
+from .registry import AcceptedBuild, StubRegistry
 from .resolution import MarkerEnvironment, ResolvedSet
 
 __all__ = [
@@ -31,7 +33,22 @@ __all__ = [
     "FakeContainerDriver",
     "FakeIndexTransport",
     "InjectedEnvironmentBuilder",
+    "register_package",
 ]
+
+
+def register_package(
+    registry: StubRegistry, payload: ProviderArtifactPayload, package_root: Path
+) -> AcceptedBuild:
+    """Accept ``payload`` with the operations the package at ``package_root`` registers.
+
+    The operations come from the package's own ``registration.json``, read the
+    way an install reads them, so a conformance suite binds exactly what the
+    package declares.
+    """
+
+    return registry.register_provider(payload, load_registration(package_root).operations)
+
 
 _GLIBC_PLATFORMS = (
     "manylinux1_x86_64",

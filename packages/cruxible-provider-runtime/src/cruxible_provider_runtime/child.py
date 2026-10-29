@@ -1,9 +1,17 @@
 """The provider-side process harness.
 
 Run as ``python -m cruxible_provider_runtime.child``: reads a run context from
-stdin, resolves the entrypoint, opens the secret channel the run context names,
-invokes the provider, and writes a result envelope on the process's original
-standard output.
+stdin, resolves the entrypoint, checks that it serves the run's operation,
+opens the secret channel the run context names, invokes the provider, and
+writes a result envelope on the process's original standard output.
+
+**Dispatch is by entrypoint, checked against the operation.** The run context
+names one entrypoint and one operation. The entrypoint object declares the
+operations it serves (``operations``); a context naming an operation it does
+not declare refuses ``undeclared_operation`` before provider code is called,
+and an entrypoint that declares none is a protocol violation. An ``--entrypoint``
+argument, which an executor passes so the process listing names what runs, must
+agree with the context's.
 
 Everything leaving this process passes through the redactor first. A provider
 cannot opt out of that, which is what makes redaction testable as a conformance
@@ -32,12 +40,12 @@ import sys
 from typing import Any
 
 from .egress import EgressRecorder
-from .errors import ProviderErrorPayload, RefusalCode, RefusalError, refuse
-from .protocol import PROTOCOL_VERSION, ProtocolVersion, ResultEnvelope, Trace, parse_run_context
+from .errors import Declined, ProviderErrorPayload, RefusalCode, RefusalError, refuse
+from .protocol import PROTOCOL_VERSION, ResultEnvelope, Trace, parse_run_context
 from .provider_api import ProviderResult, ProviderRunContext
 from .secrets import Redactor, read_secrets
 
-__all__ = ["main", "reserve_stdout", "resolve_entrypoint"]
+__all__ = ["declared_operations", "main", "reserve_stdout", "resolve_entrypoint"]
 
 STDOUT_FD = 1
 STDERR_FD = 2
@@ -96,6 +104,27 @@ def resolve_entrypoint(path: str) -> Any:
     return target
 
 
+def declared_operations(provider: Any, entrypoint: str) -> tuple[str, ...]:
+    """The operations an entrypoint object serves, or a protocol-violation refusal.
+
+    Read from its ``operations`` attribute: a non-empty tuple, list or frozenset
+    of operation names. Absent or malformed is not "serves everything".
+    """
+
+    declared = getattr(provider, "operations", None)
+    if (
+        not isinstance(declared, tuple | list | frozenset)
+        or not declared
+        or not all(isinstance(item, str) for item in declared)
+    ):
+        raise refuse(
+            RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+            f"entrypoint {entrypoint!r} declares no operations it serves",
+            entrypoint=entrypoint,
+        )
+    return tuple(sorted(declared))
+
+
 def _envelope(run_id: str, result: ProviderResult, trace: Trace) -> ResultEnvelope:
     return ResultEnvelope(
         protocol_version=PROTOCOL_VERSION.render(),
@@ -108,40 +137,57 @@ def _envelope(run_id: str, result: ProviderResult, trace: Trace) -> ResultEnvelo
     )
 
 
+def _declared_run_id(raw: bytes) -> str:
+    """The run id a context names, read before the context is validated.
+
+    So that a context refused whole -- a 1.x context, an unknown field -- is
+    still answered under the run it asked about, which is what lets the
+    executor read the refusal rather than a run-id mismatch.
+    """
+
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return "unknown"
+    if isinstance(document, dict) and isinstance(document.get("run_id"), str):
+        return str(document["run_id"])
+    return "unknown"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     envelope_fd = reserve_stdout()
     raw = sys.stdin.buffer.read()
-    run_id = "unknown"
     secrets: dict[str, str] = {}
     # Constructed before the try, and read on EVERY exit path. An egress record
     # that survives only a successful return is a record a provider can shed by
     # failing: contact an undeclared endpoint, raise, and the comparison the
     # conformance law rests on would have nothing to compare.
     recorder = EgressRecorder()
+    run_id = _declared_run_id(raw)
     try:
         context = parse_run_context(raw)
         run_id = context.run_id
-        requested = ProtocolVersion.parse(context.protocol_version)
-        if requested.major != PROTOCOL_VERSION.major:
-            raise refuse(
-                RefusalCode.UNSUPPORTED_PROTOCOL,
-                f"provider harness speaks protocol {PROTOCOL_VERSION.render()}, "
-                f"run context asks for {context.protocol_version}",
-                supported_major=PROTOCOL_VERSION.major,
-                requested=context.protocol_version,
-            )
-        entrypoint = (
-            args[args.index("--entrypoint") + 1] if "--entrypoint" in args else (context.entrypoint)
-        )
+        if "--entrypoint" in args:
+            named = args[args.index("--entrypoint") + 1]
+            if named != context.entrypoint:
+                raise refuse(
+                    RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+                    f"the harness was started for {named!r} but the run context names "
+                    f"{context.entrypoint!r}",
+                    argv_entrypoint=named,
+                    context_entrypoint=context.entrypoint,
+                )
+        entrypoint = context.entrypoint
         provider = resolve_entrypoint(entrypoint)
-        declared_interface = getattr(provider, "interface_id", None)
-        if declared_interface is not None and declared_interface != context.interface_id:
+        operations = declared_operations(provider, entrypoint)
+        if context.operation not in operations:
             raise refuse(
-                RefusalCode.UNDECLARED_INTERFACE,
-                f"entrypoint implements {declared_interface!r}, not {context.interface_id!r}",
+                RefusalCode.UNDECLARED_OPERATION,
+                f"entrypoint {entrypoint!r} serves {list(operations)}, not {context.operation!r}",
                 entrypoint=entrypoint,
-                interface_id=context.interface_id,
+                operation=context.operation,
+                declared=list(operations),
             )
         if context.secret_channel is not None:
             secrets = read_secrets(context.secret_channel.fd)
@@ -154,10 +200,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
         provider_context = ProviderRunContext(
             run_id=context.run_id,
-            interface_id=context.interface_id,
-            interface_digest=context.interface_digest,
+            operation=context.operation,
+            operation_signature_digest=context.operation_signature_digest,
+            build_digest=context.build_digest,
             implementation_digest=context.implementation_digest,
-            input_bucket=context.input_bucket,
             input=context.input,
             coordinates=context.coordinates,
             budgets=context.budgets,
@@ -174,13 +220,21 @@ def main(argv: list[str] | None = None) -> int:
                 f"provider returned {type(result).__name__}, not a ProviderResult",
                 entrypoint=entrypoint,
             )
+        if result.refusal is not None and result.refusal.is_runtime:
+            raise refuse(
+                RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
+                f"operation {context.operation!r} returned the runtime's own refusal code "
+                f"{result.refusal.code!r}; an operation refuses under codes it declares",
+                operation=context.operation,
+                refused_code=result.refusal.code,
+            )
         trace = Trace(
             endpoints_contacted=recorder.observed(),
             events=list(result.events),
             metrics=dict(result.metrics),
         )
         envelope = _envelope(context.run_id, result, trace)
-    except RefusalError as exc:
+    except (RefusalError, Declined) as exc:
         envelope = ResultEnvelope(
             protocol_version=PROTOCOL_VERSION.render(),
             run_id=run_id,

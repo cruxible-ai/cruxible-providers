@@ -12,7 +12,8 @@ contract, plus the small provider-facing surface in
 |---|---|
 | `manifest` | The package-side manifest schema. Unknown fields fail closed. |
 | `artifact` | The governed Provider artifact payload and its digest |
-| `protocol` | The run context and result envelope, and `protocol_version` |
+| `protocol` | The run context and result envelope, and `protocol_version` (2.0: one operation of one build per run) |
+| `operations` | The typed operation declaration a registration carries, Contract pins, and the operation signature digest |
 | `canonical` | Canonical JSON and domain-tagged digests |
 | `digests` | `implementation_digest` and `materialization_digest` |
 | `resolution` | Lock resolution for an explicit marker environment |
@@ -21,28 +22,38 @@ contract, plus the small provider-facing surface in
 | `secrets` | Credential delivery over an inherited descriptor, and redaction |
 | `budget` | Out-of-process wall-clock and output-size enforcement |
 | `egress` | Endpoints declared versus endpoints actually contacted |
-| `buckets` | The bucket vocabulary format, ids, and selectors |
-| `registration` | Data-only package descriptor reader; verifies bundled resources and exports without executing provider code |
+| `registration` | Data-only `registration.json` (schema 2) reader; verifies the manifest, the operations and their entrypoints without executing provider code |
 | `registry` | A **stub** registry standing in for core |
 | `backends` | The two backend kinds and their injected drivers |
 | `binding`, `execute` | Bind and invoke |
 | `child` | The provider-side process harness |
 | `container_entry` | The image's entry shim: a memory-backed secret in, an inherited descriptor out |
 | `testing` | Fakes, so that no conformance test needs a network or a container engine |
-| `errors` | The typed refusal taxonomy |
+| `errors` | The runtime's own closed refusal codes, and the operation-refusal exception |
 
 ## The provider-facing surface
 
 ```python
+from cruxible_provider_runtime.errors import decline
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 
 class Implementation:
-    interface_id = "plane.operation"
+    operations = ("plane.operation",)
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
+        if not context.input.get("text"):
+            return ProviderResult.refused("empty_text", "nothing to work on")
         return ProviderResult.ok({"result": ...})
 ```
+
+An entrypoint declares the operations it serves; `context.operation` names the
+one this run executes, and the harness refuses (`undeclared_operation`) a run
+for an operation the entrypoint does not declare. A refusal code is the
+operation's own — declared under `refusals` in `registration.json`, each with a
+detail Contract — never one of the runtime's `RefusalCode` values, which are
+reserved for the runtime's machinery. `decline(code, message, **detail)` raises
+the same refusal from deep inside a call.
 
 Credentials arrive already resolved in `context.secrets`, keyed by ref. Endpoints
 are recorded through `context.egress.record(url)`. Budgets are in
@@ -200,7 +211,8 @@ Ruled by the maintainer, 2026-09-04:
 
 ## What it does not own
 
-Governance. The Provider artifact kind, interface registration, and bucket
-registration live in core; `registry.StubRegistry` exists so that this
-repository's conformance suite has something to bind against, and
-`docs/core-integration-seam.md` specifies what replaces it.
+Governance. The Provider build artifact, the Contracts an operation names, and
+the Line that binds a slot to one exact `{build, operation}` live in core;
+`registry.StubRegistry` exists so that this repository's conformance suite has
+something to bind against, and `docs/core-integration-seam.md` specifies what
+replaces it.

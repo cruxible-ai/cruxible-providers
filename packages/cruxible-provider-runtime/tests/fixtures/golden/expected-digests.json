@@ -1,8 +1,8 @@
 {
   "implementation": {
-    "sample-echo": "sha256:d86d67b9a9a20aa582868e74fed564c0753c17068d0c95bbceeef9e66e5a9733",
-    "sample-echo-other-distribution": "sha256:07e5af49d42a3a13d2ada9eb4a097fda49a449b9bf38b1e3bc0c20a85f410bd7",
-    "sample-echo-other-entrypoint": "sha256:c8195dc9ca0ed5f0ddca0432c509926486db557819af2e709687d21dd7ef6b79"
+    "sample-echo": "sha256:85047346b24f10fb8012f83115082f4460f08db4929e8277bb816beb173a4ea5",
+    "sample-echo-other-distribution": "sha256:fb0e77db333e122649cecdff18f189853dfcf3c49a4859eb446467fcdddb3ca0",
+    "sample-echo-other-entrypoint": "sha256:59a1ea62638246a0f244e98220334522cf19a9f56861b0c3e40ad536027524da"
   },
   "materialization": {
     "linux-cp311": "sha256:b9fd12a340526c7028fe78ad86abc75ccffd570ade80c4a544027fa70ca26f6a",
