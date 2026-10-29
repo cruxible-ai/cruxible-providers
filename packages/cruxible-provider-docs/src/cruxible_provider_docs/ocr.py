@@ -18,14 +18,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
+from cruxible_provider_runtime.errors import Declined, decline
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
-from .documents import ResolvedSource, resolve_source
+from .documents import PROVIDER_DECLINED, ResolvedSource, page_count_class, resolve_source
 from .engines import OcrEngine, OcrPage, OcrResult, PaddleOcrEngine
-from .interfaces import OCR_INTERFACE_ID, page_count_class
 
-__all__ = ["PaddleOcrExtract"]
+__all__ = ["OPERATION", "PaddleOcrExtract"]
+
+OPERATION = "ocr.extract"
 
 
 class _RecordedOcrEngine:
@@ -67,24 +68,24 @@ class _RecordedOcrEngine:
 class PaddleOcrExtract:
     """Read text off page images."""
 
-    interface_id = OCR_INTERFACE_ID
+    operations = (OPERATION,)
 
     def __init__(self, *, engine: OcrEngine | None = None) -> None:
         self._engine = engine
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
-            source = resolve_source(context.input, interface_id=self.interface_id)
+            source = resolve_source(context.input, operation=OPERATION)
             declared_pages = _declared_pages(context)
             language = _language(context)
             engine = self._engine or _engine_for(source)
             result = engine.read(source.data, filename=source.filename, language=language)
-        except RefusalError as exc:
+        except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 
         if not result.pages or not result.text.strip():
             return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
+                PROVIDER_DECLINED,
                 "the reading recovered no text from the supplied image",
                 engine=result.engine,
                 document_sha256=source.sha256,
@@ -93,10 +94,8 @@ class PaddleOcrExtract:
         observed_class = page_count_class(len(result.pages))
         if observed_class != page_count_class(declared_pages):
             return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
-                "the image set is a different page-count class than the bucket this run "
-                "was admitted into",
-                declared_bucket=context.input_bucket,
+                PROVIDER_DECLINED,
+                "the image set is a different page-count class than the run declared",
                 declared_page_count=declared_pages,
                 observed_page_count=len(result.pages),
             )
@@ -113,7 +112,6 @@ class PaddleOcrExtract:
             )
         return ProviderResult.ok(
             {
-                "input_bucket": context.input_bucket,
                 "document": source.describe(declared_pages=declared_pages),
                 "derived": {
                     "kind": "ocr_text",
@@ -145,14 +143,14 @@ class PaddleOcrExtract:
 def _declared_pages(context: ProviderRunContext) -> int:
     pages = context.input.get("page_count", 1)
     if not isinstance(pages, int) or isinstance(pages, bool) or pages <= 0:
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "page_count must be a positive integer")
+        raise decline(PROVIDER_DECLINED, "page_count must be a positive integer")
     return pages
 
 
 def _language(context: ProviderRunContext) -> str:
     language = context.input.get("language", "en")
     if not isinstance(language, str) or not language:
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "language must be a string")
+        raise decline(PROVIDER_DECLINED, "language must be a string")
     return language
 
 

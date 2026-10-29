@@ -1,7 +1,7 @@
 {
   "id": "html-brief",
   "note": "An HTML document with navigation and a footer, which the conversion drops.",
-  "interface_id": "doc.to_markdown",
+  "operation": "doc.to_markdown",
   "engine": "docling",
   "recorded_from": "transcription of the shipped HTML's main content, in the structure Docling reports for it; the engine-marked lane asserts the engine reproduces this.",
   "document": {

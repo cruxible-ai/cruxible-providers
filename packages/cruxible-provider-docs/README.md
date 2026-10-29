@@ -2,10 +2,16 @@
 
 Cruxible provider adapters for the document plane. Apache-2.0.
 
-| Interface | Entrypoint | Engine | Extra |
+| Operation | Entrypoint | Engine | Extra |
 |---|---|---|---|
 | `doc.to_markdown` | `cruxible_provider_docs.to_markdown:DoclingToMarkdown` | Docling; already-linear documents are converted by the adapter itself | `docling` |
 | `ocr.extract` | `cruxible_provider_docs.ocr:PaddleOcrExtract` | PaddleOCR | `paddleocr` |
+
+Each operation is declared in `registration.json` (schema 2): input
+`<operation>.request@1`, output `<operation>.result@1`, effect `pure`, and one
+declared refusal, `provider_declined` (detail Contract
+`<operation>.refusal.provider_declined@1`, absorbable). The Contracts are named,
+not shipped; an install pins each to the version accepted at its base.
 
 Operators install it into a daemon by name, through a governed install:
 `cruxible playbill provider install cruxible-provider-docs`. The umbrella
@@ -17,7 +23,7 @@ The document arrives in the run input. This plane retrieves nothing, so there is
 no observed-shaped material to be had and the output shape says so: a `document`
 block identifying what was converted (filename, media type, byte count, sha256,
 origin) and a `derived` block holding the conversion or the reading. Both
-CaptureContract families are derived families. An OCR reading in particular is a
+Contracts are derived. An OCR reading in particular is a
 model's opinion about marks on a page, and the per-page number the engine reports
 travels as *the engine's* confidence under the engine's name — this system has no
 generic confidence score and this adapter does not invent one.
@@ -27,8 +33,8 @@ generic confidence score and this adapter does not invent one.
 Docling drags a tensor stack; PaddleOCR drags PaddlePaddle. Both live behind
 per-engine extras, each declared by the implementation that needs it, and the
 default lane installs neither. What the base distribution carries is the adapter
-logic, the schemas, the bucket classifiers, the packaged documents, and the
-recorded engine responses the conformance fixtures replay.
+logic, the packaged documents, and the recorded engine responses the
+conformance suite replays.
 
 `doc.to_markdown` also carries a genuinely engine-free path: an already-linear
 document — text, Markdown, CSV — is converted by the adapter itself, because
@@ -37,11 +43,10 @@ nothing. That path is what gives this plane a success case that runs end to end
 through a real child process in the default lane.
 
 **A cost worth naming.** An implementation binds *one* environment, so
-`requires_extras` is the union of what its claimed buckets need, and the
-engine-free plain-text bucket rides in an environment sized for the PDF bucket.
-Splitting them would mean two implementations of `doc.to_markdown`, which is a
-terminal `ambiguous_implementation` refusal — so this is a real cost of the
-one-implementation-per-interface rule, not an oversight.
+`requires_extras` is the union of what its inputs need, and the engine-free
+plain-text path rides in an environment sized for PDF conversion. Splitting them
+would mean a second operation served by a second entrypoint with its own
+environment — possible, and a separate declaration rather than an accident.
 
 ## Both engine environments pin
 
@@ -61,7 +66,7 @@ and a literal tag list does not name.
 `+docling` resolves now because the declared launch floors are glibc 2.28 and
 macOS 14.0, the floors its tensor stack requires. The re-baseline deliberately
 re-keyed every package's materialization digest before any Provider artifact was
-accepted; it did not change the document interfaces or their implementation
+accepted; it did not change the document operations or their implementation
 digests. The engine suite's shared `ENGINE_MARKER_ENVIRONMENT` now matches the
 Linux launch floor rather than standing in for a future one.
 
@@ -82,8 +87,9 @@ by the operator, into the operator's environment, under the engine's own terms.
 
 ## Replay, and what keeps it honest
 
-A conformance fixture for an engine adapter needs an engine, and the base install
-has none. Fixtures therefore replay recorded engine responses, under three rules:
+A conformance run of an engine adapter needs an engine, and the base install
+has none. The suite therefore replays recorded engine responses, under three
+rules:
 
 1. **A recorded response is served only for a packaged document.** The input's
    `source.kind` is either `inline` — a caller's document, which only a real
@@ -98,12 +104,11 @@ has none. Fixtures therefore replay recorded engine responses, under three rules
 
 ## Declarations are checked, not trusted
 
-Page count, scan quality, and layout are the caller's description of a document
-nobody has opened yet, so the classifier reads them from the input and the
-adapter then checks them: a document that opens to a different page-count class
-than the bucket the run was admitted into refuses, and a conversion that recovers
-no text from a document declared born-digital refuses rather than returning an
-empty Markdown file that looks complete.
+The page count is the caller's description of a document nobody has opened
+yet, so the adapter checks it: a document that opens to a different page-count
+class than the run declared refuses, and a conversion that recovers no text from
+a document declared born-digital refuses rather than returning an empty Markdown
+file that looks complete.
 
 ## Running the tests
 

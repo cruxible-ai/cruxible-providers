@@ -1,4 +1,4 @@
-"""Bind and invoke, end to end, on both backend kinds, for both interfaces.
+"""Bind and invoke, end to end, on both backend kinds, for both operations.
 
 Every run here goes through a real child process with **no engine installed
 anywhere**, which is the heavy-engine split working: an implementation binds an
@@ -13,9 +13,10 @@ import base64
 from pathlib import Path
 
 import pytest
+from cruxible_provider_docs import PROVIDER_DECLINED
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding, BindRequest, bind
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError
+from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
@@ -46,7 +47,7 @@ PACKAGED_PDF_INPUT = {"source": PACKAGED_PDF, "page_count": 1}
 
 
 def _bind(
-    interface_id: str,
+    operation: str,
     backend_kind: BackendKind,
     registry: StubRegistry,
     manifest_path: Path,
@@ -58,7 +59,7 @@ def _bind(
         registry,
         BindRequest(
             provider_id=PROVIDER_ID,
-            interface_id=interface_id,
+            operation=operation,
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -128,15 +129,13 @@ def test_the_engine_free_path_succeeds_with_no_engine_installed(
         container_backend=container_backend,
     )
     assert outcome.status == "ok"
-    assert outcome.input_bucket == (
-        "format=plain_text;scanned=born_digital;page_count=single;layout=tabular"
-    )
+    assert outcome.operation == "doc.to_markdown"
     assert outcome.envelope.output is not None
     derived = outcome.envelope.output["derived"]
     assert derived["engine"] == "plain-text"
     assert "| reach | nitrate_mg_l |" in derived["text"]
     assert outcome.envelope.output["document"]["origin"] == "inline"
-    # Nothing is contacted by this plane, in any bucket.
+    # Nothing is contacted by this plane, for any input.
     assert outcome.egress.observed == ()
     assert outcome.egress.dynamic_forms == ()
 
@@ -197,7 +196,7 @@ def test_an_inline_document_needing_the_engine_refuses_when_it_is_absent(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.ENVIRONMENT_DIVERGENCE
+    assert outcome.envelope.refusal.code == RefusalCode.ENVIRONMENT_DIVERGENCE
     assert outcome.envelope.refusal.detail["required_extra"] == "docling"
 
 
@@ -226,7 +225,7 @@ def test_a_typed_refusal_path(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
 
 
 @pytest.mark.parametrize("markdown_binding", BACKENDS, indirect=True)
@@ -236,11 +235,11 @@ def test_a_declared_page_count_that_the_document_contradicts_refuses(
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    """The bucket is derived from a declaration, so the declaration is checked.
+    """The page count is a declaration, so the declaration is checked.
 
-    The three-page document is submitted as a single-page one. Admission cannot
-    know better — nobody has opened the file yet — so the adapter refuses once it
-    has, rather than returning a conversion attributed to the wrong bucket.
+    The three-page document is submitted as a single-page one. Nobody can know
+    better before the file is opened, so the adapter refuses once it has,
+    rather than returning a conversion of a different document than declared.
     """
 
     outcome = invoke(
@@ -261,32 +260,9 @@ def test_a_declared_page_count_that_the_document_contradicts_refuses(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
+    assert outcome.envelope.refusal.code == PROVIDER_DECLINED
     assert outcome.envelope.refusal.detail["observed_page_count"] == 3
     assert outcome.envelope.refusal.detail["declared_page_count"] == 1
-
-
-def test_an_unclaimed_bucket_refuses_before_any_process_starts(
-    markdown_binding: Binding,
-    registry: StubRegistry,
-    local_backend: LocalEnvBackend,
-    container_backend: ContainerBackend,
-) -> None:
-    """A scanned document is ocr.extract's work, and this implementation says so."""
-
-    with pytest.raises(RefusalError) as exc:
-        invoke(
-            markdown_binding,
-            registry=registry,
-            payload={
-                "source": PACKAGED_PDF,
-                "page_count": 1,
-                "scanned": "scanned",
-            },
-            budgets=BUDGETS,
-            local_backend=local_backend,
-            container_backend=container_backend,
-        )
-    assert exc.value.code is RefusalCode.UNCLAIMED_BUCKET
 
 
 @pytest.mark.parametrize("ocr_binding", BACKENDS, indirect=True)
@@ -346,7 +322,7 @@ def test_an_ocr_run_needing_the_engine_refuses_when_it_is_absent(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.ENVIRONMENT_DIVERGENCE
+    assert outcome.envelope.refusal.code == RefusalCode.ENVIRONMENT_DIVERGENCE
     assert outcome.envelope.refusal.detail["required_extra"] == "paddleocr"
 
 
@@ -381,6 +357,8 @@ def test_the_two_implementations_bind_two_different_environments(
     assert ocr.extras == OCR_EXTRAS
     assert markdown.materialization_digest != ocr.materialization_digest
     assert markdown.implementation_digest != ocr.implementation_digest
+    assert markdown.operation_signature_digest != ocr.operation_signature_digest
+    assert markdown.build_digest == ocr.build_digest
     assert markdown.snapshot()["extras"] == list(MARKDOWN_EXTRAS)
     assert ocr.snapshot()["extras"] == list(OCR_EXTRAS)
 

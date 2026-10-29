@@ -1,9 +1,8 @@
-"""Packaged documents, recorded engine responses, and bucket fixtures.
+"""Packaged documents and recorded engine responses.
 
-Every claimed bucket needs a conformance fixture that passes, and a fixture for
-an engine adapter needs an engine. The base install deliberately has none, so
-what ships here is a *replay*: a document that really is in this distribution,
-and the output an engine produces for it.
+A conformance run of an engine adapter needs an engine, and the base install
+deliberately has none, so what ships here is a *replay*: a document that really
+is in this distribution, and the output an engine produces for it.
 
 Three things keep replay from becoming fabrication.
 
@@ -34,24 +33,20 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 __all__ = [
     "DOCUMENTS_DIR",
-    "FIXTURES_DIR",
     "RECORDINGS_DIR",
-    "BucketFixture",
     "PackagedDocument",
     "Recording",
     "load_document",
-    "load_fixtures",
     "load_recordings",
 ]
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 RECORDINGS_DIR = PACKAGE_ROOT / "recordings"
 DOCUMENTS_DIR = PACKAGE_ROOT / "documents"
-FIXTURES_DIR = PACKAGE_ROOT / "fixtures"
 
 
 class PackagedDocument(BaseModel):
@@ -84,7 +79,9 @@ class Recording(BaseModel):
 
     id: str
     note: str
-    interface_id: str
+    operation: str
+    """The operation this response is recorded for."""
+
     engine: str
     """The engine this response is recorded for. The engine lane re-runs it."""
 
@@ -93,23 +90,6 @@ class Recording(BaseModel):
 
     document: PackagedDocument
     output: dict[str, Any]
-
-
-class BucketFixture(BaseModel):
-    """One claimed bucket, and what a run in it must produce."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    id: str
-    note: str
-    interface_id: str
-    bucket_selector: str
-    bucket_id: str
-    recording_id: str | None = None
-    """``None`` for a bucket the adapter serves with no engine at all."""
-
-    input: dict[str, Any] = Field(default_factory=dict)
-    expect: dict[str, Any] = Field(default_factory=dict)
 
 
 def _load(directory: Path, model: type[Any]) -> dict[str, Any]:
@@ -127,13 +107,6 @@ def load_recordings() -> Mapping[str, Recording]:
     """Every recorded engine response shipped in this distribution, keyed by id."""
 
     return _load(RECORDINGS_DIR, Recording)
-
-
-@lru_cache(maxsize=1)
-def load_fixtures() -> Mapping[str, BucketFixture]:
-    """Every bucket fixture shipped in this distribution, keyed by id."""
-
-    return _load(FIXTURES_DIR, BucketFixture)
 
 
 def load_document(recording_id: str) -> tuple[Recording, bytes]:

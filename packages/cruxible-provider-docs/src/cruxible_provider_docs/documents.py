@@ -16,11 +16,22 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode, refuse
+from cruxible_provider_runtime.errors import decline
 
 from .recordings import Recording, inline_document, load_document, load_recordings
 
-__all__ = ["DEFAULT_SUFFIX", "ResolvedSource", "document_suffix", "resolve_source"]
+__all__ = [
+    "DEFAULT_SUFFIX",
+    "PROVIDER_DECLINED",
+    "ResolvedSource",
+    "document_format",
+    "document_suffix",
+    "page_count_class",
+    "resolve_source",
+]
+
+PROVIDER_DECLINED = "provider_declined"
+"""The one refusal both operations declare (registration.json)."""
 
 _SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,12}$")
 
@@ -48,14 +59,14 @@ def _validate_filename(filename: str) -> str:
     """
 
     if filename in {".", ".."} or filename.startswith("."):
-        raise refuse(
-            RefusalCode.PROVIDER_DECLINED,
+        raise decline(
+            PROVIDER_DECLINED,
             "a document filename must be a plain name, not a relative path",
             filename=filename,
         )
     if posixpath.isabs(filename) or any(part in filename for part in ("/", "\\", ":", "\x00")):
-        raise refuse(
-            RefusalCode.PROVIDER_DECLINED,
+        raise decline(
+            PROVIDER_DECLINED,
             "a document filename must carry no path separator, drive letter, or absolute path",
             filename=filename,
         )
@@ -103,22 +114,22 @@ def _check_declared(source: Mapping[str, Any], filename: str, media_type: str) -
     declared_name = source.get("filename")
     declared_type = source.get("media_type")
     if declared_name is not None and declared_name != filename:
-        raise refuse(
-            RefusalCode.PROVIDER_DECLINED,
+        raise decline(
+            PROVIDER_DECLINED,
             "the run declares a different filename than the packaged document carries",
             declared=declared_name,
             packaged=filename,
         )
     if declared_type is not None and declared_type != media_type:
-        raise refuse(
-            RefusalCode.PROVIDER_DECLINED,
+        raise decline(
+            PROVIDER_DECLINED,
             "the run declares a different media type than the packaged document carries",
             declared=declared_type,
             packaged=media_type,
         )
 
 
-def resolve_source(payload: Mapping[str, Any], *, interface_id: str) -> ResolvedSource:
+def resolve_source(payload: Mapping[str, Any], *, operation: str) -> ResolvedSource:
     """Turn the run input's ``source`` into bytes, or refuse.
 
     ``inline`` is the production shape: the caller supplies the document, and
@@ -129,33 +140,31 @@ def resolve_source(payload: Mapping[str, Any], *, interface_id: str) -> Resolved
 
     source = payload.get("source")
     if not isinstance(source, Mapping):
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "the run input carries no source")
+        raise decline(PROVIDER_DECLINED, "the run input carries no source")
     kind = source.get("kind")
 
     if kind == "packaged_fixture":
         identifier = source.get("id")
         if not isinstance(identifier, str) or identifier not in load_recordings():
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            raise decline(
+                PROVIDER_DECLINED,
                 "no packaged fixture carries that id",
                 fixture_id=identifier if isinstance(identifier, str) else None,
                 known=sorted(load_recordings()),
             )
         recording, data = load_document(identifier)
-        if recording.interface_id != interface_id:
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
-                "the packaged fixture was recorded for a different interface",
+        if recording.operation != operation:
+            raise decline(
+                PROVIDER_DECLINED,
+                "the packaged fixture was recorded for a different operation",
                 fixture_id=identifier,
-                recorded_for=recording.interface_id,
-                requested=interface_id,
+                recorded_for=recording.operation,
+                requested=operation,
             )
         # A packaged source still declares its filename and media type, because
-        # that is what the bucket classifier reads: admission happens before any
-        # file is opened, and a classifier that reached into this distribution's
-        # data files would be classifying from something the run did not say.
-        # Declared, then checked — a declaration that disagrees with the
-        # packaged document refuses rather than being quietly corrected.
+        # the run input says what it is converting. Declared, then checked — a
+        # declaration that disagrees with the packaged document refuses rather
+        # than being quietly corrected.
         _check_declared(source, recording.document.filename, recording.document.media_type)
         return ResolvedSource(
             data=data,
@@ -166,23 +175,23 @@ def resolve_source(payload: Mapping[str, Any], *, interface_id: str) -> Resolved
         )
 
     if kind != "inline":
-        raise refuse(
-            RefusalCode.PROVIDER_DECLINED,
+        raise decline(
+            PROVIDER_DECLINED,
             f"source kind {kind!r} is not one this adapter understands",
             known=["inline", "packaged_fixture"],
         )
 
     content = source.get("content_base64")
     if not isinstance(content, str) or not content:
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "an inline source needs content_base64")
+        raise decline(PROVIDER_DECLINED, "an inline source needs content_base64")
     try:
         data = inline_document(content)
     except Exception as exc:
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "content_base64 is not valid base64") from exc
+        raise decline(PROVIDER_DECLINED, "content_base64 is not valid base64") from exc
     filename = source.get("filename")
     media_type = source.get("media_type")
     if not isinstance(filename, str) or not filename:
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "an inline source needs a filename")
+        raise decline(PROVIDER_DECLINED, "an inline source needs a filename")
     return ResolvedSource(
         data=data,
         filename=_validate_filename(filename),
@@ -190,3 +199,70 @@ def resolve_source(payload: Mapping[str, Any], *, interface_id: str) -> Resolved
         origin="inline",
         recording=None,
     )
+
+
+_FORMAT_BY_SUFFIX = {
+    ".pdf": "pdf",
+    ".doc": "office",
+    ".docx": "office",
+    ".odt": "office",
+    ".xls": "office",
+    ".xlsx": "office",
+    ".ods": "office",
+    ".ppt": "office",
+    ".pptx": "office",
+    ".html": "html",
+    ".htm": "html",
+    ".xhtml": "html",
+    ".txt": "plain_text",
+    ".md": "plain_text",
+    ".markdown": "plain_text",
+    ".csv": "plain_text",
+    ".tsv": "plain_text",
+    ".eml": "email",
+    ".mbox": "email",
+    ".msg": "email",
+}
+
+_FORMAT_BY_MEDIA_TYPE = {
+    "application/pdf": "pdf",
+    "text/html": "html",
+    "application/xhtml+xml": "html",
+    "text/plain": "plain_text",
+    "text/markdown": "plain_text",
+    "text/csv": "plain_text",
+    "message/rfc822": "email",
+}
+
+
+def page_count_class(pages: int) -> str:
+    """The page-count class a real page count falls in.
+
+    The adapters compare the document they actually opened against the page
+    count the run declared, by class: a conversion of a different-sized
+    document than the one declared refuses rather than passing as complete.
+    """
+
+    if pages <= 1:
+        return "single"
+    if pages <= 10:
+        return "short"
+    if pages <= 100:
+        return "medium"
+    return "long"
+
+
+def document_format(source: Mapping[str, Any]) -> str | None:
+    """The container format, from the media type first and the filename second."""
+
+    media_type = source.get("media_type")
+    if isinstance(media_type, str):
+        base = media_type.split(";", 1)[0].strip().lower()
+        if base in _FORMAT_BY_MEDIA_TYPE:
+            return _FORMAT_BY_MEDIA_TYPE[base]
+    filename = source.get("filename")
+    if isinstance(filename, str) and "." in filename:
+        suffix = filename[filename.rfind(".") :].lower()
+        if suffix in _FORMAT_BY_SUFFIX:
+            return _FORMAT_BY_SUFFIX[suffix]
+    return None

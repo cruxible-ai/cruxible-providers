@@ -19,22 +19,29 @@ caller would prefer:
   extra for.
 
 The declared page count is **checked, not trusted**. A document that opens to a
-different page-count class than the bucket the run was admitted into refuses:
-the alternative is a Capture built from a partial conversion that looks complete.
+different page-count class than the run declared refuses: the alternative is a
+Capture built from a partial conversion that looks complete.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
+from cruxible_provider_runtime.errors import Declined, decline
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
-from .documents import ResolvedSource, resolve_source
+from .documents import (
+    PROVIDER_DECLINED,
+    ResolvedSource,
+    document_format,
+    page_count_class,
+    resolve_source,
+)
 from .engines import DoclingMarkdownEngine, MarkdownEngine, MarkdownResult, PlainTextEngine
-from .interfaces import MARKDOWN_INTERFACE_ID, document_format, page_count_class
 
-__all__ = ["DoclingToMarkdown"]
+__all__ = ["OPERATION", "DoclingToMarkdown"]
+
+OPERATION = "doc.to_markdown"
 
 
 class _RecordedMarkdownEngine:
@@ -64,7 +71,7 @@ class _RecordedMarkdownEngine:
 class DoclingToMarkdown:
     """Convert a document to Markdown."""
 
-    interface_id = MARKDOWN_INTERFACE_ID
+    operations = (OPERATION,)
 
     def __init__(self, *, engine: MarkdownEngine | None = None) -> None:
         # The default is the production engine. Injection exists so a test can
@@ -73,20 +80,20 @@ class DoclingToMarkdown:
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
-            source = resolve_source(context.input, interface_id=self.interface_id)
+            source = resolve_source(context.input, operation=OPERATION)
             declared_pages = _declared_pages(context)
             engine = self._engine or _engine_for(source)
             result = engine.convert(
                 source.data, filename=source.filename, media_type=source.media_type
             )
-        except RefusalError as exc:
+        except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 
         if not result.markdown.strip():
             # A born-digital document that yields nothing is a failed conversion
             # wearing the shape of a successful one.
             return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
+                PROVIDER_DECLINED,
                 "the conversion recovered no text from a document declared to carry one",
                 engine=result.engine,
                 document_sha256=source.sha256,
@@ -96,10 +103,8 @@ class DoclingToMarkdown:
         declared_class = page_count_class(declared_pages)
         if observed_class != declared_class:
             return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
-                "the document opened to a different page-count class than the bucket "
-                "this run was admitted into",
-                declared_bucket=context.input_bucket,
+                PROVIDER_DECLINED,
+                "the document opened to a different page-count class than the run declared",
                 declared_page_count=declared_pages,
                 observed_page_count=result.page_count,
                 observed_class=observed_class,
@@ -117,7 +122,6 @@ class DoclingToMarkdown:
             )
         return ProviderResult.ok(
             {
-                "input_bucket": context.input_bucket,
                 "document": source.describe(declared_pages=declared_pages),
                 "derived": {
                     "kind": "markdown",
@@ -138,7 +142,7 @@ class DoclingToMarkdown:
 def _declared_pages(context: ProviderRunContext) -> int:
     pages = context.input.get("page_count", 1)
     if not isinstance(pages, int) or isinstance(pages, bool) or pages <= 0:
-        raise refuse(RefusalCode.PROVIDER_DECLINED, "page_count must be a positive integer")
+        raise decline(PROVIDER_DECLINED, "page_count must be a positive integer")
     return pages
 
 

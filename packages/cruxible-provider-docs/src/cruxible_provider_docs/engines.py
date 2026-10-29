@@ -165,9 +165,9 @@ class PaddleOcrEngine:
     """Text recovery with PaddleOCR. Requires the ``paddleocr`` extra.
 
     The orientation and unwarping sub-models are off. They cost a model download
-    and a per-page pass each, and the buckets this implementation claims are the
-    ones where they change nothing: a clean, deskewed, single-orientation page.
-    A bucket that needed them would be a different claim with its own fixture.
+    and a per-page pass each, and the inputs this implementation is recorded and
+    tested against are the ones where they change nothing: a clean, deskewed,
+    single-orientation page.
     """
 
     name = "paddleocr"

@@ -5,8 +5,8 @@ from the package's own committed lock: a committed artifact would carry a
 materialization digest that goes stale the moment a dependency moves, and a
 stale pin nobody notices is what the bind-time recomputation exists to catch.
 
-Two environments, one lock. ``doc.to_markdown`` declares the ``docling`` extra
-and ``ocr.extract`` declares ``paddleocr``, so the artifact pins two
+Two environments, one lock. The ``doc.to_markdown`` implementation declares the ``docling`` extra
+and the ``ocr.extract`` one declares ``paddleocr``, so the artifact pins two
 materializations — ``linux-cp311-engines+docling`` and
 ``linux-cp311-engines+paddleocr`` — and a bind for one implementation cannot pick
 up the other's environment. Neither environment is materialized for real: the
@@ -22,7 +22,6 @@ from pathlib import Path
 
 import cruxible_provider_docs
 import pytest
-from cruxible_provider_docs.interfaces import registrations
 from cruxible_provider_runtime.artifact import (
     ContainerBackendPin,
     DistributionPin,
@@ -49,6 +48,7 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
+    register_package,
 )
 
 PACKAGE_DIR = Path(cruxible_provider_docs.__file__).resolve().parent.parent.parent
@@ -180,9 +180,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
-    stub.register_provider(accepted_artifact)
+    register_package(stub, accepted_artifact, cruxible_provider_docs.PACKAGE_ROOT)
     return stub
 
 
