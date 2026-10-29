@@ -4,8 +4,8 @@ Cruxible provider adapters for the PLANE plane. Apache-2.0.
 
 ## What this package is
 
-One distribution, one lock, one identity unit. It may implement several
-interfaces within its plane; it never reaches outside it.
+One distribution, one lock, one identity unit. It may serve several typed
+operations within its plane; it never reaches outside it.
 
 The Core installer prepares the package locally and proposes its definitions.
 The umbrella `cruxible-providers[PLANE]` remains a development convenience.
@@ -16,15 +16,17 @@ The umbrella `cruxible-providers[PLANE]` remains a development convenience.
     directory**. This package's lock is its identity source; there is no shared
     root lock. A heavy engine goes under `[project.optional-dependencies]`, not
     into the base dependencies.
-2.  Declare the entry point under `[project.entry-points."cruxible.providers"]`.
-3.  Add the implementation block to `src/cruxible_provider_PLANE/manifest.yaml`,
-    including the exact registered interface digest, the buckets you claim, and
-    a conformance fixture for each claimed bucket.
-4.  Add `registration.json` with hashed references to the manifest, bundled
-    operation contracts, classifier sources, vocabularies and classification
-    fixture sets. Use the existing package descriptor format, not a Core-side
-    provider list. Preserve changed contracts under `contracts/history/` and
-    record their predecessors. Declare any non-Python runtime resources.
+2.  Declare the entry point under `[project.entry-points."cruxible.providers"]`,
+    named by the operation it serves (one entry per operation).
+3.  Add the implementation row to `src/cruxible_provider_PLANE/manifest.yaml`:
+    one row per entrypoint, with its backends, endpoints and extras.
+4.  Declare the operation in `registration.json` (schema 2): its name, its
+    input and output Contracts as `name@N`, its effect (`pure`,
+    `external_read` or `external_mutation`), each refusal code it may return
+    with that refusal's detail Contract, and the entrypoint that serves it.
+    Refresh the manifest's digest there. The Contracts themselves are accepted
+    at the install base (a kit ships them); the package only names them.
+    Declare any non-Python runtime resources.
 5.  Implement the callable in `provider.py`.
 6.  Write the conformance suite (see `tests/test_conformance.py`). The test
     directory carries **no `__init__.py`** -- two packages both exporting a
@@ -35,10 +37,10 @@ The umbrella `cruxible-providers[PLANE]` remains a development convenience.
 
 ## What this package must never do
 
-- Ship a manifest that claims authority. The accepted
-  `providers/<provider-id>.yaml` is authority; this manifest is a transcription
-  source.
-- Claim a bucket without a passing per-bucket conformance fixture.
+- Ship a manifest that claims authority. The accepted provider build is
+  authority; this manifest is a transcription source.
+- Refuse under a code its operation does not declare, or under one of the
+  runtime's reserved codes.
 - Contact an endpoint it does not declare.
 - Emit an `observed` grade. Providers produce readings; grades are governed by
   the CaptureContract.

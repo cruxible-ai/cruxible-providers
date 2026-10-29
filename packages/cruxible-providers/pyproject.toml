@@ -9,7 +9,7 @@
 # release would re-digest every provider in the fleet.
 [project]
 name = "cruxible-providers"
-version = "0.1.0"
+version = "0.2.0"
 description = "Umbrella meta-package for the Cruxible provider planes. Dependencies only, no code."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,18 +36,22 @@ dependencies = []
 #
 #   pip install "cruxible-providers[web]"
 #   pip install "cruxible-provider-web[browser]"   <- the engine, from the plane
-web = ["cruxible-provider-web"]
-docs = ["cruxible-provider-docs"]
-quant = ["cruxible-provider-quant"]
-workspace = ["cruxible-provider-workspace"]
+#
+# Each plane is floored at its provider-runtime protocol 2.0 release (0.3.0):
+# an umbrella that could resolve a protocol-1.x plane would install a provider
+# no current runtime can run.
+web = ["cruxible-provider-web>=0.3.0"]
+docs = ["cruxible-provider-docs>=0.3.0"]
+quant = ["cruxible-provider-quant>=0.3.0"]
+workspace = ["cruxible-provider-workspace>=0.3.0"]
 # `all` is the union of every plane, and only ever the full union — wired the
 # moment the last plane landed, never earlier: an `all` that means "all but
 # one" is worse than no `all` at all.
 all = [
-  "cruxible-provider-web",
-  "cruxible-provider-docs",
-  "cruxible-provider-quant",
-  "cruxible-provider-workspace",
+  "cruxible-provider-web>=0.3.0",
+  "cruxible-provider-docs>=0.3.0",
+  "cruxible-provider-quant>=0.3.0",
+  "cruxible-provider-workspace>=0.3.0",
 ]
 
 [dependency-groups]

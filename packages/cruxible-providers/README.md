@@ -36,7 +36,7 @@ implementation it binds, not of the umbrella somebody installed, so the
 per-engine extras stay on the plane package:
 
 ```sh
-pip install "cruxible-providers[docs]"          # adapters, schemas, fixtures
+pip install "cruxible-providers[docs]"          # adapters, registration, recordings
 pip install "cruxible-provider-docs[docling]"   # and the conversion engine
 ```
 

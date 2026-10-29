@@ -40,7 +40,7 @@ dependencies = [
 [project.optional-dependencies]
 # engine = ["the-heavy-thing>=1.0"]
 
-# One entry per implementation, keyed by interface id.
+# One entry per operation, named by the operation.
 [project.entry-points."cruxible.providers"]
 "PLANE.operation" = "cruxible_provider_PLANE.provider:Implementation"
 
