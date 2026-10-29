@@ -1,6 +1,6 @@
 [project]
 name = "cruxible-provider-quant"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cruxible provider adapters for the quantitative plane: classical baselines on the slots narrow-ML models later compete for."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,7 +17,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "cruxible-provider-runtime>=0.2.0",
+  "cruxible-provider-runtime>=0.3.0",
   # The engines ARE the implementation. Every one of them enters this package's
   # materialization digest and nothing else's — which is the whole reason the
   # quantitative plane is its own distribution with its own lock.
@@ -36,7 +36,7 @@ dependencies = [
   "statsmodels>=0.14",
 ]
 
-# One entry per implementation, keyed by interface id.
+# One entry per operation, keyed by operation name, valued by the entrypoint serving it.
 [project.entry-points."cruxible.providers"]
 "calc.calibrate" = "cruxible_provider_quant.calibrate:Calibrate"
 "calc.reduce" = "cruxible_provider_quant.reduce:Reduce"

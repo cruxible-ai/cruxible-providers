@@ -8,11 +8,9 @@ bind-time recomputation exists to catch. The distribution sha256 is synthetic:
 the package is not built during the test run, and the implementation digest's
 dependence on a real artifact hash is a property of release.
 
-What is different here is the registry. Seven real launch interfaces are seeded
-instead of one stub, and each is seeded with the vocabulary committed under
-``vocab/interfaces/`` — the repository's single copy of core's data. The provider
-package ships the classifiers and the pinned stub digests; it does not ship a
-second copy of the vocabularies, because it does not own them.
+What is different here is the registry: one accepted build serving seven
+operations, each read from the package's own ``registration.json`` and pinned
+by the stub the way an install pins it at its base.
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ from typing import Any
 
 import cruxible_provider_quant
 import pytest
-from cruxible_provider_quant.interfaces import INTERFACE_IDS, registration
+from cruxible_provider_quant import OPERATIONS
 from cruxible_provider_quant.numeric import decode_numbers
 from cruxible_provider_runtime.artifact import (
     ContainerBackendPin,
@@ -38,6 +36,7 @@ from cruxible_provider_runtime.binding import Binding, BindRequest, bind
 from cruxible_provider_runtime.cache import MaterializationCache
 from cruxible_provider_runtime.digests import materialization_digest
 from cruxible_provider_runtime.egress import EgressRecorder, write_child_guard
+from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
 from cruxible_provider_runtime.index import ArtifactFetcher, IndexConfig
 from cruxible_provider_runtime.manifest import (
     BackendKind,
@@ -47,7 +46,8 @@ from cruxible_provider_runtime.manifest import (
 )
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
-from cruxible_provider_runtime.registry import StubRegistry, load_bucket_vocabulary
+from cruxible_provider_runtime.registration import load_registration
+from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_runtime.resolution import (
     MarkerEnvironment,
     ResolvedSet,
@@ -58,13 +58,13 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
+    register_package,
 )
 
 PACKAGE_DIR = Path(cruxible_provider_quant.__file__).resolve().parent.parent.parent
 REPO_ROOT = PACKAGE_DIR.parent.parent
 RUNTIME_SRC = REPO_ROOT / "packages" / "cruxible-provider-runtime" / "src"
 QUANT_SRC = PACKAGE_DIR / "src"
-VOCAB_DIR = REPO_ROOT / "vocab" / "interfaces"
 
 PROVIDER_ID = "cruxible-provider-quant"
 DISTRIBUTION_SHA256 = "sha256:" + "5c" * 32
@@ -184,19 +184,10 @@ def accepted_artifact(
 # --------------------------------------------------------------------------
 
 
-def seed_interfaces(stub: StubRegistry) -> StubRegistry:
-    """Register all seven launch interfaces from the committed vocabularies."""
-
-    for interface_id in INTERFACE_IDS:
-        vocabulary = load_bucket_vocabulary(VOCAB_DIR / f"{interface_id}.yaml")
-        stub.register_interface(registration(interface_id, vocabulary))
-    return stub
-
-
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
-    stub = seed_interfaces(StubRegistry())
-    stub.register_provider(accepted_artifact)
+    stub = StubRegistry()
+    register_package(stub, accepted_artifact, cruxible_provider_quant.PACKAGE_ROOT)
     return stub
 
 
@@ -251,8 +242,8 @@ def egress_guard_root(tmp_path: Path) -> Path:
     return write_child_guard(tmp_path / "egress-guard")
 
 
-def bind_interface(
-    interface_id: str,
+def bind_operation(
+    operation: str,
     backend_kind: BackendKind,
     registry: StubRegistry,
     manifest_path: Path,
@@ -264,7 +255,7 @@ def bind_interface(
         registry,
         BindRequest(
             provider_id=PROVIDER_ID,
-            interface_id=interface_id,
+            operation=operation,
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -281,38 +272,24 @@ def bind_interface(
 # --------------------------------------------------------------------------
 
 
-def entrypoint(interface_id: str) -> Any:
+def entrypoint(operation: str) -> Any:
     """Resolve one implementation the way the child harness would."""
 
     import importlib
 
-    from cruxible_provider_quant.interfaces import INTERFACE_PREIMAGES
-
-    assert interface_id in INTERFACE_PREIMAGES
-    path = _ENTRYPOINTS[interface_id]
-    module_name, _, object_name = path.partition(":")
-    return getattr(importlib.import_module(module_name), object_name)()
-
-
-_ENTRYPOINTS = {
-    "calc.calibrate": "cruxible_provider_quant.calibrate:Calibrate",
-    "calc.reduce": "cruxible_provider_quant.reduce:Reduce",
-    "match.record": "cruxible_provider_quant.linkage:RecordLinkage",
-    "score.rank": "cruxible_provider_quant.rank:Rank",
-    "stat.test": "cruxible_provider_quant.stat_test:StatTest",
-    "ts.anomaly": "cruxible_provider_quant.anomaly:Anomaly",
-    "ts.forecast": "cruxible_provider_quant.forecast:Forecast",
-}
+    module_name, _, object_name = OPERATIONS[operation].partition(":")
+    provider = getattr(importlib.import_module(module_name), object_name)()
+    assert operation in provider.operations
+    return provider
 
 
 def run_in_process(
-    interface_id: str,
+    operation: str,
     payload: dict[str, Any],
     *,
-    registry: StubRegistry | None = None,
     secrets: dict[str, str] | None = None,
 ) -> ProviderResult:
-    """Invoke one implementation directly, with admission still enforced.
+    """Invoke one implementation directly, under the laws a bound run obeys.
 
     The full bind-and-invoke loop is exercised on both backend kinds in
     ``test_full_loop.py``. Everything else runs in process: spawning a child per
@@ -320,30 +297,40 @@ def run_in_process(
     and the executor-side behaviour it would re-test is the runtime's, already
     covered by the runtime's own suite and by the reference provider's.
 
-    Admission is still real. The bucket is derived by the registered classifier
-    from the actual payload and checked against what the manifest claims, so an
-    in-process run cannot slip past a bucket a bound run would refuse.
+    Two of those laws still hold here. A runtime refusal raised by the provider
+    comes back as a refused result, as the child renders it; and an operation
+    refusal the registration does not declare for this operation raises
+    ``undeclared_refusal``, as the executor would.
     """
 
     from cruxible_provider_quant import MANIFEST_PATH
 
-    stub = registry if registry is not None else seed_interfaces(StubRegistry())
-    manifest = load_manifest(MANIFEST_PATH)
-    implementation = manifest.implementation(interface_id)
-    bucket = stub.admit(interface_id, implementation.declared_input_buckets, payload)
+    declared = load_registration(cruxible_provider_quant.PACKAGE_ROOT).operation(operation)
+    implementation = load_manifest(MANIFEST_PATH).implementation(declared.entrypoint)
     context = ProviderRunContext(
         run_id="run-in-process",
-        interface_id=interface_id,
-        interface_digest=implementation.interface_digest,
+        operation=operation,
+        operation_signature_digest="sha256:" + "51" * 32,
+        build_digest="sha256:" + "b1" * 32,
         implementation_digest="sha256:" + "11" * 32,
-        input_bucket=bucket,
         input=payload,
         coordinates={},
         budgets=BUDGETS,
         declared_endpoints=implementation.declared_endpoints,
-        capture_contract=implementation.capture_contract_families[0],
+        capture_contract=None,
         secrets=dict(secrets or {}),
         egress=EgressRecorder(),
     )
-    result = entrypoint(interface_id)(context)
+    try:
+        result = entrypoint(operation)(context)
+    except RefusalError as exc:
+        return ProviderResult(status="refused", refusal=exc.refusal)
+    refusal = result.refusal
+    if refusal is not None and not refusal.is_runtime and refusal.code not in declared.refusals:
+        raise refuse(
+            RefusalCode.UNDECLARED_REFUSAL,
+            f"operation {operation!r} declares no refusal {refusal.code!r}",
+            operation=operation,
+            refused_code=refusal.code,
+        )
     return replace(result, output=decode_numbers(result.output))

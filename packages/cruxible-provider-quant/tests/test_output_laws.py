@@ -7,10 +7,9 @@ starts asking for a credential breaks the build rather than shipping.
 1. **No generic confidence score.** Scanned recursively over every output, keys
    and values alike, because "confidence" arriving as a string in a
    ``score_kind`` would be the same law broken by a different route.
-2. **Grade is the CaptureContract's.** No ``grade`` key anywhere, and every
-   declared capture-contract family is a ``derived`` family. A forecast, an
-   anomaly flag, a rank, and a linkage score are derived readings; a provider
-   that graded itself would be self-certifying.
+2. **Grade is the CaptureContract's.** No ``grade`` key anywhere. A forecast,
+   an anomaly flag, a rank, and a linkage score are derived readings; a
+   provider that graded itself would be self-certifying.
 3. **No secrets, no endpoints.** Pure computation: nothing here needs a
    credential or a network, so nothing here may quietly acquire one.
 """
@@ -23,9 +22,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from cruxible_provider_quant.interfaces import INTERFACE_IDS
+from cruxible_provider_quant import OPERATIONS, PACKAGE_ROOT
 from cruxible_provider_runtime.canonical import canonical_json
 from cruxible_provider_runtime.manifest import ProviderManifest
+from cruxible_provider_runtime.registration import load_registration
 
 from .conftest import run_in_process
 from .fixtures import FIXTURES
@@ -70,7 +70,7 @@ def _keys(document: Any) -> set[str]:
 @pytest.mark.parametrize("fixture", FIXTURES, ids=IDS)
 def test_no_output_carries_a_generic_confidence_or_a_grade(fixture: object) -> None:
     result = run_in_process(
-        fixture.interface_id,  # type: ignore[attr-defined]
+        fixture.operation,  # type: ignore[attr-defined]
         fixture.payload,  # type: ignore[attr-defined]
     )
     assert result.status == "ok"
@@ -196,33 +196,21 @@ def test_the_scan_leaves_prose_and_real_components_alone(source: str) -> None:
     assert not declared_field_names(source) & BANNED_KEYS
 
 
-def test_every_declared_capture_contract_family_is_a_derived_family(
-    manifest: ProviderManifest,
-) -> None:
-    for implementation in manifest.implementations:
-        assert implementation.capture_contract_families
-        for family in implementation.capture_contract_families:
-            assert family.startswith(f"{implementation.interface_id}.capture."), family
-            assert family.endswith(".derived.v1"), (
-                f"{family} is not a derived family; a forecast, an anomaly flag, a "
-                "rank, and a linkage score are never observed"
-            )
-
-
 def test_every_implementation_declares_zero_endpoints(manifest: ProviderManifest) -> None:
     for implementation in manifest.implementations:
         assert implementation.declared_endpoints == ()
 
 
-def test_every_implementation_declares_itself_deterministic_and_side_effect_free(
+def test_every_implementation_declares_itself_deterministic_and_pure(
     manifest: ProviderManifest,
 ) -> None:
     """Honest flags: nothing here reaches the network or writes anything."""
 
-    assert {impl.interface_id for impl in manifest.implementations} == set(INTERFACE_IDS)
+    assert {impl.entrypoint for impl in manifest.implementations} == set(OPERATIONS.values())
     for implementation in manifest.implementations:
         assert implementation.deterministic is True
-        assert implementation.side_effects is False
+    for operation in load_registration(PACKAGE_ROOT).operations:
+        assert operation.effect == "pure", operation.name
 
 
 def test_no_implementation_reads_a_credential() -> None:
@@ -238,11 +226,11 @@ def test_no_implementation_reads_a_credential() -> None:
 def test_a_delivered_credential_changes_nothing(fixture: object) -> None:
     """Behaviourally, so a future implementation cannot read one another way."""
 
-    interface_id = fixture.interface_id  # type: ignore[attr-defined]
+    operation = fixture.operation  # type: ignore[attr-defined]
     payload = fixture.payload  # type: ignore[attr-defined]
-    without = run_in_process(interface_id, payload)
+    without = run_in_process(operation, payload)
     with_secret = run_in_process(
-        interface_id, payload, secrets={"quant.unused_credential": "c0ffee-do-not-use"}
+        operation, payload, secrets={"quant.unused_credential": "c0ffee-do-not-use"}
     )
     assert canonical_json(without.output) == canonical_json(with_secret.output)
     assert "c0ffee-do-not-use" not in canonical_json(with_secret.output).decode("utf-8")
@@ -252,9 +240,9 @@ def test_the_linkage_output_never_carries_a_merge_decision() -> None:
     """Linkage proposes; identity decisions are governed elsewhere."""
 
     for fixture in FIXTURES:
-        if fixture.interface_id != "match.record":
+        if fixture.operation != "match.record":
             continue
-        result = run_in_process(fixture.interface_id, fixture.payload)
+        result = run_in_process(fixture.operation, fixture.payload)
         assert result.output is not None
         assert result.output["review_required"] is True
         rendered = canonical_json(result.output).decode("utf-8")
@@ -272,32 +260,32 @@ def test_every_score_travels_with_the_scale_it_lives_on(fixture: object) -> None
     interval, declared parameters for a match weight.
     """
 
-    interface_id = fixture.interface_id  # type: ignore[attr-defined]
-    result = run_in_process(interface_id, fixture.payload)  # type: ignore[attr-defined]
+    operation = fixture.operation  # type: ignore[attr-defined]
+    result = run_in_process(operation, fixture.payload)  # type: ignore[attr-defined]
     output = result.output
     assert output is not None
-    if interface_id == "score.rank":
+    if operation == "score.rank":
         assert output["score_kind"] in {
             "weighted_sum",
             "decision_function",
             "positive_class_probability",
         }
         assert output["objective"]
-    elif interface_id == "ts.anomaly":
+    elif operation == "ts.anomaly":
         assert output["scale_estimate"]["kind"] in {"median_absolute_deviation", "none"}
         assert output["threshold"]["kind"] in {"modified_z", "declared_changepoint_count"}
-    elif interface_id == "ts.forecast":
+    elif operation == "ts.forecast":
         assert output["prediction_intervals"]
         assert all(entry["level"] for entry in output["prediction_intervals"])
-    elif interface_id == "stat.test":
+    elif operation == "stat.test":
         assert output["statistic_kind"]
         assert output["alpha"]
-    elif interface_id == "match.record":
+    elif operation == "match.record":
         assert output["engine"]["parameters"] == "declared"
         assert output["prior_match_probability"]
-    elif interface_id == "calc.calibrate":
+    elif operation == "calc.calibrate":
         assert output["bin_edges"]
         assert output["outcome_type"] == "binary"
     else:
-        assert interface_id == "calc.reduce"
+        assert operation == "calc.reduce"
         assert output["reduction_kind"]

@@ -14,7 +14,6 @@ from decimal import Decimal, InvalidOperation
 from functools import wraps
 from typing import Any, TypeVar
 
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 SelfT = TypeVar("SelfT")
@@ -71,26 +70,13 @@ def canonical_call(
         try:
             payload = decode_numbers(context.input)
         except ValueError as exc:
-            return ProviderResult.refused(RefusalCode.INVALID_PARAMETER, str(exc))
+            return ProviderResult.refused("invalid_parameter", str(exc))
         result = method(self, replace(context, input=payload))
         if result.output is not None:
             try:
                 return replace(result, output=encode_numbers(result.output))
             except ValueError as exc:
-                return ProviderResult.refused(RefusalCode.NON_FINITE_RESULT, str(exc))
+                return ProviderResult.refused("non_finite_result", str(exc))
         return result
 
     return invoke
-
-
-def numeric_classifier(
-    classifier: Callable[[Mapping[str, Any]], Mapping[str, str] | None],
-) -> Callable[[Mapping[str, Any]], Mapping[str, str] | None]:
-    @wraps(classifier)
-    def classify(payload: Mapping[str, Any]) -> Mapping[str, str] | None:
-        try:
-            return classifier(decode_numbers(payload))
-        except ValueError:
-            return None
-
-    return classify

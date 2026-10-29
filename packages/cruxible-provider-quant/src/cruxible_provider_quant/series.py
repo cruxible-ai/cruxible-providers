@@ -1,11 +1,8 @@
-"""Shared time-series parsing, used by the implementations and the classifiers.
+"""Shared time-series parsing, used by the time-series implementations.
 
 A series arrives as a list of ``{"timestamp": ..., "value": ...}`` records. The
-timestamps are not decoration: the classifier derives the ``frequency`` bucket
-from the spacing between them, and a bucket derived from the actual input is the
-only kind the contract allows. A payload that carried bare values would leave
-frequency unmeasurable, and an implementation that then declared a frequency
-would be claiming a bucket rather than being measured into one.
+timestamps are not decoration: a series is a sequence in time, and a payload
+that carried bare values would leave its spacing unknowable.
 
 Timestamps are accepted as ISO-8601 strings or as numeric epoch seconds, and are
 normalised to float seconds. Naive ISO timestamps are read as UTC — stated
@@ -15,14 +12,12 @@ on the machine's zone.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from itertools import pairwise
 from typing import Any
 
-__all__ = ["Series", "parse_series", "spacing_seconds"]
+__all__ = ["Series", "parse_series"]
 
 
 @dataclass(frozen=True)
@@ -58,9 +53,8 @@ def _timestamp_seconds(raw: Any) -> float | None:
 def parse_series(payload: Mapping[str, Any]) -> Series | None:
     """Parse ``payload['series']``, or return ``None`` if it is not a series.
 
-    ``None`` is the classifier's "I cannot place this input", which the registry
-    turns into ``unclassified_input`` rather than a guess. The implementations
-    call this too, so a malformed series can never reach an engine.
+    ``None`` means "this is not a series"; the implementations decline it
+    typed, so a malformed series can never reach an engine.
     """
 
     raw = payload.get("series")
@@ -92,16 +86,3 @@ def parse_series(payload: Mapping[str, Any]) -> Series | None:
         values=tuple(values),
         missing_indices=tuple(missing),
     )
-
-
-def spacing_seconds(timestamps: Sequence[float]) -> tuple[float, float] | None:
-    """Mean spacing and its coefficient of variation, or ``None`` if undefined."""
-
-    if len(timestamps) < 2:
-        return None
-    gaps = [later - earlier for earlier, later in pairwise(timestamps)]
-    mean = sum(gaps) / len(gaps)
-    if mean <= 0:
-        return None
-    variance = sum((gap - mean) ** 2 for gap in gaps) / len(gaps)
-    return mean, math.sqrt(variance) / mean

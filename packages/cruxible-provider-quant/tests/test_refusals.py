@@ -1,9 +1,9 @@
 """Every rule this plane declines under has a raise site and a named test.
 
-Same discipline as the runtime taxonomy's standing check, over the subset of it
-that a quantitative implementation may reach for: a rule nobody raises is a rule
-that has drifted away from the code, and the fail-closed paths are exactly the
-ones nobody takes by accident.
+The plane's operations declare their own refusals, drawn from one closed set
+(``refusals.QUANT_DECLINES``): a rule nobody raises is a rule that has drifted
+away from the code, and the fail-closed paths are exactly the ones nobody takes
+by accident.
 
 The last test in this file is the enforcement. It is static — a code counts as
 exercised when a test above names it — which is weaker than tracing raises at
@@ -18,22 +18,37 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from cruxible_provider_quant.refusals import QUANT_DECLINES, decline
+from cruxible_provider_quant.refusals import (
+    DECLARED_FAMILY_MISMATCH,
+    DEGENERATE_SCALE,
+    INSUFFICIENT_SERIES_LENGTH,
+    INVALID_PARAMETER,
+    MALFORMED_MODEL_REF,
+    MISMATCHED_LENGTHS,
+    NON_FINITE_INPUT,
+    NON_FINITE_RESULT,
+    QUANT_DECLINES,
+    UNDECLARED_MATCH_PARAMETERS,
+    UNKNOWN_COLUMN,
+    UNKNOWN_METHOD,
+    UNKNOWN_TEST_NAME,
+    UNSUPPORTED_AGGREGATION,
+    decline,
+)
 from cruxible_provider_runtime.errors import RefusalCode
 
 from .conftest import run_in_process
 from .fixtures import FIXTURES
 
 
-def _declined(interface_id: str, payload: dict[str, Any]) -> RefusalCode:
+def _declined(operation: str, payload: dict[str, Any]) -> str:
     """The rule a run declined under, read off the refusal's own code.
 
-    It used to be read out of ``detail['reason']``, because the plane carried a
-    second enum and had to smuggle it through a generic ``provider_declined``.
-    The taxonomy carries these codes now, so the code is the reason.
+    ``run_in_process`` refuses a code the operation does not declare, so a code
+    returned here is also one the registration declares for ``operation``.
     """
 
-    result = run_in_process(interface_id, payload)
+    result = run_in_process(operation, payload)
     assert result.status == "refused", result.output
     assert result.refusal is not None
     assert result.refusal.code in QUANT_DECLINES
@@ -50,25 +65,25 @@ def _fixture(fixture_id: str) -> dict[str, Any]:
 
 
 def test_a_series_too_short_for_its_declared_period_refuses() -> None:
-    """The raise site is inside a *claimed* bucket, which is the point.
+    """A well-formed series, too short for the period it declares.
 
-    A 40-point series is ``series_length=short`` and admitted; STL at period 24
-    needs 48 observations. Admission cannot know that — the seasonal period is a
-    modelling parameter, not a bucket dimension — so the implementation is the
-    only thing positioned to refuse, and it does so by name.
+    STL at period 24 needs 48 observations and this one has 40. The seasonal
+    period is a modelling parameter the input Contract cannot relate to the
+    series length, so the implementation is the only thing positioned to
+    refuse, and it does so by name.
     """
 
     payload = _fixture("quant-anomaly-counts")
     payload["series"] = payload["series"][:40]
     payload["season_length"] = 24
-    assert _declined("ts.anomaly", payload) is RefusalCode.INSUFFICIENT_SERIES_LENGTH
+    assert _declined("ts.anomaly", payload) == INSUFFICIENT_SERIES_LENGTH
 
 
 def test_a_forecast_series_too_short_for_its_period_refuses() -> None:
     payload = _fixture("quant-forecast-short-counts")
     payload["series"] = payload["series"][:30]
     payload["season_length"] = 24
-    assert _declined("ts.forecast", payload) is RefusalCode.INSUFFICIENT_SERIES_LENGTH
+    assert _declined("ts.forecast", payload) == INSUFFICIENT_SERIES_LENGTH
 
 
 def test_a_non_finite_observation_refuses() -> None:
@@ -76,7 +91,7 @@ def test_a_non_finite_observation_refuses() -> None:
     series = [dict(record) for record in payload["series"]]
     series[5]["value"] = float("inf")
     payload["series"] = series
-    assert _declined("ts.anomaly", payload) is RefusalCode.NON_FINITE_INPUT
+    assert _declined("ts.anomaly", payload) == NON_FINITE_INPUT
 
 
 def test_a_constant_residual_scale_refuses_rather_than_dividing_by_zero() -> None:
@@ -86,7 +101,7 @@ def test_a_constant_residual_scale_refuses_rather_than_dividing_by_zero() -> Non
     payload["series"] = [
         {"timestamp": record["timestamp"], "value": 7.0} for record in payload["series"]
     ]
-    assert _declined("ts.anomaly", payload) is RefusalCode.DEGENERATE_SCALE
+    assert _declined("ts.anomaly", payload) == DEGENERATE_SCALE
 
 
 def test_a_paired_test_with_unequal_groups_refuses() -> None:
@@ -95,7 +110,7 @@ def test_a_paired_test_with_unequal_groups_refuses() -> None:
         "after": payload["samples"]["after"],
         "before": payload["samples"]["before"][:30],
     }
-    assert _declined("stat.test", payload) is RefusalCode.MISMATCHED_LENGTHS
+    assert _declined("stat.test", payload) == MISMATCHED_LENGTHS
 
 
 # --------------------------------------------------------------------------
@@ -106,19 +121,19 @@ def test_a_paired_test_with_unequal_groups_refuses() -> None:
 def test_an_unknown_anomaly_method_refuses() -> None:
     payload = _fixture("quant-anomaly-counts")
     payload["method"] = "isolation_forest"
-    assert _declined("ts.anomaly", payload) is RefusalCode.UNKNOWN_METHOD
+    assert _declined("ts.anomaly", payload) == UNKNOWN_METHOD
 
 
 def test_an_unknown_forecast_model_refuses() -> None:
     payload = _fixture("quant-forecast-short-counts")
     payload["model"] = "prophet"
-    assert _declined("ts.forecast", payload) is RefusalCode.UNKNOWN_METHOD
+    assert _declined("ts.forecast", payload) == UNKNOWN_METHOD
 
 
 def test_an_unknown_rank_mode_refuses() -> None:
     payload = _fixture("quant-rank-small")
     payload["mode"] = "learned_to_rank"
-    assert _declined("score.rank", payload) is RefusalCode.UNKNOWN_METHOD
+    assert _declined("score.rank", payload) == UNKNOWN_METHOD
 
 
 def test_an_unknown_test_name_is_never_substituted() -> None:
@@ -126,19 +141,19 @@ def test_an_unknown_test_name_is_never_substituted() -> None:
 
     payload = _fixture("quant-stat-location-independent")
     payload["test"] = "the_obviously_right_one"
-    assert _declined("stat.test", payload) is RefusalCode.UNKNOWN_TEST_NAME
+    assert _declined("stat.test", payload) == UNKNOWN_TEST_NAME
 
 
 def test_a_declared_family_that_does_not_match_the_test_refuses() -> None:
     payload = _fixture("quant-stat-location-independent")
     payload["test_family"] = "variance"
-    assert _declined("stat.test", payload) is RefusalCode.DECLARED_FAMILY_MISMATCH
+    assert _declined("stat.test", payload) == DECLARED_FAMILY_MISMATCH
 
 
 def test_an_unsupported_aggregation_refuses() -> None:
     payload = _fixture("quant-reduce-small")
     payload["aggregations"] = [{"column": "amount", "function": "kurtosis"}]
-    assert _declined("calc.reduce", payload) is RefusalCode.UNSUPPORTED_AGGREGATION
+    assert _declined("calc.reduce", payload) == UNSUPPORTED_AGGREGATION
 
 
 def test_an_unsupported_window_function_refuses() -> None:
@@ -151,7 +166,7 @@ def test_an_unsupported_window_function_refuses() -> None:
         "function": "median",
         "size": 3,
     }
-    assert _declined("calc.reduce", payload) is RefusalCode.UNSUPPORTED_AGGREGATION
+    assert _declined("calc.reduce", payload) == UNSUPPORTED_AGGREGATION
 
 
 # --------------------------------------------------------------------------
@@ -162,19 +177,19 @@ def test_an_unsupported_window_function_refuses() -> None:
 def test_an_aggregation_on_a_missing_column_refuses() -> None:
     payload = _fixture("quant-reduce-small")
     payload["aggregations"] = [{"column": "not_a_column", "function": "sum"}]
-    assert _declined("calc.reduce", payload) is RefusalCode.UNKNOWN_COLUMN
+    assert _declined("calc.reduce", payload) == UNKNOWN_COLUMN
 
 
 def test_a_weight_naming_a_signal_no_item_carries_refuses() -> None:
     payload = _fixture("quant-rank-small")
     payload["weights"] = {**payload["weights"], "reachability": 1.0}
-    assert _declined("score.rank", payload) is RefusalCode.UNKNOWN_COLUMN
+    assert _declined("score.rank", payload) == UNKNOWN_COLUMN
 
 
 def test_a_comparison_on_a_field_the_records_lack_refuses() -> None:
     payload = _fixture("quant-linkage-strong-blocking")
     payload["comparisons"] = [{"field": "postcode", "m_probability": 0.9, "u_probability": 0.01}]
-    assert _declined("match.record", payload) is RefusalCode.UNKNOWN_COLUMN
+    assert _declined("match.record", payload) == UNKNOWN_COLUMN
 
 
 # --------------------------------------------------------------------------
@@ -216,7 +231,7 @@ def test_an_unpinned_model_reference_refuses(pinned_model: tuple[Path, str]) -> 
         "feature_order": ["severity", "exposure", "age_days"],
         "score_kind": "decision_function",
     }
-    assert _declined("score.rank", payload) is RefusalCode.MALFORMED_MODEL_REF
+    assert _declined("score.rank", payload) == MALFORMED_MODEL_REF
 
 
 def test_a_model_whose_bytes_do_not_match_its_pin_is_an_integrity_refusal(
@@ -241,7 +256,8 @@ def test_a_model_whose_bytes_do_not_match_its_pin_is_an_integrity_refusal(
     assert result.refusal is not None
     # An integrity event, not a capability decline. It must be countable apart
     # from the shape failures above, so it wears the taxonomy's own name.
-    assert result.refusal.code is RefusalCode.ARTIFACT_HASH_MISMATCH
+    assert result.refusal.code == RefusalCode.ARTIFACT_HASH_MISMATCH
+    assert result.refusal.is_runtime
     assert result.refusal.detail["pinned"] == pin
     assert result.refusal.detail["observed"] != pin
     assert result.refusal.code not in QUANT_DECLINES
@@ -268,7 +284,7 @@ def test_a_missing_model_file_declines_rather_than_reporting_tampering(
         "feature_order": ["severity", "exposure", "age_days"],
         "score_kind": "decision_function",
     }
-    assert _declined("score.rank", payload) is RefusalCode.MALFORMED_MODEL_REF
+    assert _declined("score.rank", payload) == MALFORMED_MODEL_REF
 
 
 def test_a_correctly_pinned_model_scores(pinned_model: tuple[Path, str]) -> None:
@@ -303,13 +319,13 @@ def test_linkage_without_a_declared_prior_refuses() -> None:
 
     payload = _fixture("quant-linkage-strong-blocking")
     payload.pop("prior_match_probability")
-    assert _declined("match.record", payload) is RefusalCode.UNDECLARED_MATCH_PARAMETERS
+    assert _declined("match.record", payload) == UNDECLARED_MATCH_PARAMETERS
 
 
 def test_linkage_without_declared_m_and_u_refuses() -> None:
     payload = _fixture("quant-linkage-strong-blocking")
     payload["comparisons"] = [{"field": "surname", "m_probability": 0.9}]
-    assert _declined("match.record", payload) is RefusalCode.UNDECLARED_MATCH_PARAMETERS
+    assert _declined("match.record", payload) == UNDECLARED_MATCH_PARAMETERS
 
 
 # --------------------------------------------------------------------------
@@ -318,23 +334,23 @@ def test_linkage_without_declared_m_and_u_refuses() -> None:
 
 
 @pytest.mark.parametrize(
-    ("interface_id", "mutation"),
+    ("operation", "mutation"),
     [
         pytest.param("ts.anomaly", {"threshold_modified_z": -1.0}, id="negative-threshold"),
         pytest.param("ts.anomaly", {"season_length": 1}, id="degenerate-period"),
     ],
 )
 def test_an_out_of_range_anomaly_parameter_refuses(
-    interface_id: str, mutation: dict[str, Any]
+    operation: str, mutation: dict[str, Any]
 ) -> None:
     payload = {**_fixture("quant-anomaly-counts"), **mutation}
-    assert _declined(interface_id, payload) is RefusalCode.INVALID_PARAMETER
+    assert _declined(operation, payload) == INVALID_PARAMETER
 
 
 def test_an_alpha_outside_the_unit_interval_refuses() -> None:
     payload = _fixture("quant-stat-location-independent")
     payload["alpha"] = 5.0
-    assert _declined("stat.test", payload) is RefusalCode.INVALID_PARAMETER
+    assert _declined("stat.test", payload) == INVALID_PARAMETER
 
 
 def test_a_probability_outside_the_unit_interval_refuses() -> None:
@@ -342,7 +358,7 @@ def test_a_probability_outside_the_unit_interval_refuses() -> None:
     records = [dict(record) for record in payload["predictions"]]
     records[3]["prediction"] = 1.4
     payload["predictions"] = records
-    assert _declined("calc.calibrate", payload) is RefusalCode.INVALID_PARAMETER
+    assert _declined("calc.calibrate", payload) == INVALID_PARAMETER
 
 
 def test_a_non_finite_prediction_refuses() -> None:
@@ -350,13 +366,13 @@ def test_a_non_finite_prediction_refuses() -> None:
     records = [dict(record) for record in payload["predictions"]]
     records[2]["prediction"] = float("nan")
     payload["predictions"] = records
-    assert _declined("calc.calibrate", payload) is RefusalCode.NON_FINITE_INPUT
+    assert _declined("calc.calibrate", payload) == NON_FINITE_INPUT
 
 
 def test_a_forecast_horizon_outside_the_cap_refuses() -> None:
     payload = _fixture("quant-forecast-medium-continuous")
     payload["horizon"] = 100_000
-    assert _declined("ts.forecast", payload) is RefusalCode.INVALID_PARAMETER
+    assert _declined("ts.forecast", payload) == INVALID_PARAMETER
 
 
 def test_a_non_finite_signal_refuses() -> None:
@@ -364,7 +380,7 @@ def test_a_non_finite_signal_refuses() -> None:
     items = [dict(item) for item in payload["items"]]
     items[0] = {**items[0], "signals": {**items[0]["signals"], "severity": float("inf")}}
     payload["items"] = items
-    assert _declined("score.rank", payload) is RefusalCode.NON_FINITE_INPUT
+    assert _declined("score.rank", payload) == NON_FINITE_INPUT
 
 
 def test_a_non_finite_sample_observation_refuses() -> None:
@@ -372,7 +388,7 @@ def test_a_non_finite_sample_observation_refuses() -> None:
     samples = {key: list(values) for key, values in payload["samples"].items()}
     samples["a"][0] = float("nan")
     payload["samples"] = samples
-    assert _declined("stat.test", payload) is RefusalCode.NON_FINITE_INPUT
+    assert _declined("stat.test", payload) == NON_FINITE_INPUT
 
 
 def test_two_constant_samples_decline_rather_than_reporting_a_nan_conclusion() -> None:
@@ -387,7 +403,7 @@ def test_two_constant_samples_decline_rather_than_reporting_a_nan_conclusion() -
 
     payload = _fixture("quant-stat-location-independent")
     payload["samples"] = {"a": [4.0] * 12, "b": [4.0] * 12}
-    assert _declined("stat.test", payload) is RefusalCode.NON_FINITE_RESULT
+    assert _declined("stat.test", payload) == NON_FINITE_RESULT
 
 
 def test_an_unanswerable_question_declines_rather_than_erroring() -> None:
@@ -410,13 +426,13 @@ def test_bin_edges_that_leave_part_of_the_probability_domain_uncovered_refuse() 
 
     payload = _fixture("quant-calibrate-balanced")
     payload["bin_edges"] = [0.2, 0.5, 0.8]
-    assert _declined("calc.calibrate", payload) is RefusalCode.INVALID_PARAMETER
+    assert _declined("calc.calibrate", payload) == INVALID_PARAMETER
 
 
 def test_non_finite_bin_edges_refuse() -> None:
     payload = _fixture("quant-calibrate-balanced")
     payload["bin_edges"] = [0.0, 0.5, float("inf")]
-    assert _declined("calc.calibrate", payload) is RefusalCode.NON_FINITE_INPUT
+    assert _declined("calc.calibrate", payload) == NON_FINITE_INPUT
 
 
 # --------------------------------------------------------------------------
@@ -427,9 +443,7 @@ def test_non_finite_bin_edges_refuse() -> None:
 def test_every_rule_this_plane_declines_under_is_asserted_by_a_named_test() -> None:
     source = Path(__file__).read_text(encoding="utf-8")
     body = source.split("# the standing check")[0]
-    unexercised = sorted(
-        code.name for code in QUANT_DECLINES if f"RefusalCode.{code.name}" not in body
-    )
+    unexercised = sorted(code for code in QUANT_DECLINES if f"== {code.upper()}" not in body)
     assert not unexercised, (
         "these decline rules are not asserted by any test above: "
         f"{unexercised}. Either exercise the path or remove the rule."
@@ -437,12 +451,14 @@ def test_every_rule_this_plane_declines_under_is_asserted_by_a_named_test() -> N
 
 
 def test_the_plane_cannot_decline_under_a_rule_that_is_not_its_own() -> None:
-    """Most of the taxonomy is the executor's, and a provider may not speak for it.
+    """The runtime's codes are the runtime's, and a provider may not speak for it.
 
     A provider reporting ``cache_integrity`` would be making a judgement it is
     not positioned to make, and a track record would count it against the wrong
-    thing.
+    thing. Neither may it decline under a code no operation here declares.
     """
 
     with pytest.raises(ValueError, match="is not a rule this plane declines under"):
         decline(RefusalCode.CACHE_INTEGRITY, "not this plane's to report")
+    with pytest.raises(ValueError, match="is not a rule this plane declines under"):
+        decline("provider_declined", "not a rule any operation here declares")

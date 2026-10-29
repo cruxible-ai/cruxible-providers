@@ -1,12 +1,12 @@
 """The bind-and-invoke loop for all seven implementations, on both backend kinds.
 
-One representative fixture per interface, run end to end through a real child
+One representative fixture per operation, run end to end through a real child
 process: the provider module is imported in the child, the engine runs for real,
-and the typed result comes back across a pipe. The per-bucket fixtures and the
+and the typed result comes back across a pipe. The other fixtures and the
 numerical assertions run in process — see ``run_in_process`` in ``conftest`` for
 why — but every implementation is proved to survive the protocol here.
 
-The cheapest fixture per interface is chosen deliberately. Fourteen child
+The cheapest fixture per operation is chosen deliberately. Fourteen child
 processes each importing a numerical engine is the expensive part of this
 suite, and repeating it for every fixture would buy coverage of the runtime, not
 of this package.
@@ -17,14 +17,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from cruxible_provider_quant.interfaces import INTERFACE_IDS
+from cruxible_provider_quant import OPERATIONS
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.registry import StubRegistry
 
-from .conftest import BACKENDS, BUDGETS, bind_interface
+from .conftest import BACKENDS, BUDGETS, bind_operation
 from .fixtures import FIXTURES
 
 REPRESENTATIVE = {
@@ -45,10 +45,10 @@ CASES = [
 ]
 
 
-def test_every_interface_has_a_representative() -> None:
+def test_every_operation_has_a_representative() -> None:
     """A new implementation must not slip in without a full-loop case."""
 
-    assert set(REPRESENTATIVE) == set(INTERFACE_IDS)
+    assert set(REPRESENTATIVE) == set(OPERATIONS)
     assert {fixture.fixture_id for fixture in FIXTURES} >= set(REPRESENTATIVE.values())
 
 
@@ -62,9 +62,9 @@ def test_success_path_on_both_backends(
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    interface_id = fixture.interface_id  # type: ignore[attr-defined]
-    binding = bind_interface(
-        interface_id,
+    operation = fixture.operation  # type: ignore[attr-defined]
+    binding = bind_operation(
+        operation,
         backend,
         registry,
         manifest_path,
@@ -81,7 +81,8 @@ def test_success_path_on_both_backends(
         container_backend=container_backend,
     )
     assert outcome.status == "ok", outcome.envelope.model_dump()
-    assert outcome.input_bucket == fixture.expected_bucket  # type: ignore[attr-defined]
+    assert outcome.operation == operation
+    assert outcome.operation_signature_digest == binding.operation_signature_digest
     assert outcome.envelope.output is not None
     # Pure computation: zero declared endpoints, zero observed.
     assert outcome.egress.observed == ()
@@ -105,7 +106,7 @@ def test_a_chatty_engine_does_not_corrupt_the_result_envelope(
     """
 
     fixture = next(f for f in FIXTURES if f.fixture_id == "quant-linkage-weak-blocking")
-    binding = bind_interface(
+    binding = bind_operation(
         "match.record",
         "local_env",
         registry,
@@ -139,9 +140,9 @@ def test_the_implementation_digest_is_identical_across_backends(
 ) -> None:
     """A backend switch must never split earned track record."""
 
-    for interface_id in INTERFACE_IDS:
-        local = bind_interface(
-            interface_id,
+    for operation in OPERATIONS:
+        local = bind_operation(
+            operation,
             "local_env",
             registry,
             manifest_path,
@@ -149,8 +150,8 @@ def test_the_implementation_digest_is_identical_across_backends(
             local_backend,
             container_backend,
         )
-        container = bind_interface(
-            interface_id,
+        container = bind_operation(
+            operation,
             "container",
             registry,
             manifest_path,
@@ -162,7 +163,7 @@ def test_the_implementation_digest_is_identical_across_backends(
         assert local.materialization_digest != container.materialization_digest
 
 
-def test_each_interface_gets_its_own_implementation_digest(
+def test_each_operation_gets_its_own_implementation_digest(
     registry: StubRegistry,
     manifest_path: Path,
     lock_path: Path,
@@ -176,14 +177,14 @@ def test_each_interface_gets_its_own_implementation_digest(
     """
 
     bindings: dict[str, Binding] = {
-        interface_id: bind_interface(
-            interface_id, "local_env", registry, manifest_path, lock_path, local_backend
+        operation: bind_operation(
+            operation, "local_env", registry, manifest_path, lock_path, local_backend
         )
-        for interface_id in INTERFACE_IDS
+        for operation in OPERATIONS
     }
     implementations = {b.implementation_digest for b in bindings.values()}
     materializations = {b.materialization_digest for b in bindings.values()}
-    assert len(implementations) == len(INTERFACE_IDS)
+    assert len(implementations) == len(OPERATIONS)
     assert len(materializations) == 1
 
 
@@ -193,13 +194,16 @@ def test_the_binding_snapshot_carries_all_three_identity_levels(
     lock_path: Path,
     local_backend: LocalEnvBackend,
 ) -> None:
-    binding = bind_interface(
+    binding = bind_operation(
         "calc.reduce", "local_env", registry, manifest_path, lock_path, local_backend
     )
     snapshot = binding.snapshot()
     assert snapshot["implementation_digest"] == binding.implementation_digest
     assert snapshot["materialization_digest"] == binding.materialization_digest
-    assert snapshot["protocol_version"] == "1.0"
+    assert snapshot["protocol_version"] == "2.0"
+    assert snapshot["operation"] == "calc.reduce"
+    assert snapshot["operation_signature_digest"] == binding.operation_signature_digest
+    assert snapshot["build_digest"] == binding.build_digest
     # This suite binds with the dev escape hatch, because the package depends on
     # the runtime by path. The snapshot says so rather than staying silent.
     assert snapshot["dev_sources_permitted"] is True

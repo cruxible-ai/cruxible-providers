@@ -38,12 +38,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .numeric import canonical_call
 from .outputs import ok_if_finite
-from .refusals import decline
+from .refusals import (
+    DECLARED_FAMILY_MISMATCH,
+    INVALID_PARAMETER,
+    MISMATCHED_LENGTHS,
+    NON_FINITE_INPUT,
+    UNKNOWN_TEST_NAME,
+    decline,
+)
 
 __all__ = ["TESTS", "StatTest", "StatTestSpec"]
 
@@ -89,7 +95,7 @@ _ALTERNATIVES = ("two-sided", "less", "greater")
 class StatTest:
     """Execute one declared statistical test and report its assumptions."""
 
-    interface_id = "stat.test"
+    operations = ("stat.test",)
 
     @canonical_call
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
@@ -98,7 +104,7 @@ class StatTest:
         name = payload.get("test")
         if not isinstance(name, str) or name not in TESTS:
             return decline(
-                RefusalCode.UNKNOWN_TEST_NAME,
+                UNKNOWN_TEST_NAME,
                 f"test {name!r} is not one this implementation runs; nothing is substituted for it",
                 supported=sorted(TESTS),
             )
@@ -107,7 +113,7 @@ class StatTest:
         declared_family = payload.get("test_family")
         if declared_family != spec.family:
             return decline(
-                RefusalCode.DECLARED_FAMILY_MISMATCH,
+                DECLARED_FAMILY_MISMATCH,
                 f"test {name!r} belongs to the {spec.family!r} family, and "
                 f"{declared_family!r} was declared",
                 test=name,
@@ -118,7 +124,7 @@ class StatTest:
         alpha = payload.get("alpha")
         if isinstance(alpha, bool) or not isinstance(alpha, int | float) or not 0.0 < alpha < 1.0:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "alpha must be a number strictly between 0 and 1",
                 alpha=alpha,
             )
@@ -127,7 +133,7 @@ class StatTest:
         alternative = payload.get("alternative", "two-sided")
         if alternative not in _ALTERNATIVES:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 f"alternative must be one of {list(_ALTERNATIVES)}",
                 alternative=alternative,
             )
@@ -144,41 +150,39 @@ class StatTest:
     def _samples(payload: Any, spec: StatTestSpec) -> list[list[float]] | ProviderResult:
         raw = payload.get("samples")
         if not isinstance(raw, Mapping) or not raw:
-            return decline(
-                RefusalCode.INVALID_PARAMETER, "samples must be a non-empty object of groups"
-            )
+            return decline(INVALID_PARAMETER, "samples must be a non-empty object of groups")
         groups: list[list[float]] = []
         for key in sorted(raw):
             values = raw[key]
             if not isinstance(values, Sequence) or isinstance(values, str | bytes) or not values:
                 return decline(
-                    RefusalCode.INVALID_PARAMETER,
+                    INVALID_PARAMETER,
                     f"sample group {key!r} must be a non-empty array of numbers",
                 )
             numbers: list[float] = []
             for value in values:
                 if isinstance(value, bool) or not isinstance(value, int | float):
                     return decline(
-                        RefusalCode.INVALID_PARAMETER,
+                        INVALID_PARAMETER,
                         f"sample group {key!r} carries a non-numeric observation",
                     )
                 if not math.isfinite(float(value)):
                     return decline(
-                        RefusalCode.NON_FINITE_INPUT,
+                        NON_FINITE_INPUT,
                         f"sample group {key!r} carries a non-finite observation",
                     )
                 numbers.append(float(value))
             groups.append(numbers)
         if len(groups) != spec.groups:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 f"this test takes {spec.groups} sample group(s), and {len(groups)} were given",
                 groups=len(groups),
                 required=spec.groups,
             )
         if spec.paired and len({len(group) for group in groups}) != 1:
             return decline(
-                RefusalCode.MISMATCHED_LENGTHS,
+                MISMATCHED_LENGTHS,
                 "a paired test needs its groups to be the same length",
                 lengths=[len(group) for group in groups],
             )
@@ -208,7 +212,7 @@ class StatTest:
 
         if statistic is None or p_value is None:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 f"test {name!r} could not be computed on the samples as given",
                 test=name,
             )

@@ -20,13 +20,12 @@ nothing else — no clusters, no merge instructions, no surviving-record choice.
 ``review_required`` is ``true`` on every response, because deciding that two
 records are the same entity is a governed act that happens through the pathway
 that already exists for it. A linkage score is evidence brought to that
-decision; it is not the decision, and this interface has no spelling for making
+decision; it is not the decision, and this operation has no spelling for making
 one.
 
-The trained variant of this slot — same interface, same track-record key, m/u
-estimated from confirmed matches — is a different implementation with its own
-digest, and it will claim the ``label_availability=partial`` and ``labeled``
-buckets this one deliberately does not.
+The trained variant of this operation — the same signature, m/u estimated from
+confirmed matches — is a different implementation with its own digest, serving
+labelled inputs this one deliberately does not model.
 """
 
 from __future__ import annotations
@@ -35,12 +34,16 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .numeric import canonical_call
 from .outputs import ok_if_finite
-from .refusals import decline
+from .refusals import (
+    INVALID_PARAMETER,
+    UNDECLARED_MATCH_PARAMETERS,
+    UNKNOWN_COLUMN,
+    decline,
+)
 
 __all__ = ["DEFAULT_THRESHOLD", "RecordLinkage"]
 
@@ -51,7 +54,7 @@ DEFAULT_THRESHOLD = 0.0
 class RecordLinkage:
     """Score candidate record pairs with a declared Fellegi-Sunter model."""
 
-    interface_id = "match.record"
+    operations = ("match.record",)
 
     @canonical_call
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
@@ -59,21 +62,19 @@ class RecordLinkage:
 
         records = payload.get("records")
         if not isinstance(records, Sequence) or isinstance(records, str | bytes) or not records:
-            return decline(RefusalCode.INVALID_PARAMETER, "records must be a non-empty array")
+            return decline(INVALID_PARAMETER, "records must be a non-empty array")
         if not all(isinstance(record, Mapping) for record in records):
-            return decline(RefusalCode.INVALID_PARAMETER, "each record must be an object")
+            return decline(INVALID_PARAMETER, "each record must be an object")
 
         identifier_field = payload.get("unique_id_field", "unique_id")
         if not isinstance(identifier_field, str) or not identifier_field:
-            return decline(
-                RefusalCode.INVALID_PARAMETER, "unique_id_field must be a non-empty string"
-            )
+            return decline(INVALID_PARAMETER, "unique_id_field must be a non-empty string")
         missing_id = [
             index for index, record in enumerate(records) if identifier_field not in record
         ]
         if missing_id:
             return decline(
-                RefusalCode.UNKNOWN_COLUMN,
+                UNKNOWN_COLUMN,
                 f"records carry no {identifier_field!r} field",
                 unique_id_field=identifier_field,
                 positions=missing_id[:5],
@@ -82,7 +83,7 @@ class RecordLinkage:
         prior = payload.get("prior_match_probability")
         if isinstance(prior, bool) or not isinstance(prior, int | float) or not 0.0 < prior < 1.0:
             return decline(
-                RefusalCode.UNDECLARED_MATCH_PARAMETERS,
+                UNDECLARED_MATCH_PARAMETERS,
                 "prior_match_probability must be declared, strictly between 0 and 1; the "
                 "engine's default prior is a parameter nobody chose",
                 prior_match_probability=prior,
@@ -99,7 +100,7 @@ class RecordLinkage:
         unknown_blocking = [field for field in blocking_fields if field not in columns]
         if unknown_blocking:
             return decline(
-                RefusalCode.UNKNOWN_COLUMN,
+                UNKNOWN_COLUMN,
                 f"blocking_fields name columns the records do not carry: {unknown_blocking}",
                 columns=sorted(str(name) for name in columns),
             )
@@ -111,7 +112,7 @@ class RecordLinkage:
             or not 0.0 <= threshold <= 1.0
         ):
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "threshold_match_probability must be a number in [0, 1]",
                 threshold_match_probability=threshold,
             )
@@ -133,16 +134,16 @@ class RecordLinkage:
     ) -> list[tuple[str, float, float]] | ProviderResult:
         raw = payload.get("comparisons")
         if not isinstance(raw, Sequence) or isinstance(raw, str | bytes) or not raw:
-            return decline(RefusalCode.INVALID_PARAMETER, "comparisons must be a non-empty array")
+            return decline(INVALID_PARAMETER, "comparisons must be a non-empty array")
         columns = {name for record in records for name in record}
         parsed: list[tuple[str, float, float]] = []
         for comparison in raw:
             if not isinstance(comparison, Mapping):
-                return decline(RefusalCode.INVALID_PARAMETER, "each comparison must be an object")
+                return decline(INVALID_PARAMETER, "each comparison must be an object")
             field = comparison.get("field")
             if not isinstance(field, str) or field not in columns:
                 return decline(
-                    RefusalCode.UNKNOWN_COLUMN,
+                    UNKNOWN_COLUMN,
                     f"comparison names field {field!r}, which the records do not carry",
                     columns=sorted(str(name) for name in columns),
                 )
@@ -156,7 +157,7 @@ class RecordLinkage:
                     or not math.isfinite(float(value))
                 ):
                     return decline(
-                        RefusalCode.UNDECLARED_MATCH_PARAMETERS,
+                        UNDECLARED_MATCH_PARAMETERS,
                         f"comparison on {field!r} must declare {key} strictly between 0 "
                         "and 1; this implementation never estimates them",
                         field=field,
@@ -203,16 +204,12 @@ class RecordLinkage:
                 )
                 for field, m, u in comparisons
             ],
-            # Defensive, and unreachable today. An empty ``blocking_fields``
-            # classifies to ``blocking=none``, which this implementation does
-            # not claim, so admission refuses with ``unclaimed_bucket`` before
-            # anything gets here — an unblocked cross product is a different
-            # scaling problem and is left to an implementation that says so.
-            # The fallback stays because it is the *correct* rule if that bucket
-            # is ever claimed (``block_on("1")`` is the full cross product,
-            # which is exactly what ``blocking=none`` means), and because an
-            # empty rule list would otherwise reach splink as a silent
-            # misconfiguration rather than as an explicit choice.
+            # An empty ``blocking_fields`` means no blocking: ``block_on("1")``
+            # is the full cross product, stated explicitly, because an empty
+            # rule list would otherwise reach splink as a silent
+            # misconfiguration rather than as a choice. Nothing classifies the
+            # input any more, so how large a pair space a run may ask for is
+            # the operation's input Contract's to bound, not this code's.
             blocking_rules_to_generate_predictions=[block_on(field) for field in blocking_fields]
             or [block_on("1")],
             retain_intermediate_calculation_columns=True,
@@ -252,7 +249,7 @@ class RecordLinkage:
                 "candidate_pair_count": len(pairs),
                 "pairs": pairs,
                 # Standing, and not a computed field. A linkage score is evidence
-                # brought to a governed identity decision; this interface has no
+                # brought to a governed identity decision; this operation has no
                 # spelling for making one.
                 "review_required": True,
                 "engine": {

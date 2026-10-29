@@ -38,10 +38,10 @@ SOURCE_DIR = Path(__file__).resolve().parent.parent / "src" / "cruxible_provider
 
 @pytest.mark.parametrize("fixture", FIXTURES, ids=IDS)
 def test_the_same_input_produces_byte_identical_output(fixture: object) -> None:
-    interface_id = fixture.interface_id  # type: ignore[attr-defined]
+    operation = fixture.operation  # type: ignore[attr-defined]
     payload = fixture.payload  # type: ignore[attr-defined]
-    first = run_in_process(interface_id, payload)
-    second = run_in_process(interface_id, payload)
+    first = run_in_process(operation, payload)
+    second = run_in_process(operation, payload)
     assert first.status == second.status == "ok"
     assert canonical_json(first.output) == canonical_json(second.output)
 
@@ -55,11 +55,11 @@ def test_reordering_nothing_is_left_to_iteration_order(fixture: object) -> None:
     result — a group order, a column order, a pair order — would be free to move.
     """
 
-    interface_id = fixture.interface_id  # type: ignore[attr-defined]
+    operation = fixture.operation  # type: ignore[attr-defined]
     payload = fixture.payload  # type: ignore[attr-defined]
     rebuilt = dict(reversed(list(payload.items())))
-    first = run_in_process(interface_id, payload)
-    third = run_in_process(interface_id, rebuilt)
+    first = run_in_process(operation, payload)
+    third = run_in_process(operation, rebuilt)
     assert canonical_json(first.output) == canonical_json(third.output)
 
 

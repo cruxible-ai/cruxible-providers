@@ -1,12 +1,10 @@
-"""The per-bucket conformance fixtures, one per declared selector.
+"""Behavioural fixtures: representative payloads each operation answers.
 
-A claimed bucket without a passing conformance fixture refuses at registration.
-This module is the other half of that rule: every selector the manifest declares
-appears here exactly once, with a payload that classifies into a bucket the
-selector matches and that the implementation actually answers.
-``test_bucket_conformance.py`` asserts both directions — no fixture without a
-claim, no claim without a fixture — so the manifest and this file cannot drift
-apart in either direction.
+Every operation has at least one, chosen to reach a distinct regime of its
+implementation (small and medium relations, each anomaly domain, short and
+medium series, every test family, ties, blocking strength, base rates). The
+behavioural suites — determinism, implementations, output laws, egress and the
+full loop — run over these.
 
 All synthetic data is generated from a **closed-form deterministic** pseudo-noise
 (``0.1 * sin(i * 12.9898)``) rather than from a seeded random generator. A seeded
@@ -75,13 +73,11 @@ def _spiked(values: list[float], at: int, by: float) -> list[float]:
 
 @dataclass(frozen=True)
 class Fixture:
-    """One conformance fixture: the selector it discharges and its payload."""
+    """One behavioural fixture: the operation it runs and its payload."""
 
-    interface_id: str
-    selector: str
+    operation: str
     fixture_id: str
     payload: dict[str, Any]
-    expected_bucket: str
 
 
 # --------------------------------------------------------------------------
@@ -139,8 +135,8 @@ _PAIRED_Y = [2.0 * index + 3.0 + noise(index + 50, 1.5) for index in range(40)]
 def _rank_items(count: int, *, distinct: int) -> list[dict[str, Any]]:
     """``distinct`` signal vectors spread over ``count`` items.
 
-    Setting ``distinct`` below ``count`` is how the ``heavy_ties`` bucket becomes
-    reachable: items sharing a signal vector must score identically under any
+    Setting ``distinct`` below ``count`` is how heavy ties become reachable:
+    items sharing a signal vector must score identically under any
     deterministic scorer, so the ordering among them is decided by the declared
     tie-break rule rather than by the objective — which is the case worth having
     a fixture for.
@@ -170,9 +166,9 @@ _CITIES = ["york", "leeds", "hull", "derby", "exeter"]
 def _linkage_records(count: int, *, one_block: bool) -> list[dict[str, Any]]:
     """Records with a planted duplicate every tenth pair.
 
-    ``one_block`` puts every record in a single blocking key so that the largest
-    block exceeds the strong-blocking threshold, which is what makes the
-    ``blocking=weak`` bucket reachable without inventing a second dataset.
+    ``one_block`` puts every record in a single blocking key so that one block
+    holds every candidate pair, which is what makes weak blocking reachable
+    without inventing a second dataset.
     """
 
     records: list[dict[str, Any]] = []
@@ -229,8 +225,7 @@ _CALIBRATE_IMBALANCED_Y = [float(index % 20 == 0) for index in range(200)]
 
 FIXTURES: tuple[Fixture, ...] = (
     Fixture(
-        interface_id="calc.reduce",
-        selector="row_count=small;column_count=*;reduction_kind=*;memory_fit=in_memory",
+        operation="calc.reduce",
         fixture_id="quant-reduce-small",
         payload={
             "rows": _REDUCE_SMALL_ROWS,
@@ -240,14 +235,9 @@ FIXTURES: tuple[Fixture, ...] = (
                 {"column": "count", "function": "mean", "alias": "mean_count"},
             ],
         },
-        expected_bucket=(
-            "row_count=small;column_count=narrow;reduction_kind=grouped_aggregate;"
-            "memory_fit=in_memory"
-        ),
     ),
     Fixture(
-        interface_id="calc.reduce",
-        selector="row_count=medium;column_count=*;reduction_kind=*;memory_fit=in_memory",
+        operation="calc.reduce",
         fixture_id="quant-reduce-medium",
         payload={
             "rows": _REDUCE_MEDIUM_ROWS,
@@ -256,51 +246,27 @@ FIXTURES: tuple[Fixture, ...] = (
                 {"column": "value", "function": "max", "alias": "max_value"},
             ],
         },
-        expected_bucket=(
-            "row_count=medium;column_count=narrow;reduction_kind=scalar_aggregate;"
-            "memory_fit=in_memory"
-        ),
     ),
     Fixture(
-        interface_id="ts.anomaly",
-        selector=(
-            "frequency=*;series_length=short;series_count=single;domain_class=counts;"
-            "seasonality=*;gap_profile=regular"
-        ),
+        operation="ts.anomaly",
         fixture_id="quant-anomaly-counts",
         payload={
             "series": _series(_ANOMALY_COUNTS),
             "season_length": 7,
             "method": "stl_mad",
         },
-        expected_bucket=(
-            "frequency=daily;series_length=short;series_count=single;domain_class=counts;"
-            "seasonality=single_period;gap_profile=regular"
-        ),
     ),
     Fixture(
-        interface_id="ts.anomaly",
-        selector=(
-            "frequency=*;series_length=short;series_count=single;domain_class=rates;"
-            "seasonality=*;gap_profile=regular"
-        ),
+        operation="ts.anomaly",
         fixture_id="quant-anomaly-rates",
         payload={
             "series": _series(_ANOMALY_RATES),
             "season_length": 7,
             "method": "stl_mad",
         },
-        expected_bucket=(
-            "frequency=daily;series_length=short;series_count=single;domain_class=rates;"
-            "seasonality=single_period;gap_profile=regular"
-        ),
     ),
     Fixture(
-        interface_id="ts.anomaly",
-        selector=(
-            "frequency=*;series_length=short;series_count=single;"
-            "domain_class=continuous_bounded;seasonality=*;gap_profile=regular"
-        ),
+        operation="ts.anomaly",
         fixture_id="quant-anomaly-bounded",
         payload={
             "series": _series(_ANOMALY_BOUNDED),
@@ -309,17 +275,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "method": "changepoint",
             "changepoint_count": 2,
         },
-        expected_bucket=(
-            "frequency=daily;series_length=short;series_count=single;"
-            "domain_class=continuous_bounded;seasonality=single_period;gap_profile=regular"
-        ),
     ),
     Fixture(
-        interface_id="ts.anomaly",
-        selector=(
-            "frequency=*;series_length=short;series_count=single;"
-            "domain_class=continuous_unbounded;seasonality=*;gap_profile=regular"
-        ),
+        operation="ts.anomaly",
         fixture_id="quant-anomaly-unbounded",
         payload={
             "series": _series(_ANOMALY_UNBOUNDED),
@@ -327,17 +285,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "method": "stl_mad",
             "threshold_modified_z": 3.5,
         },
-        expected_bucket=(
-            "frequency=daily;series_length=short;series_count=single;"
-            "domain_class=continuous_unbounded;seasonality=single_period;gap_profile=regular"
-        ),
     ),
     Fixture(
-        interface_id="ts.forecast",
-        selector=(
-            "frequency=*;series_length=short;series_count=single;domain_class=counts;"
-            "horizon=*;exogenous=none"
-        ),
+        operation="ts.forecast",
         fixture_id="quant-forecast-short-counts",
         payload={
             "series": _series(_FORECAST_SHORT_COUNTS),
@@ -346,17 +296,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "model": "auto_ets",
             "interval_levels": [80, 95],
         },
-        expected_bucket=(
-            "frequency=daily;series_length=short;series_count=single;domain_class=counts;"
-            "horizon=very_short;exogenous=none"
-        ),
     ),
     Fixture(
-        interface_id="ts.forecast",
-        selector=(
-            "frequency=*;series_length=short;series_count=single;"
-            "domain_class=continuous_unbounded;horizon=*;exogenous=none"
-        ),
+        operation="ts.forecast",
         fixture_id="quant-forecast-short-continuous",
         payload={
             "series": _series(_FORECAST_SHORT_CONTINUOUS),
@@ -365,17 +307,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "model": "auto_arima",
             "interval_levels": [80, 95],
         },
-        expected_bucket=(
-            "frequency=daily;series_length=short;series_count=single;"
-            "domain_class=continuous_unbounded;horizon=short;exogenous=none"
-        ),
     ),
     Fixture(
-        interface_id="ts.forecast",
-        selector=(
-            "frequency=*;series_length=medium;series_count=single;domain_class=counts;"
-            "horizon=*;exogenous=none"
-        ),
+        operation="ts.forecast",
         fixture_id="quant-forecast-medium-counts",
         payload={
             "series": _series(_FORECAST_MEDIUM_COUNTS),
@@ -384,17 +318,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "model": "auto_ets",
             "interval_levels": [90],
         },
-        expected_bucket=(
-            "frequency=daily;series_length=medium;series_count=single;domain_class=counts;"
-            "horizon=medium;exogenous=none"
-        ),
     ),
     Fixture(
-        interface_id="ts.forecast",
-        selector=(
-            "frequency=*;series_length=medium;series_count=single;"
-            "domain_class=continuous_unbounded;horizon=*;exogenous=none"
-        ),
+        operation="ts.forecast",
         fixture_id="quant-forecast-medium-continuous",
         payload={
             "series": _series(_FORECAST_MEDIUM_CONTINUOUS),
@@ -403,14 +329,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "model": "auto_ets",
             "interval_levels": [80, 95],
         },
-        expected_bucket=(
-            "frequency=daily;series_length=medium;series_count=single;"
-            "domain_class=continuous_unbounded;horizon=short;exogenous=none"
-        ),
     ),
     Fixture(
-        interface_id="stat.test",
-        selector="test_family=location;sample_size=*;design=independent;dimensionality=univariate",
+        operation="stat.test",
         fixture_id="quant-stat-location-independent",
         payload={
             "test": "welch_t",
@@ -421,13 +342,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "declared_assumptions": ["independent_observations", "normality"],
             "samples": {"a": _GROUP_A, "b": _GROUP_B},
         },
-        expected_bucket=(
-            "test_family=location;sample_size=small;design=independent;dimensionality=univariate"
-        ),
     ),
     Fixture(
-        interface_id="stat.test",
-        selector="test_family=location;sample_size=*;design=paired;dimensionality=univariate",
+        operation="stat.test",
         fixture_id="quant-stat-location-paired",
         payload={
             "test": "paired_t",
@@ -437,15 +354,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "declared_assumptions": ["normality"],
             "samples": {"after": _GROUP_B, "before": _GROUP_A},
         },
-        expected_bucket=(
-            "test_family=location;sample_size=small;design=paired;dimensionality=univariate"
-        ),
     ),
     Fixture(
-        interface_id="stat.test",
-        selector=(
-            "test_family=proportion;sample_size=*;design=independent;dimensionality=univariate"
-        ),
+        operation="stat.test",
         fixture_id="quant-stat-proportion",
         payload={
             "test": "proportions_z",
@@ -455,13 +366,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "declared_assumptions": ["independent_observations"],
             "samples": {"control": _SUCCESSES_B, "treatment": _SUCCESSES_A},
         },
-        expected_bucket=(
-            "test_family=proportion;sample_size=small;design=independent;dimensionality=univariate"
-        ),
     ),
     Fixture(
-        interface_id="stat.test",
-        selector="test_family=variance;sample_size=*;design=independent;dimensionality=univariate",
+        operation="stat.test",
         fixture_id="quant-stat-variance",
         payload={
             "test": "levene",
@@ -471,13 +378,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "declared_assumptions": ["independent_observations"],
             "samples": {"narrow": _GROUP_A, "wide": _WIDE},
         },
-        expected_bucket=(
-            "test_family=variance;sample_size=small;design=independent;dimensionality=univariate"
-        ),
     ),
     Fixture(
-        interface_id="stat.test",
-        selector="test_family=association;sample_size=*;design=paired;dimensionality=univariate",
+        operation="stat.test",
         fixture_id="quant-stat-association",
         payload={
             "test": "pearson_r",
@@ -487,15 +390,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "declared_assumptions": ["normality"],
             "samples": {"x": _PAIRED_X, "y": _PAIRED_Y},
         },
-        expected_bucket=(
-            "test_family=association;sample_size=small;design=paired;dimensionality=univariate"
-        ),
     ),
     Fixture(
-        interface_id="stat.test",
-        selector=(
-            "test_family=distributional;sample_size=*;design=independent;dimensionality=univariate"
-        ),
+        operation="stat.test",
         fixture_id="quant-stat-distributional",
         payload={
             "test": "ks_2samp",
@@ -505,14 +402,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "declared_assumptions": ["independent_observations"],
             "samples": {"a": _GROUP_A, "b": _WIDE},
         },
-        expected_bucket=(
-            "test_family=distributional;sample_size=small;design=independent;"
-            "dimensionality=univariate"
-        ),
     ),
     Fixture(
-        interface_id="score.rank",
-        selector="candidate_count=small;signal_count=*;label_availability=*;tie_density=*",
+        operation="score.rank",
         fixture_id="quant-rank-small",
         payload={
             "mode": "weighted",
@@ -520,14 +412,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "items": _rank_items(20, distinct=20),
             "weights": {"severity": 3.0, "exposure": 2.0, "age_days": -0.1},
         },
-        expected_bucket=(
-            "candidate_count=small;signal_count=few;label_availability=unlabeled;"
-            "tie_density=sparse_ties"
-        ),
     ),
     Fixture(
-        interface_id="score.rank",
-        selector="candidate_count=medium;signal_count=*;label_availability=*;tie_density=*",
+        operation="score.rank",
         fixture_id="quant-rank-medium",
         payload={
             "mode": "weighted",
@@ -535,14 +422,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "items": _rank_items(400, distinct=20),
             "weights": {"severity": 3.0, "exposure": 2.0, "age_days": -0.1},
         },
-        expected_bucket=(
-            "candidate_count=medium;signal_count=few;label_availability=unlabeled;"
-            "tie_density=heavy_ties"
-        ),
     ),
     Fixture(
-        interface_id="match.record",
-        selector="pair_space=small;blocking=strong;field_richness=*;label_availability=unlabeled",
+        operation="match.record",
         fixture_id="quant-linkage-strong-blocking",
         payload={
             "records": _linkage_records(60, one_block=False),
@@ -551,14 +433,9 @@ FIXTURES: tuple[Fixture, ...] = (
             "prior_match_probability": 0.01,
             "threshold_match_probability": 0.5,
         },
-        expected_bucket=(
-            "pair_space=small;blocking=strong;field_richness=few_fields;"
-            "label_availability=unlabeled"
-        ),
     ),
     Fixture(
-        interface_id="match.record",
-        selector="pair_space=small;blocking=weak;field_richness=*;label_availability=unlabeled",
+        operation="match.record",
         fixture_id="quant-linkage-weak-blocking",
         payload={
             "records": _linkage_records(150, one_block=True),
@@ -570,39 +447,25 @@ FIXTURES: tuple[Fixture, ...] = (
             "prior_match_probability": 0.01,
             "threshold_match_probability": 0.9,
         },
-        expected_bucket=(
-            "pair_space=small;blocking=weak;field_richness=few_fields;label_availability=unlabeled"
-        ),
     ),
     Fixture(
-        interface_id="calc.calibrate",
-        selector="outcome_type=binary;sample_size=*;resolution_lag=*;base_rate=balanced",
+        operation="calc.calibrate",
         fixture_id="quant-calibrate-balanced",
         payload={
             "predictions": _settled(_CALIBRATE_BALANCED_P, _CALIBRATE_BALANCED_Y),
             "bin_count": 10,
         },
-        expected_bucket=(
-            "outcome_type=binary;sample_size=small;resolution_lag=immediate;base_rate=balanced"
-        ),
     ),
     Fixture(
-        interface_id="calc.calibrate",
-        selector=(
-            "outcome_type=binary;sample_size=*;resolution_lag=*;base_rate=moderate_imbalance"
-        ),
+        operation="calc.calibrate",
         fixture_id="quant-calibrate-imbalanced",
         payload={
             "predictions": _settled(_CALIBRATE_IMBALANCED_P, _CALIBRATE_IMBALANCED_Y),
             "bin_edges": [0.0, 0.05, 0.1, 0.25, 0.5, 1.0],
         },
-        expected_bucket=(
-            "outcome_type=binary;sample_size=moderate;resolution_lag=immediate;"
-            "base_rate=moderate_imbalance"
-        ),
     ),
 )
 
 
-def fixtures_for(interface_id: str) -> tuple[Fixture, ...]:
-    return tuple(fixture for fixture in FIXTURES if fixture.interface_id == interface_id)
+def fixtures_for(operation: str) -> tuple[Fixture, ...]:
+    return tuple(fixture for fixture in FIXTURES if fixture.operation == operation)

@@ -4,10 +4,9 @@ Engine: **Polars**, not DuckDB. The relation arrives as a typed payload over the
 protocol pipe and is in memory by the time the provider sees it, so a dataframe
 engine reduces it where it already is; DuckDB would mean standing up a database
 and registering a table to run one aggregate. DuckDB earns its place the moment
-this interface takes a *reference* to storage instead of the rows — an
-``out_of_core`` implementation is a different implementation with its own digest
-and its own claimed buckets, which is exactly how the bucket cube is meant to be
-divided.
+the operation takes a *reference* to storage instead of the rows — an
+out-of-core implementation is a different operation with its own input Contract
+and its own implementation digest.
 
 Determinism, concretely:
 
@@ -23,7 +22,7 @@ Determinism, concretely:
   ``POLARS_MAX_THREADS`` at import time and it is only effective if nothing in
   the process imported Polars first — so the *observed* pool size is reported in
   the output's ``engine`` block rather than the requested one. Measured, not
-  claimed, for the same reason buckets are.
+  claimed.
 """
 
 from __future__ import annotations
@@ -32,12 +31,16 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .numeric import canonical_call
 from .outputs import ok_if_finite
-from .refusals import decline
+from .refusals import (
+    INVALID_PARAMETER,
+    UNKNOWN_COLUMN,
+    UNSUPPORTED_AGGREGATION,
+    decline,
+)
 
 __all__ = ["AGGREGATIONS", "Reduce"]
 
@@ -55,7 +58,7 @@ WINDOW_FUNCTIONS: tuple[str, ...] = ("sum", "mean", "min", "max", "std")
 class Reduce:
     """Reduce a tabular payload to aggregates, in one of three shapes."""
 
-    interface_id = "calc.reduce"
+    operations = ("calc.reduce",)
 
     @canonical_call
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
@@ -64,7 +67,7 @@ class Reduce:
         payload = context.input
         rows = payload.get("rows")
         if not isinstance(rows, Sequence) or not rows:
-            return decline(RefusalCode.INVALID_PARAMETER, "rows must be a non-empty array")
+            return decline(INVALID_PARAMETER, "rows must be a non-empty array")
 
         frame = pl.DataFrame(list(rows))
         columns = set(frame.columns)
@@ -77,7 +80,7 @@ class Reduce:
         missing = [name for name in group_by if name not in columns]
         if missing:
             return decline(
-                RefusalCode.UNKNOWN_COLUMN,
+                UNKNOWN_COLUMN,
                 f"group_by names columns the relation does not carry: {missing}",
                 columns=sorted(columns),
                 missing=missing,
@@ -86,7 +89,7 @@ class Reduce:
         aggregations = payload.get("aggregations")
         if not isinstance(aggregations, Sequence) or not aggregations:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "a reduction without a window must name at least one aggregation",
             )
         expressions: list[Any] = []
@@ -127,18 +130,18 @@ class Reduce:
 
     def _aggregation(self, pl: Any, spec: Any, columns: set[str]) -> Any | ProviderResult:
         if not isinstance(spec, Mapping):
-            return decline(RefusalCode.INVALID_PARAMETER, "each aggregation must be an object")
+            return decline(INVALID_PARAMETER, "each aggregation must be an object")
         column = spec.get("column")
         function = spec.get("function")
         if not isinstance(column, str) or column not in columns:
             return decline(
-                RefusalCode.UNKNOWN_COLUMN,
+                UNKNOWN_COLUMN,
                 f"aggregation names column {column!r}, which the relation does not carry",
                 columns=sorted(columns),
             )
         if function not in AGGREGATIONS:
             return decline(
-                RefusalCode.UNSUPPORTED_AGGREGATION,
+                UNSUPPORTED_AGGREGATION,
                 f"aggregation function {function!r} is not supported",
                 supported=list(AGGREGATIONS),
             )
@@ -155,19 +158,19 @@ class Reduce:
         for name, value in (("column", column), ("order_by", order_by)):
             if not isinstance(value, str) or value not in columns:
                 return decline(
-                    RefusalCode.UNKNOWN_COLUMN,
+                    UNKNOWN_COLUMN,
                     f"window.{name} names {value!r}, which the relation does not carry",
                     columns=sorted(columns),
                 )
         if function not in WINDOW_FUNCTIONS:
             return decline(
-                RefusalCode.UNSUPPORTED_AGGREGATION,
+                UNSUPPORTED_AGGREGATION,
                 f"window function {function!r} is not supported",
                 supported=list(WINDOW_FUNCTIONS),
             )
         if isinstance(size, bool) or not isinstance(size, int) or size < 1:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "window.size must be an integer of at least 1",
                 size=size,
             )

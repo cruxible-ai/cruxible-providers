@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from cruxible_provider_quant.interfaces import INTERFACE_IDS
+from cruxible_provider_quant import OPERATIONS
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.egress import no_network
 from cruxible_provider_runtime.execute import invoke, observed_vs_declared
@@ -32,7 +32,7 @@ from cruxible_provider_runtime.manifest import ProviderManifest
 from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_runtime.testing import FakeContainerDriver, InjectedEnvironmentBuilder
 
-from .conftest import BUDGETS, bind_interface
+from .conftest import BUDGETS, bind_operation
 from .fixtures import FIXTURES
 from .test_full_loop import REPRESENTATIVE
 
@@ -69,7 +69,7 @@ def guard_the_child(
 
 
 def test_every_implementation_declares_zero_endpoints(manifest: ProviderManifest) -> None:
-    assert {impl.interface_id for impl in manifest.implementations} == set(INTERFACE_IDS)
+    assert {impl.entrypoint for impl in manifest.implementations} == set(OPERATIONS.values())
     for implementation in manifest.implementations:
         assert implementation.declared_endpoints == ()
 
@@ -83,8 +83,8 @@ def test_declared_equals_observed_with_sockets_blocked(
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
-    binding = bind_interface(
-        fixture.interface_id,  # type: ignore[attr-defined]
+    binding = bind_operation(
+        fixture.operation,  # type: ignore[attr-defined]
         "local_env",
         registry,
         manifest_path,
@@ -121,7 +121,7 @@ def test_the_engines_run_to_completion_with_no_socket_available(
     """
 
     fixture = next(f for f in FIXTURES if f.fixture_id == "quant-linkage-weak-blocking")
-    binding = bind_interface(
+    binding = bind_operation(
         "match.record",
         "container",
         registry,

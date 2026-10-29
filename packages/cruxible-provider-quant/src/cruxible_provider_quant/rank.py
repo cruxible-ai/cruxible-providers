@@ -28,8 +28,8 @@ cannot be served, not a file that has been altered.
 
 A *byte* mismatch says something else entirely. The file exists, it was read,
 and it is **not the artifact that was reviewed** — the one event on this path
-that is an integrity signal rather than a capability limit. That gets
-``RefusalCode.ARTIFACT_HASH_MISMATCH``, which the runtime taxonomy already
+that is an integrity signal rather than a capability limit. That raises
+the runtime's ``RefusalCode.ARTIFACT_HASH_MISMATCH``, which the runtime already
 defines for exactly this ("bytes do not hash to the pinned sha256"), so it
 reaches a receipt and a track record wearing its own name and can be counted
 apart from ordinary declines.
@@ -71,12 +71,19 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode
+from cruxible_provider_runtime.errors import RefusalCode, refuse
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .numeric import canonical_call
 from .outputs import ok_if_finite
-from .refusals import decline
+from .refusals import (
+    INVALID_PARAMETER,
+    MALFORMED_MODEL_REF,
+    NON_FINITE_INPUT,
+    UNKNOWN_COLUMN,
+    UNKNOWN_METHOD,
+    decline,
+)
 
 __all__ = ["MODES", "SCORE_KINDS", "TIE_BREAK", "Rank"]
 
@@ -93,7 +100,7 @@ _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 class Rank:
     """Order candidates by a computed score, against a declared objective."""
 
-    interface_id = "score.rank"
+    operations = ("score.rank",)
 
     @canonical_call
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
@@ -102,7 +109,7 @@ class Rank:
         objective = payload.get("objective")
         if not isinstance(objective, str) or not objective.strip():
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "an ordering needs a declared objective; a rank means nothing without one",
             )
 
@@ -117,7 +124,7 @@ class Rank:
             scored = self._pinned_model(payload, items)
         else:
             return decline(
-                RefusalCode.UNKNOWN_METHOD,
+                UNKNOWN_METHOD,
                 f"mode {mode!r} is not one this implementation performs",
                 supported=list(MODES),
             )
@@ -145,26 +152,24 @@ class Rank:
     def _items(payload: Any) -> list[tuple[str, Mapping[str, Any]]] | ProviderResult:
         raw = payload.get("items")
         if not isinstance(raw, Sequence) or isinstance(raw, str | bytes) or not raw:
-            return decline(RefusalCode.INVALID_PARAMETER, "items must be a non-empty array")
+            return decline(INVALID_PARAMETER, "items must be a non-empty array")
         items: list[tuple[str, Mapping[str, Any]]] = []
         seen: set[str] = set()
         for item in raw:
             if not isinstance(item, Mapping):
-                return decline(RefusalCode.INVALID_PARAMETER, "each item must be an object")
+                return decline(INVALID_PARAMETER, "each item must be an object")
             identifier = item.get("id")
             signals = item.get("signals")
             if not isinstance(identifier, str) or not identifier:
-                return decline(RefusalCode.INVALID_PARAMETER, "each item needs a string id")
+                return decline(INVALID_PARAMETER, "each item needs a string id")
             if identifier in seen:
                 return decline(
-                    RefusalCode.INVALID_PARAMETER,
+                    INVALID_PARAMETER,
                     f"item id {identifier!r} appears twice; an ordering needs distinct items",
                     id=identifier,
                 )
             if not isinstance(signals, Mapping) or not signals:
-                return decline(
-                    RefusalCode.INVALID_PARAMETER, "each item needs a non-empty signals object"
-                )
+                return decline(INVALID_PARAMETER, "each item needs a non-empty signals object")
             seen.add(identifier)
             items.append((identifier, signals))
         return items
@@ -177,7 +182,7 @@ class Rank:
         weights = payload.get("weights")
         if not isinstance(weights, Mapping) or not weights:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "weighted mode needs a non-empty weights object",
             )
         names = sorted(str(name) for name in weights)
@@ -185,11 +190,9 @@ class Rank:
         for name in names:
             weight = weights[name]
             if isinstance(weight, bool) or not isinstance(weight, int | float):
-                return decline(
-                    RefusalCode.INVALID_PARAMETER, f"weight for {name!r} is not a number"
-                )
+                return decline(INVALID_PARAMETER, f"weight for {name!r} is not a number")
             if not math.isfinite(float(weight)):
-                return decline(RefusalCode.NON_FINITE_INPUT, "every weight must be finite")
+                return decline(NON_FINITE_INPUT, "every weight must be finite")
             coefficients.append(float(weight))
 
         scores: list[float] = []
@@ -198,7 +201,7 @@ class Rank:
             for name, coefficient in zip(names, coefficients, strict=True):
                 if name not in signals:
                     return decline(
-                        RefusalCode.UNKNOWN_COLUMN,
+                        UNKNOWN_COLUMN,
                         f"item {identifier!r} carries no signal {name!r}, which the weights name",
                         id=identifier,
                         signal=name,
@@ -206,13 +209,11 @@ class Rank:
                 value = signals[name]
                 if isinstance(value, bool) or not isinstance(value, int | float):
                     return decline(
-                        RefusalCode.INVALID_PARAMETER,
+                        INVALID_PARAMETER,
                         f"signal {name!r} of item {identifier!r} is not a number",
                     )
                 if not math.isfinite(float(value)):
-                    return decline(
-                        RefusalCode.NON_FINITE_INPUT, "every signal value must be finite"
-                    )
+                    return decline(NON_FINITE_INPUT, "every signal value must be finite")
                 total += coefficient * float(value)
             scores.append(total)
         return "weighted_sum", names, scores, {"name": "weighted_sum", "signals": len(names)}
@@ -222,12 +223,10 @@ class Rank:
     ) -> tuple[str, list[str], list[float], dict[str, Any]] | ProviderResult:
         reference = payload.get("model_ref")
         if not isinstance(reference, Mapping):
-            return decline(
-                RefusalCode.MALFORMED_MODEL_REF, "pinned_model mode needs a model_ref object"
-            )
+            return decline(MALFORMED_MODEL_REF, "pinned_model mode needs a model_ref object")
         if reference.get("kind") != "pickled_sklearn":
             return decline(
-                RefusalCode.MALFORMED_MODEL_REF,
+                MALFORMED_MODEL_REF,
                 f"model_ref.kind {reference.get('kind')!r} is not supported",
                 supported=["pickled_sklearn"],
             )
@@ -236,17 +235,17 @@ class Rank:
         score_kind = reference.get("score_kind")
         order = reference.get("feature_order")
         if not isinstance(path, str) or not path:
-            return decline(RefusalCode.MALFORMED_MODEL_REF, "model_ref needs a path")
+            return decline(MALFORMED_MODEL_REF, "model_ref needs a path")
         if not isinstance(pin, str) or not _SHA256.match(pin):
             return decline(
-                RefusalCode.MALFORMED_MODEL_REF,
+                MALFORMED_MODEL_REF,
                 "model_ref needs a sha256:<hex> pin; an unpinned model reference is a "
                 "trust decision nobody made",
             )
         model_score_kinds = tuple(kind for kind in SCORE_KINDS if kind != "weighted_sum")
         if score_kind not in model_score_kinds:
             return decline(
-                RefusalCode.MALFORMED_MODEL_REF,
+                MALFORMED_MODEL_REF,
                 f"model_ref.score_kind {score_kind!r} is not a named scale",
                 supported=list(model_score_kinds),
             )
@@ -257,7 +256,7 @@ class Rank:
             or not all(isinstance(name, str) for name in order)
         ):
             return decline(
-                RefusalCode.MALFORMED_MODEL_REF,
+                MALFORMED_MODEL_REF,
                 "model_ref needs an explicit feature_order; column order read off a "
                 "dictionary is not a contract",
             )
@@ -269,18 +268,19 @@ class Rank:
             # A shape failure, not an integrity one: a file that is not there
             # has not been altered, it was never supplied.
             return decline(
-                RefusalCode.MALFORMED_MODEL_REF,
+                MALFORMED_MODEL_REF,
                 f"model_ref path could not be read: {exc.strerror}",
                 path=path,
             )
         observed = "sha256:" + hashlib.sha256(blob).hexdigest()
         if observed != pin:
-            # The integrity signal. Not a decline: the runtime taxonomy already
-            # names this event, and it has to be countable apart from the
+            # The integrity signal. Not a decline: the runtime's own codes
+            # already name this event, and it has to be countable apart from the
             # capability limits above — a provider that cannot serve a request
             # and a provider handed an artifact nobody approved are different
-            # things for a track record to have seen.
-            return ProviderResult.refused(
+            # things for a track record to have seen. Raised, because a runtime
+            # code is never an operation's to return.
+            raise refuse(
                 RefusalCode.ARTIFACT_HASH_MISMATCH,
                 "the model file does not hash to its pin; this is not the artifact that "
                 "was reviewed",
@@ -295,7 +295,7 @@ class Rank:
             for name in feature_order:
                 if name not in signals:
                     return decline(
-                        RefusalCode.UNKNOWN_COLUMN,
+                        UNKNOWN_COLUMN,
                         f"item {identifier!r} carries no signal {name!r}, which the "
                         "model's feature_order names",
                         id=identifier,
@@ -304,13 +304,11 @@ class Rank:
                 value = signals[name]
                 if isinstance(value, bool) or not isinstance(value, int | float):
                     return decline(
-                        RefusalCode.INVALID_PARAMETER,
+                        INVALID_PARAMETER,
                         f"signal {name!r} of item {identifier!r} is not a number",
                     )
                 if not math.isfinite(float(value)):
-                    return decline(
-                        RefusalCode.NON_FINITE_INPUT, "every signal value must be finite"
-                    )
+                    return decline(NON_FINITE_INPUT, "every signal value must be finite")
                 row.append(float(value))
             rows.append(row)
 
