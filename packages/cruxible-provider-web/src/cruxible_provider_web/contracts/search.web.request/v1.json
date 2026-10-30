@@ -1,0 +1,35 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "One query to the configured search instance. The instance and the evaluation instant are run configuration, not request fields.",
+  "fields": {
+    "language": {
+      "optional": true,
+      "type": {
+        "kind": "string",
+        "min_len": 1
+      }
+    },
+    "limit": {
+      "optional": true,
+      "type": {
+        "kind": "int",
+        "min": 1
+      }
+    },
+    "max_age_hours": {
+      "optional": true,
+      "type": {
+        "kind": "int",
+        "min": 1
+      }
+    },
+    "query": {
+      "type": {
+        "kind": "string",
+        "pattern": "^\\s*\\S[\\s\\S]*$"
+      }
+    }
+  },
+  "name": "search.web.request",
+  "version": 1
+}

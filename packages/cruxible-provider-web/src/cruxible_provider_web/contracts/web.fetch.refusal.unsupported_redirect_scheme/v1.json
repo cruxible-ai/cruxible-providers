@@ -1,0 +1,18 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of an unsupported_redirect_scheme refusal: the URL that redirected and the non-http(s) URL it named.",
+  "fields": {
+    "redirect_to": {
+      "type": {
+        "kind": "string"
+      }
+    },
+    "url": {
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "web.fetch.refusal.unsupported_redirect_scheme",
+  "version": 1
+}

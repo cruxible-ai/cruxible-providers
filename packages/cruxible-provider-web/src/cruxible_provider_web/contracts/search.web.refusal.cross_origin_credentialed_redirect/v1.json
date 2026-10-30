@@ -1,0 +1,18 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of a cross_origin_credentialed_redirect refusal: the origin an authenticated request was at, and the different origin it was sent to.",
+  "fields": {
+    "redirect_to": {
+      "type": {
+        "kind": "string"
+      }
+    },
+    "url": {
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "search.web.refusal.cross_origin_credentialed_redirect",
+  "version": 1
+}

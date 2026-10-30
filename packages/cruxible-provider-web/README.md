@@ -174,13 +174,24 @@ it.
 
 `registration.json` declares both operations (runtime protocol 2.0). Each names
 its input and output Contracts by `name@N` — the install pins them to the
-versions accepted at its base, a kit ships the bodies — and declares the typed
-refusals it may return, each with a detail Contract:
+versions accepted at its base — and declares the typed refusals it may return,
+each with a detail Contract:
 
 | Operation | In | Out | Effect | Refusals |
 |---|---|---|---|---|
 | `search.web` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
 | `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `engine_unavailable` |
+
+This package ships the bodies of all fifteen, and of the three nested Contracts
+they pin (`web.capture.coordinate@1`, the zero-field `web.capture.selector@1`,
+and `web.capture.source_effective_time@1`), under
+`src/cruxible_provider_web/contracts/<name>/v1.json`. Each file is the exact
+member Core accepts at `contracts/<name>/v1.json`; accept
+`cruxible_provider_web.contract_members()` before installing the package.
+`scripts/render_web_contracts.py` renders them from definitions derived from the
+adapters' code, with Core's Contract model. Optional fields are absent keys,
+never `null`: the shared result omits `source_effective_time` when the adapter
+states no validity window, and a refusal detail omits what it cannot name.
 
 A credential the run names but did not deliver (`credential_unavailable`), an
 instance outside the declaration (`undeclared_instance`) and a missing browser

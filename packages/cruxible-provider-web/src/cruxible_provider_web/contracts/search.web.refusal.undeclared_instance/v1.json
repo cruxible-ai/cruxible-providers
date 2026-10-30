@@ -1,0 +1,41 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of an undeclared_instance refusal: the implementation, the instance origin the run named, and what the accepted declaration carries.",
+  "fields": {
+    "declared": {
+      "type": {
+        "item": {
+          "kind": "string"
+        },
+        "kind": "list",
+        "max_items": 256
+      }
+    },
+    "dynamic_forms": {
+      "type": {
+        "item": {
+          "kind": "enum",
+          "members": [
+            "dynamic:target-from-configuration",
+            "dynamic:target-from-run-input"
+          ]
+        },
+        "kind": "list",
+        "max_items": 2
+      }
+    },
+    "implementation_digest": {
+      "type": {
+        "kind": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "instance": {
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "search.web.refusal.undeclared_instance",
+  "version": 1
+}

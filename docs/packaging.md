@@ -240,6 +240,7 @@ deliberate, separate act.
 | `container/Dockerfile` | The container backend's build, when the package declares that backend |
 | `container/provenance.md` | The four provenance fields the executor checks |
 | `src/<module>/recordings/` | Recorded exchanges or engine responses the default lane replays |
+| `src/<module>/contracts/` | Optional: the bodies of the Contracts the operations pin, as accepted-tree members |
 | `tests/` | The conformance suite, which every plane package inherits. No `__init__.py` |
 
 ### Reading registration metadata
@@ -257,9 +258,16 @@ the package name, version, extras, and that the `cruxible.providers` entry
 points are exactly the registered operations (one per operation, named by it).
 Neither function installs, authorizes, or accepts a provider.
 
-The package names Contracts by `name@N` and ships neither their bodies nor
-their digests: the install pins each to the version accepted at its base (a kit
-ships them), and a Line binds one exact `{build, operation}`. An operation's
+The registration names Contracts by `name@N` and carries no digests: the
+install pins each to the version accepted at its base, and a Line binds one
+exact `{build, operation}`. The bodies travel either with a kit or with the
+package itself: a package that ships them puts each under
+`src/<module>/contracts/<name>/v<N>.json` as the exact accepted-tree member Core
+stores at `contracts/<name>/v<N>.json` (canonical JSON, every nested pin
+carrying its digest), and the operator accepts them as ordinary members before
+installing. `cruxible-provider-web` ships all of its Contracts this way
+(`cruxible_provider_web.contract_members()`, rendered by
+`scripts/render_web_contracts.py`). An operation's
 `refusals` are its whole refusal vocabulary, each with a detail Contract; there
 is no shared decline vocabulary, and the runtime's own closed codes are
 reserved for runtime conditions. An operation's `effect` (`pure`,

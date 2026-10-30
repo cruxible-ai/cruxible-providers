@@ -342,3 +342,47 @@ assert not any(name.startswith("cruxible_provider_") for name in sys.modules)
         [core_python, "-c", code], input=canonical_json(cases), capture_output=True
     )
     assert result.returncode == 0, result.stderr.decode()
+
+
+def test_the_web_contracts_are_core_canonical_and_pin_every_operation() -> None:
+    """The web plane's shipped Contracts, read by Core's own model in Core's interpreter.
+
+    The files are what ``scripts/render_web_contracts.py`` writes; each parses
+    as an accepted Contract at its tree path (canonical bytes, every nested pin
+    digested and resolving to a shipped body); and Core pins both operations,
+    their inputs, outputs and every declared refusal, to the shipped digests.
+    """
+
+    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
+    if not core_python:
+        pytest.skip("set CRUXIBLE_CORE_PYTHON for package-to-Core registration integration")
+    check = subprocess.run(
+        [core_python, str(ROOT / "scripts/render_web_contracts.py"), "--check"],
+        capture_output=True,
+    )
+    assert check.returncode == 0, check.stderr.decode()
+    web = ROOT / "packages/cruxible-provider-web/src/cruxible_provider_web"
+    code = """
+import sys
+from pathlib import Path
+from cruxible_client.contracts.shapes import contract_digest, parse_contract
+from cruxible_core.providers.package_metadata import read_package_registration
+root = Path(sys.argv[1])
+shipped = {}
+for path in sorted((root / "contracts").rglob("*.json")):
+    member = "contracts/" + path.relative_to(root / "contracts").as_posix()
+    contract = parse_contract(path.read_bytes(), path=member)
+    shipped[(contract.name, contract.version)] = contract
+for contract in shipped.values():
+    for ref in contract.refs():
+        assert contract_digest(shipped[(ref.name, ref.version)]).tagged == ref.digest, ref
+digests = {key: contract_digest(item).tagged for key, item in shipped.items()}
+pinned = read_package_registration(root).pinned_operations(
+    lambda ref: digests.get((ref.name, ref.version)))
+refs = [ref for operation in pinned for ref in (
+    operation.in_, operation.out, *(item.contract for item in operation.refusals.values()))]
+assert len(pinned) == 2 and len(refs) == 15, (len(pinned), len(refs))
+assert all(ref.digest == digests[(ref.name, ref.version)] for ref in refs)
+"""
+    result = subprocess.run([core_python, "-c", code, str(web)], capture_output=True)
+    assert result.returncode == 0, result.stderr.decode()

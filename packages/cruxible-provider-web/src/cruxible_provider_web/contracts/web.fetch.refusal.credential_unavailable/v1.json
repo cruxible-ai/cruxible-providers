@@ -1,0 +1,13 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of a credential_unavailable refusal: the credential reference the run named and did not deliver.",
+  "fields": {
+    "ref": {
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "web.fetch.refusal.credential_unavailable",
+  "version": 1
+}

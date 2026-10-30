@@ -1,0 +1,36 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "The HTTP exchange a web acquisition observed: the request's digest, the 2xx status, the body's digest, and whether a network or a packaged recording served it.",
+  "fields": {
+    "body_sha256": {
+      "type": {
+        "kind": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "request_digest": {
+      "type": {
+        "kind": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "source": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "network",
+          "packaged-recording"
+        ]
+      }
+    },
+    "status": {
+      "type": {
+        "kind": "int",
+        "max": 299,
+        "min": 200
+      }
+    }
+  },
+  "name": "web.capture.coordinate",
+  "version": 1
+}

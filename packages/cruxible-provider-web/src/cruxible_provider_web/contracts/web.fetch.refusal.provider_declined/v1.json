@@ -1,0 +1,38 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of a provider_declined refusal: the URL when one was named; for a weight refusal, the cap and the observed weight class; for an extraction refusal, the extracting engine.",
+  "fields": {
+    "cap_bytes": {
+      "optional": true,
+      "type": {
+        "kind": "int",
+        "min": 1
+      }
+    },
+    "engine": {
+      "optional": true,
+      "type": {
+        "kind": "string"
+      }
+    },
+    "observed_weight": {
+      "optional": true,
+      "type": {
+        "kind": "enum",
+        "members": [
+          "heavy",
+          "light",
+          "medium"
+        ]
+      }
+    },
+    "url": {
+      "optional": true,
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "web.fetch.refusal.provider_declined",
+  "version": 1
+}

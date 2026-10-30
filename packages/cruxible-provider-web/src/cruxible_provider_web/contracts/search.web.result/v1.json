@@ -1,0 +1,109 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "One search answer as Capture wire: the observation bundle's exact bytes (the instance's answer and the derived recency-filtered ranking), its coordinate and the observation time.",
+  "fields": {
+    "byte_length": {
+      "type": {
+        "kind": "int",
+        "min": 0
+      }
+    },
+    "bytes_digest": {
+      "type": {
+        "kind": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "content_base64": {
+      "type": {
+        "kind": "string"
+      }
+    },
+    "content_encoding": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "base64"
+        ]
+      }
+    },
+    "coordinate": {
+      "type": {
+        "contract": {
+          "digest": "sha256:a0434158f223ea794a2cf91d95410732292513d41bd8770dd260cea64ed41b3a",
+          "name": "web.capture.coordinate",
+          "version": 1
+        },
+        "kind": "contract"
+      }
+    },
+    "coordinate_type": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "http-response-v1"
+        ]
+      }
+    },
+    "observed_at": {
+      "type": {
+        "kind": "datetime"
+      }
+    },
+    "replayability": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "attested_only"
+        ]
+      }
+    },
+    "selector": {
+      "type": {
+        "contract": {
+          "digest": "sha256:b088c8f92742d95160e5349e59ea5387f05e42eb23df355d747bfebcfe2323e4",
+          "name": "web.capture.selector",
+          "version": 1
+        },
+        "kind": "contract"
+      }
+    },
+    "selector_type": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "whole-response-v1"
+        ]
+      }
+    },
+    "source_effective_time": {
+      "optional": true,
+      "type": {
+        "contract": {
+          "digest": "sha256:4f77f75bc2bbec9b949e3d9e5f86aa28d6a51df8a51dfd8fdddd183422ad27c0",
+          "name": "web.capture.source_effective_time",
+          "version": 1
+        },
+        "kind": "contract"
+      }
+    },
+    "source_identity": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "search.response"
+        ]
+      }
+    },
+    "tag": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "playbill-provider-result-to-external-capture-v1"
+        ]
+      }
+    }
+  },
+  "name": "search.web.result",
+  "version": 1
+}

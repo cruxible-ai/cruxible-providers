@@ -432,10 +432,12 @@ class _Request:
             )
         url = payload.get("url")
         if not isinstance(url, str) or urlsplit(url).scheme not in {"http", "https"}:
+            # The detail names the url only when there is one: an optional
+            # detail field is an absent key, never null.
             raise decline(
                 PROVIDER_DECLINED,
                 "web.fetch needs an http or https url",
-                url=url if isinstance(url, str) else None,
+                **({"url": url} if isinstance(url, str) else {}),
             )
         max_bytes = payload.get("max_bytes", DEFAULT_MAX_BYTES)
         if (

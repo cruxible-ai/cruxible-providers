@@ -1,0 +1,21 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of an engine_unavailable refusal: the Python extra the environment lacks and the engine that needs it.",
+  "fields": {
+    "engine": {
+      "type": {
+        "kind": "string"
+      }
+    },
+    "required_extra": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "browser"
+        ]
+      }
+    }
+  },
+  "name": "web.fetch.refusal.engine_unavailable",
+  "version": 1
+}
