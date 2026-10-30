@@ -35,6 +35,7 @@ def test_structured_and_binary_observations_preserve_exact_origin_bytes(media, b
     assert envelope["tag"] == "playbill-provider-result-to-external-capture-v1"
     assert envelope["replayability"] == "attested_only"
     assert envelope["coordinate_type"] == "http-response-v1"
+    assert "source_effective_time" not in envelope
     material = base64.b64decode(envelope["content_base64"], validate=True)
     assert len(material) == envelope["byte_length"]
     assert "sha256:" + hashlib.sha256(material).hexdigest() == envelope["bytes_digest"]

@@ -126,6 +126,8 @@ def test_fetch_success_path(
     assert outcome.status == "ok"
     assert outcome.receipt_fields()["operation"] == "web.fetch"
     assert outcome.envelope.output is not None
+    # The adapter states no validity window: the optional key is absent, never null.
+    assert "source_effective_time" not in outcome.envelope.output
     retrieved = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"]
     derived = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"]
 
@@ -334,6 +336,7 @@ def test_search_success_path(
     assert outcome.status == "ok"
     assert outcome.receipt_fields()["operation"] == "search.web"
     assert outcome.envelope.output is not None
+    assert "source_effective_time" not in outcome.envelope.output
     assert (
         json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"][
             "result_count"

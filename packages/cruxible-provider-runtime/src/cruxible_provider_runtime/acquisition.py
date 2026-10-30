@@ -28,6 +28,9 @@ def external_capture_result(
 
     External observations are attested-only: retaining a response does not make
     a live endpoint replayable. This helper is wire construction, not authority.
+
+    ``source_effective_time`` is omitted: this helper states no validity window,
+    and an optional field is an absent key, never a ``null``.
     """
     if observed_at.tzinfo is None or observed_at.utcoffset() is None:
         raise ValueError("observed_at must be timezone-aware")
@@ -44,5 +47,4 @@ def external_capture_result(
         "byte_length": len(content),
         "bytes_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
         "observed_at": observed_at.isoformat().replace("+00:00", "Z"),
-        "source_effective_time": None,
     }
