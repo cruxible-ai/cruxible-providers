@@ -1,0 +1,42 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "One derived form of a fetched Capture: dom assembles the document in a browser with the main frame served from the cited bytes; text extracts its main content as Markdown.",
+  "fields": {
+    "form": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "dom",
+          "text"
+        ]
+      }
+    },
+    "logical_source": {
+      "optional": true,
+      "type": {
+        "kind": "string",
+        "pattern": "^[a-z][a-z0-9_.-]{0,255}$"
+      }
+    },
+    "max_bytes": {
+      "optional": true,
+      "type": {
+        "kind": "int",
+        "max": 33554432,
+        "min": 1
+      }
+    },
+    "source": {
+      "type": {
+        "contract": {
+          "digest": "sha256:45c0c2671f2c9c58a3abd4e2b36f9fde252715d8134db2f4c01c0c0c7ffbb311",
+          "name": "web.render.source",
+          "version": 1
+        },
+        "kind": "contract"
+      }
+    }
+  },
+  "name": "web.render.request",
+  "version": 1
+}

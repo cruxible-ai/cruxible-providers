@@ -12,9 +12,10 @@ resolve, so no production URL can select a recording, and no recording can stand
 in for a resource a caller actually asked for. The URL is the discriminator, not
 a flag some caller could set.
 
-**The replay is labelled.** A run served from a recording says so, in the output
-(``retrieved.source``) and in an event on its trace. A Capture built from it
-carries the fact that no origin was contacted, rather than looking like a fetch.
+**The replay is labelled.** A run served from a recording says so, in the
+Capture's coordinate (``source: packaged-recording``) and in an event on its
+trace. A Capture built from it carries the fact that no origin was contacted,
+rather than looking like a fetch.
 
 The recordings travel *through the real client*: they are served by an
 ``httpx.MockTransport``, so the request pipeline, the egress event hook, the
@@ -75,7 +76,7 @@ class Recording(BaseModel):
 
     response: RecordedResponse
     rendered_body: str | None = None
-    """The DOM after client-side assembly, for a rendered fetch.
+    """The DOM after client-side assembly of ``response.body``, for a ``web.render`` dom form.
 
     Recorded separately from ``response.body`` because that is exactly what a
     browser adds: the initial response and the assembled document are two

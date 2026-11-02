@@ -1,9 +1,12 @@
 """Cruxible provider adapters for the web plane.
 
-Two operations, each served by its own entrypoint: ``web.fetch`` retrieves one
-resource the run names, and ``search.web`` queries a configured SearXNG
-instance. Neither is an engine. The heavy one — a browser — lives behind the
-``browser`` extra, which the ``web.fetch`` implementation's manifest row
+Three operations, each served by its own entrypoint. ``web.fetch`` retrieves
+one resource the run names and ``search.web`` queries a configured SearXNG
+instance; each returns the body the origin sent as its Capture, verbatim, with
+how it was obtained in the typed HTTP coordinate. ``web.render`` reads a fetched
+Capture and returns a derived Capture citing it (an assembled DOM, or the main
+content as Markdown). The heavy engine — a browser — lives behind the
+``browser`` extra, which the ``web.render`` implementation's manifest row
 declares and the resolver materializes into that implementation's environment
 and no other.
 
@@ -18,11 +21,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from .fetch import WebFetch
-from .operations import FETCH_OPERATION, SEARCH_OPERATION
+from .operations import FETCH_OPERATION, RENDER_OPERATION, SEARCH_OPERATION
 from .recordings import FIXTURE_HOST, load_recordings
+from .render import WebRender
 from .search import SearxngSearch
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = PACKAGE_ROOT / "manifest.yaml"
@@ -52,9 +56,11 @@ __all__ = [
     "FIXTURE_HOST",
     "MANIFEST_PATH",
     "PACKAGE_ROOT",
+    "RENDER_OPERATION",
     "SEARCH_OPERATION",
     "SearxngSearch",
     "WebFetch",
+    "WebRender",
     "__version__",
     "contract_members",
     "load_recordings",

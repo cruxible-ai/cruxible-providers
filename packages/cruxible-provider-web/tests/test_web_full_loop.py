@@ -1,4 +1,4 @@
-"""Bind and invoke, end to end, on both backend kinds, for both operations.
+"""Bind and invoke, end to end, on both backend kinds, for every operation.
 
 Every run here goes through a real child process: the entrypoint is imported in
 the child, the run context crosses a pipe, credential material arrives on an
@@ -11,7 +11,7 @@ all execute.
 from __future__ import annotations
 
 import base64
-import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -27,6 +27,7 @@ from cruxible_provider_runtime.manifest import BackendKind
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_web.operations import PROVIDER_DECLINED
+from cruxible_provider_web.recordings import load_recordings
 from cruxible_provider_web.search import CREDENTIAL_REF
 
 from .conftest import DISTRIBUTION_SHA256, MARKER_ENVIRONMENT, PROVIDER_ID
@@ -85,6 +86,27 @@ def fetch_binding(
 
 
 @pytest.fixture()
+def render_binding(
+    request: pytest.FixtureRequest,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> Binding:
+    backend_kind: BackendKind = getattr(request, "param", "local_env")
+    return _bind(
+        "web.render",
+        backend_kind,
+        registry,
+        manifest_path,
+        lock_path,
+        local_backend,
+        container_backend,
+    )
+
+
+@pytest.fixture()
 def search_binding(
     request: pytest.FixtureRequest,
     registry: StubRegistry,
@@ -128,20 +150,22 @@ def test_fetch_success_path(
     assert outcome.envelope.output is not None
     # The adapter states no validity window: the optional key is absent, never null.
     assert "source_effective_time" not in outcome.envelope.output
-    retrieved = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"]
-    derived = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"]
+    # The Capture is the body the origin sent, verbatim; how it was obtained is
+    # the coordinate, never inside the bytes.
+    output = outcome.envelope.output
+    body = base64.b64decode(output["content_base64"])
+    recorded = load_recordings()["article-static"].response
+    assert body == recorded.body.encode("utf-8")
+    assert output["bytes_digest"] == "sha256:" + hashlib.sha256(body).hexdigest()
+    coordinate = output["coordinate"]
+    assert coordinate["status"] == 200
+    assert coordinate["final_url"] == ARTICLE_URL
+    assert coordinate["content_type"] == recorded.headers["content-type"]
+    assert coordinate["source"] == "packaged-recording"
+    assert "renderer" not in coordinate and "derived_from" not in coordinate
 
-    # The split is the contract: an exchange that happened, and a reading of it.
-    assert retrieved["status_code"] == 200
-    assert retrieved["source"] == "packaged-recording"
-    assert retrieved["body_sha256"].startswith("sha256:")
-    assert derived["engine"] == "trafilatura"
-    assert derived["kind"] == "markdown"
-    assert "Newlyn" in derived["text"]
-    assert "Subscribe to our newsletter" not in derived["text"]
-
-    # The replay is labelled in the OUTPUT and on the TRACE, and both halves are
-    # asserted: a Capture is built from the output, but an exhaust reader sees
+    # The replay is labelled in the COORDINATE and on the TRACE, and both halves
+    # are asserted: a Capture is built from the output, but an exhaust reader sees
     # the trace, and a label that reached only one of them would let a replayed
     # run read as a fetch on the surface that happened not to carry it.
     events = outcome.envelope.trace.events
@@ -176,39 +200,49 @@ def test_fetch_records_the_endpoint_it_requested(
     assert receipt["dynamic_endpoint_forms"] == [DYNAMIC_TARGET_FROM_RUN_INPUT]
 
 
-@pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)
-def test_fetch_renders_when_the_run_asks_for_a_browser(
-    fetch_binding: Binding,
+@pytest.mark.parametrize("render_binding", BACKENDS, indirect=True)
+def test_render_assembles_a_fetched_capture_into_a_derived_one(
+    render_binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
 ) -> None:
     """The expectation names text that exists only after client-side assembly."""
 
+    recording = load_recordings()["dashboard-rendered"]
+    assert recording.rendered_body is not None
+    fetched = recording.response.body.encode("utf-8")
     outcome = invoke(
-        fetch_binding,
+        render_binding,
         registry=registry,
-        payload={"url": "https://fixture.invalid/dashboard", "render": True},
+        payload={
+            "form": "dom",
+            "source": {
+                "content_base64": base64.b64encode(fetched).decode("ascii"),
+                "coordinate": {
+                    "url": "https://fixture.invalid/dashboard",
+                    "final_url": "https://fixture.invalid/dashboard",
+                    "status": 200,
+                    "content_type": recording.response.headers["content-type"],
+                    "request_digest": "sha256:" + "0" * 64,
+                    "source": "packaged-recording",
+                },
+            },
+        },
         budgets=BUDGETS,
         local_backend=local_backend,
         container_backend=container_backend,
     )
-    assert outcome.status == "ok"
+    assert outcome.status == "ok", outcome.envelope
     assert outcome.envelope.output is not None
-    assert (
-        json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"][
-            "renderer"
-        ]
-        == "recorded:dashboard-rendered"
-    )
-    assert (
-        "3.214"
-        in json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"][
-            "text"
-        ]
-    )
-    # A recorded render is a replay too, and carries the same label on the trace.
-    assert [event["kind"] for event in outcome.envelope.trace.events] == ["packaged_recording"]
+    derived = base64.b64decode(outcome.envelope.output["content_base64"])
+    assert derived == recording.rendered_body.encode("utf-8")
+    assert b"3.214" in derived
+    coordinate = outcome.envelope.output["coordinate"]
+    assert coordinate["renderer"] == "recorded:dashboard-rendered"
+    assert coordinate["derived_from"] == "sha256:" + hashlib.sha256(fetched).hexdigest()
+    # A recorded render is a replay too, and carries a label on the trace.
+    assert [event["kind"] for event in outcome.envelope.trace.events] == ["recorded_render"]
 
 
 @pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)
@@ -304,7 +338,7 @@ def test_an_input_naming_no_url_is_declined_by_the_adapter(
     outcome = invoke(
         fetch_binding,
         registry=registry,
-        payload={"render": True},
+        payload={"max_bytes": 64},
         budgets=BUDGETS,
         local_backend=local_backend,
         container_backend=container_backend,
@@ -327,7 +361,7 @@ def test_search_success_path(
     outcome = invoke(
         search_binding,
         registry=registry,
-        payload={"query": "tide gauge recalibration", "limit": 10},
+        payload={"query": "tide gauge recalibration"},
         coordinates=INSTANCE,
         budgets=BUDGETS,
         local_backend=local_backend,
@@ -337,15 +371,11 @@ def test_search_success_path(
     assert outcome.receipt_fields()["operation"] == "search.web"
     assert outcome.envelope.output is not None
     assert "source_effective_time" not in outcome.envelope.output
-    assert (
-        json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["retrieved"][
-            "result_count"
-        ]
-        == 3
-    )
-    assert (
-        json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))["derived"]["kind"]
-        == "recency_filtered_ranking"
+    # The Capture is the instance's answer, verbatim: no ranking is derived here.
+    answer = base64.b64decode(outcome.envelope.output["content_base64"])
+    assert answer == load_recordings()["searxng-answer"].response.body.encode("utf-8")
+    assert outcome.envelope.output["coordinate"]["final_url"].startswith(
+        "https://fixture.invalid/search?"
     )
     # A configuration-derived target is recorded, not mistaken for an allowlist.
     assert outcome.egress.observed == ("https://fixture.invalid",)

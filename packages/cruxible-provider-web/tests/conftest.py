@@ -5,10 +5,10 @@ from the package's own committed lock: a committed artifact would carry a
 materialization digest that goes stale the moment a dependency moves, and a
 stale pin nobody notices is what the bind-time recomputation exists to catch.
 
-Two environments, one lock. ``web.fetch`` declares the ``browser`` extra and
-``search.web`` declares none, so the artifact pins two materializations —
-``linux-cp311-engines`` and ``linux-cp311-engines+browser`` — and a bind for one
-implementation cannot pick up the other's environment.
+Two environments, one lock. ``web.render`` declares the ``browser`` extra and
+``web.fetch`` and ``search.web`` declare none, so the artifact pins two
+materializations — ``linux-cp311-engines`` and ``linux-cp311-engines+browser`` —
+and a bind for one implementation cannot pick up the other's environment.
 
 Nothing here needs a network, a browser, or a container engine.
 """
@@ -67,8 +67,8 @@ MARKER_ENVIRONMENT = ENGINE_MARKER_ENVIRONMENT
 # Extras per implementation, mirroring the manifest. Spelled out here rather than
 # read from the manifest so that a manifest edit changing an implementation's
 # engine fails these tests instead of being followed by them.
-FETCH_EXTRAS: tuple[str, ...] = ("browser",)
-SEARCH_EXTRAS: tuple[str, ...] = ()
+RENDER_EXTRAS: tuple[str, ...] = ("browser",)
+BASE_EXTRAS: tuple[str, ...] = ()
 
 
 @pytest.fixture(scope="session")
@@ -101,12 +101,12 @@ def _resolved(lock_path: Path, extras: tuple[str, ...]) -> ResolvedSet:
 
 @pytest.fixture(scope="session")
 def base_resolution(lock_path: Path) -> ResolvedSet:
-    return _resolved(lock_path, SEARCH_EXTRAS)
+    return _resolved(lock_path, BASE_EXTRAS)
 
 
 @pytest.fixture(scope="session")
 def browser_resolution(lock_path: Path) -> ResolvedSet:
-    return _resolved(lock_path, FETCH_EXTRAS)
+    return _resolved(lock_path, RENDER_EXTRAS)
 
 
 @pytest.fixture()
@@ -137,10 +137,10 @@ def accepted_artifact(
         local_env=LocalEnvBackendPin(
             lock_sha256=lock.lock_sha256,
             materialization_digests={
-                environment_pin_key(MARKER_ENVIRONMENT.id, SEARCH_EXTRAS): materialization_digest(
+                environment_pin_key(MARKER_ENVIRONMENT.id, BASE_EXTRAS): materialization_digest(
                     base_resolution, distribution_sha256=DISTRIBUTION_SHA256
                 ),
-                environment_pin_key(MARKER_ENVIRONMENT.id, FETCH_EXTRAS): materialization_digest(
+                environment_pin_key(MARKER_ENVIRONMENT.id, RENDER_EXTRAS): materialization_digest(
                     browser_resolution, distribution_sha256=DISTRIBUTION_SHA256
                 ),
             },

@@ -16,6 +16,6 @@
       }
     }
   },
-  "name": "web.fetch.refusal.engine_unavailable",
+  "name": "web.render.refusal.engine_unavailable",
   "version": 1
 }

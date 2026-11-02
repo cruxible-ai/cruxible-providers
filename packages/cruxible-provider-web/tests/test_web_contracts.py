@@ -6,8 +6,8 @@ held here, in the default lane and without Core:
 
 * the set: every Contract the registration names is shipped, every nested pin
   resolves to a shipped file by its exact digest, and nothing else is shipped;
-* the outputs: what ``web.fetch`` and ``search.web`` actually return, on the
-  packaged recordings, is exactly their result Contract;
+* the outputs: what ``web.fetch``, ``search.web`` and ``web.render`` actually
+  return, on the packaged recordings, is exactly their result Contract;
 * the refusals: every refusal each operation declares, produced by driving the
   adapter into it, carries a detail that is exactly its detail Contract.
 
@@ -19,6 +19,7 @@ validator runs over the same files and values in Core's installer test and in
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -46,9 +47,10 @@ from cruxible_provider_web.operations import (
     UNDECLARED_INSTANCE,
     UNSUPPORTED_REDIRECT_SCHEME,
 )
+from cruxible_provider_web.render import WebRender
 from cruxible_provider_web.search import SearxngSearch
 
-from .test_web_secrets import _CapturingClient, _context
+from .test_web_secrets import _context
 
 CONTRACT_DIGEST_DOMAIN = "cruxible-contract-v1"
 ARTICLE_URL = "https://fixture.invalid/articles/tide-gauge-recalibration"
@@ -74,6 +76,16 @@ def _digest(document: Mapping[str, Any]) -> str:
 
     payload = canonical_json({"tag": CONTRACT_DIGEST_DOMAIN, **document})
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _pins(field_type: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Every Contract pin a field type carries, a list's item included."""
+
+    if field_type["kind"] == "contract":
+        return [field_type["contract"]]
+    if field_type["kind"] == "list":
+        return _pins(field_type["item"])
+    return []
 
 
 def _spelling(name: str) -> tuple[str, int]:
@@ -197,21 +209,19 @@ def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None
         for operation in registration.operations
         for ref in operation.contract_refs()
     }
-    assert len(named) == 15
-    nested = {
-        (field["type"]["contract"]["name"], field["type"]["contract"]["version"])
+    assert len(named) == 18
+    pins = [
+        ref
         for document in CONTRACTS.values()
         for field in document["fields"].values()
-        if field["type"]["kind"] == "contract"
-    }
+        for ref in _pins(field["type"])
+    ]
+    nested = {(ref["name"], ref["version"]) for ref in pins}
     assert named <= set(CONTRACTS)
     assert set(CONTRACTS) == named | nested
     # Every nested pin is the exact digest of the shipped body it names.
-    for document in CONTRACTS.values():
-        for field in document["fields"].values():
-            if field["type"]["kind"] == "contract":
-                ref = field["type"]["contract"]
-                assert ref["digest"] == _digest(CONTRACTS[(ref["name"], ref["version"])])
+    for ref in pins:
+        assert ref["digest"] == _digest(CONTRACTS[(ref["name"], ref["version"])])
 
 
 def test_every_shipped_file_is_canonical_and_lives_at_its_tree_path() -> None:
@@ -244,9 +254,9 @@ def test_the_empty_selector_and_detail_are_zero_field_contracts() -> None:
     [
         {"url": ARTICLE_URL},
         {"url": MEASUREMENTS_URL, "expected_format": "json", "logical_source": "tide.readings"},
-        {"url": DASHBOARD_URL, "render": True},
+        {"url": DASHBOARD_URL},
     ],
-    ids=["static", "structured", "recorded-render"],
+    ids=["static", "structured", "unassembled"],
 )
 def test_fetch_outputs_are_exactly_the_result_contract(payload: dict[str, Any]) -> None:
     _conforms(payload, _operation("web.fetch").in_.spelling)
@@ -256,14 +266,37 @@ def test_fetch_outputs_are_exactly_the_result_contract(payload: dict[str, Any]) 
     _conforms(result.output, _operation("web.fetch").out.spelling)
 
 
+def _render_payload(form: str, url: str) -> dict[str, Any]:
+    """A render of the recorded fetch of ``url``: the fetched Capture is its source."""
+
+    fetched = WebFetch()(_context("web.fetch", input={"url": url}))
+    assert fetched.status == "ok", fetched
+    return {
+        "form": form,
+        "source": {
+            "content_base64": fetched.output["content_base64"],
+            "coordinate": fetched.output["coordinate"],
+        },
+    }
+
+
+def test_render_output_is_exactly_the_result_contract() -> None:
+    payload = _render_payload("dom", DASHBOARD_URL)
+    _conforms(payload, _operation("web.render").in_.spelling)
+    result = WebRender()(_context("web.render", input=payload))
+    assert result.status == "ok", result
+    assert "source_effective_time" not in result.output
+    _conforms(result.output, _operation("web.render").out.spelling)
+
+
 def test_search_output_is_exactly_the_result_contract() -> None:
-    payload = {"query": "tide gauge recalibration", "limit": 2, "max_age_hours": 24 * 365}
+    payload = {"query": "tide gauge recalibration", "time_range": "year"}
     _conforms(payload, _operation("search.web").in_.spelling)
     result = SearxngSearch()(
         _context(
             "search.web",
             input=payload,
-            coordinates={**FIXTURE_INSTANCE, "as_of": "2026-06-01T00:00:00Z"},
+            coordinates=FIXTURE_INSTANCE,
             declared_endpoints=("dynamic:target-from-configuration",),
         )
     )
@@ -275,13 +308,15 @@ def test_search_output_is_exactly_the_result_contract() -> None:
 def test_the_request_contracts_refuse_what_the_adapters_decline() -> None:
     fetch_in = CONTRACTS[_spelling(_operation("web.fetch").in_.spelling)]
     search_in = CONTRACTS[_spelling(_operation("search.web").in_.spelling)]
+    render_in = CONTRACTS[_spelling(_operation("web.render").in_.spelling)]
     for payload in (
         {},
         {"url": "ftp://fixture.invalid/x"},
         {"url": ARTICLE_URL, "max_bytes": 0},
         {"url": ARTICLE_URL, "max_bytes": MAX_RESPONSE_BYTES + 1},
         {"url": ARTICLE_URL, "expected_format": "xml"},
-        {"url": ARTICLE_URL, "render": "yes"},
+        {"url": ARTICLE_URL, "render": True},
+        {"url": ARTICLE_URL, "extract": True},
         {"url": ARTICLE_URL, "credential_header": "bad header"},
         {"url": ARTICLE_URL, "credential_ref": None},
         {"url": ARTICLE_URL, "logical_source": "https://not-a-name"},
@@ -290,12 +325,20 @@ def test_the_request_contracts_refuse_what_the_adapters_decline() -> None:
     for payload in (
         {},
         {"query": "   "},
-        {"query": "x", "limit": 0},
-        {"query": "x", "max_age_hours": 0},
+        {"query": "x", "limit": 10},
+        {"query": "x", "max_age_hours": 24},
+        {"query": "x", "time_range": "week"},
         {"query": "x", "language": ""},
         {"query": "x", "instance_url": "https://fixture.invalid"},
     ):
         assert _problems(payload, search_in), payload
+    for payload in (
+        {},
+        {"form": "dom"},
+        {"form": "pdf", "source": {"content_base64": "", "coordinate": {}}},
+        {"form": "dom", "source": {"content_base64": ""}},
+    ):
+        assert _problems(payload, render_in), payload
 
 
 # -- the refusals ----------------------------------------------------------
@@ -309,7 +352,7 @@ def _declared(operation: str, code: str) -> str:
 def test_every_declared_refusal_has_a_case_below() -> None:
     declared = {
         (operation, code)
-        for operation in ("web.fetch", "search.web")
+        for operation in ("web.fetch", "search.web", "web.render")
         for code in _operation(operation).refusals
     }
     assert set(REFUSAL_CASES) == declared
@@ -356,10 +399,8 @@ def _search(
 
 
 def _fetch_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
-    """Every input decline, the weight and extraction declines, and a recording
-    that carries no rendered document."""
+    """Every input decline and the weight decline."""
 
-    empty_page = _CapturingClient("<html><body></body></html>", "text/html")
     return [
         _fetch({}),
         _fetch({"url": "ftp://fixture.invalid/x"}),
@@ -367,26 +408,68 @@ def _fetch_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         _fetch({"url": ARTICLE_URL, "max_bytes": 0}),
         _fetch({"url": ARTICLE_URL, "expected_format": "xml"}),
         _fetch({"url": ARTICLE_URL, "logical_source": "Not A Name"}),
-        _fetch({"url": ARTICLE_URL, "render": "yes"}),
+        _fetch({"url": ARTICLE_URL, "paced": "yes"}),
         _fetch({"url": ARTICLE_URL, "max_bytes": 16}),
-        _fetch({"url": MEASUREMENTS_URL, "render": True}),
         _fetch(
-            {"url": "https://example.test/page"},
-            client_factory=lambda recorder, **kwargs: empty_page,
-        ),
-        _fetch(
-            {"url": ARTICLE_URL, "credential_ref": "api", "render": True},
+            {"url": ARTICLE_URL, "credential_ref": "api", "credential_header": "bad header"},
             secrets={"api": "token"},
         ),
     ]
 
 
-def _fetch_engine_unavailable(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+def _render(payload: dict[str, Any], **kwargs: Any) -> Any:
+    return _called(WebRender(**kwargs), _context("web.render", input=payload))
+
+
+def _render_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Input declines, the weight decline, an extraction that finds nothing, and a
+    recording that carries no rendered document."""
+
+    empty_page = {
+        "form": "text",
+        "source": {
+            "content_base64": base64.b64encode(b"<html><body></body></html>").decode("ascii"),
+            "coordinate": {
+                "url": "https://example.test/page",
+                "final_url": "https://example.test/page",
+                "status": 200,
+                "content_type": "text/html",
+                "request_digest": "sha256:" + "0" * 64,
+                "source": "network",
+            },
+        },
+    }
+    declined = [
+        _render({}),
+        _render({"form": "dom"}),
+        _render({**_render_payload("dom", DASHBOARD_URL), "logical_source": "Not A Name"}),
+        _render({**_render_payload("dom", DASHBOARD_URL), "max_bytes": 16}),
+        _render(_render_payload("dom", MEASUREMENTS_URL)),
+        _render(_render_payload("text", MEASUREMENTS_URL)),
+    ]
+    if _has_trafilatura():
+        declined.append(_render(empty_page))
+    return declined
+
+
+def _has_trafilatura() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("trafilatura") is not None
+
+
+def _render_engine_unavailable(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     # Importing a module set to None raises ImportError: the environment
     # without the browser extra, whatever this one happens to carry.
     monkeypatch.setitem(sys.modules, "playwright", None)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
-    return [_fetch({"url": "https://example.test/page", "render": True})]
+    payload = _render_payload("dom", ARTICLE_URL)
+    payload["source"]["coordinate"] = {
+        **payload["source"]["coordinate"],
+        "url": "https://example.test/page",
+        "final_url": "https://example.test/page",
+    }
+    return [_render(payload)]
 
 
 def _search_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
@@ -395,10 +478,8 @@ def _search_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     return [
         _search(coordinates={}),
         _search({"query": " "}),
-        _search({"query": "x", "limit": 0}),
-        _search({"query": "x", "max_age_hours": -1}),
+        _search({"query": "x", "time_range": "week"}),
         _search({"query": "x", "language": ""}),
-        _search(coordinates={**FIXTURE_INSTANCE, "as_of": "yesterday"}),
     ]
 
 
@@ -407,7 +488,6 @@ REFUSAL_CASES: dict[tuple[str, str], Any] = {
     ("web.fetch", CREDENTIAL_UNAVAILABLE): lambda monkeypatch: [
         _fetch({"url": ARTICLE_URL, "credential_ref": "web.token"})
     ],
-    ("web.fetch", ENGINE_UNAVAILABLE): _fetch_engine_unavailable,
     ("web.fetch", CROSS_ORIGIN_CREDENTIALED_REDIRECT): lambda monkeypatch: [
         _fetch(
             {"url": "https://a.example/doc", "credential_ref": "api"},
@@ -427,6 +507,8 @@ REFUSAL_CASES: dict[tuple[str, str], Any] = {
             client_factory=_routed({"a.example": _redirect("ftp://a.example/doc")}),
         )
     ],
+    ("web.render", PROVIDER_DECLINED): _render_declined,
+    ("web.render", ENGINE_UNAVAILABLE): _render_engine_unavailable,
     ("search.web", PROVIDER_DECLINED): _search_declined,
     ("search.web", UNDECLARED_INSTANCE): lambda monkeypatch: [
         _search(coordinates={"instance_url": "https://other.example"})

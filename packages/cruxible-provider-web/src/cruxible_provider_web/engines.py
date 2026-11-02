@@ -1,32 +1,33 @@
-"""The two engine seams of the web plane, and their real implementations.
+"""The two engine seams of ``web.render``, and their real implementations.
 
-An engine is anything that turns retrieved material into derived material, or
-that produces material a plain HTTP GET cannot. There are two here:
+An engine turns a fetched document into a derived one. ``web.fetch`` uses
+neither: its Capture is the body an origin sent, and a reading of that body is a
+separate operation whose output is a derived Capture citing it (M5). There are
+two engines here:
 
 ``HtmlExtractor``
-    Main-content extraction. The real one is trafilatura, which is a **base**
-    dependency: it is pure Python over an lxml wheel, so keeping it out of the
-    default lane would buy a few megabytes and cost the lane its only real
-    derivation.
+    Main-content extraction (``form: text``). The real one is trafilatura, which
+    is a **base** dependency: it is pure Python over an lxml wheel.
 
 ``PageRenderer``
-    Client-side assembly. The real one is Playwright, which is a browser and is
-    therefore behind the ``browser`` extra, declared by the ``web.fetch``
-    implementation's manifest. Nothing in the default lane imports it: the
-    js_rendered fixtures replay a recorded post-assembly DOM, and an environment
-    that genuinely lacks the extra refuses rather than crashing on the import.
+    Client-side assembly (``form: dom``). The real one is Playwright, which is a
+    browser and is therefore behind the ``browser`` extra, declared by the
+    ``web.render`` implementation's manifest. The main frame is served from the
+    cited bytes, never fetched again, so the assembled DOM is provably a reading
+    of the Capture it cites; the subresources the page pulls are fetched live and
+    recorded. Nothing in the default lane imports Playwright: recorded renders
+    replay a post-assembly DOM, and an environment that genuinely lacks the extra
+    refuses rather than crashing on the import.
 
 Both seams are injectable, and both defaults are the production spelling. The
 injection exists so a test can hold one variable still, not so a test can
 replace the thing under test.
 
 **Why the browser wiring is not inside the browser.** A browser is an engine;
-deciding what a rendered run is allowed to claim, and getting every host it
-touched into the run's recorder, is not. Those decisions live in
-:func:`drive_page`, over the :class:`BrowserPage` protocol, so that the default
-lane can execute them against a double. Wiring only a machine with a browser
-installed can run is wiring nobody reviews, and the receipt is exactly what it
-decides.
+getting every host it touched into the run's recorder, and serving the main
+frame from the cited bytes, is not. Those decisions live in :func:`drive_page`,
+over the :class:`BrowserPage` protocol, so that the default lane can execute
+them against a double.
 """
 
 from __future__ import annotations
@@ -66,17 +67,12 @@ class Extraction:
 
 @dataclass(frozen=True)
 class RenderedPage:
-    """A document after client-side assembly, and the exchange it came out of.
+    """A document after client-side assembly, and the main-frame response under it.
 
-    The two halves are separate fields because they are two different kinds of
-    claim. ``html`` is what a browser *built* — script output, injected markup, a
-    DOM no origin ever sent — and is derived material under every contract.
-    ``final_url``, ``status_code``, ``headers`` and ``body`` are the main-frame
-    response the browser actually received, and they are the only part of a
-    rendered run that records an exchange. Answering with the requested URL and a
-    hopeful 200 instead is how a cross-origin redirect ending on a 404 that a
-    script repaints reaches a receipt as a successful fetch of the URL that was
-    asked for.
+    ``html`` is what a browser *built* — script output, injected markup, a DOM
+    no origin ever sent — and is the derived document. ``final_url``,
+    ``status_code``, ``headers`` and ``body`` describe the main-frame response the
+    page was assembled from, which ``web.render`` serves from the cited bytes.
     """
 
     engine: str
@@ -116,6 +112,8 @@ class BrowserPage(Protocol):
 
     def on(self, event: str, handler: Callable[[Any], None]) -> None: ...
 
+    def route(self, url: Callable[[str], bool], handler: Callable[[Any], None]) -> None: ...
+
     def goto(self, url: str, *, wait_until: str, timeout: float) -> MainFrameResponse | None: ...
 
     def content(self) -> str: ...
@@ -131,7 +129,13 @@ class PageRenderer(Protocol):
     name: str
 
     def render(
-        self, url: str, *, timeout_seconds: float, recorder: EgressRecorder
+        self,
+        url: str,
+        *,
+        document: bytes,
+        content_type: str,
+        timeout_seconds: float,
+        recorder: EgressRecorder,
     ) -> RenderedPage: ...
 
 
@@ -153,30 +157,40 @@ def drive_page(
     page: BrowserPage,
     url: str,
     *,
+    document: bytes,
+    content_type: str,
     timeout_seconds: float,
     recorder: EgressRecorder,
     engine: str,
 ) -> RenderedPage:
-    """Navigate ``page`` to ``url``, recording every origin it contacts.
+    """Assemble ``document`` as ``url`` in ``page``, recording every origin it contacts.
+
+    The main-frame request for ``url`` is answered with ``document``, the cited
+    Capture's exact bytes: the browser assembles that document and no other, so
+    the DOM it returns is a reading of the Capture ``web.render`` cites.
 
     Both hooks are attached and both are load-bearing. A browser contacts hosts
-    the adapter never named — the redirect it follows, the CDN its markup pulls a
-    script from, the API that script queries — and none of that passes through
-    the instrumented HTTP client, so without these hooks none of it reaches the
-    run's recorder and the receipt understates the run to exactly the degree the
-    page was interesting. Requests cover what was attempted; responses cover the
-    hops a redirect chain answers with.
-
-    What comes back is the main-frame response as the browser saw it, never the
-    request as the caller wrote it.
+    the adapter never named — the CDN the markup pulls a script from, the API
+    that script queries, the redirects those answer with — and none of that
+    passes through an instrumented HTTP client, so without these hooks none of it
+    reaches the run's recorder and the receipt understates the run to exactly the
+    degree the page was interesting.
     """
 
-    page.on("request", lambda event: _record_contact(recorder, event.url))
-    page.on("response", lambda event: _record_contact(recorder, event.url))
-    # Recorded here as well as by the hook. A browser that dies during launch
-    # still leaves a run that was about to contact this origin, and a receipt
-    # that omitted it would understate the attempt.
-    _record_contact(recorder, url)
+    def serve_cited(route: Any) -> None:
+        route.fulfill(status=200, headers={"content-type": content_type}, body=document)
+
+    # Attached before the navigation, like the hooks below: a main frame the
+    # browser fetched itself would be a second retrieval, not the cited one.
+    page.route(lambda requested: requested == url, serve_cited)
+
+    def contacted(event: Any) -> None:
+        # The main frame is served from the cited bytes, so it contacts nobody.
+        if event.url != url:
+            _record_contact(recorder, event.url)
+
+    page.on("request", contacted)
+    page.on("response", contacted)
 
     response = page.goto(url, wait_until="networkidle", timeout=timeout_seconds * 1000)
     html = page.content()
@@ -229,9 +243,8 @@ class TrafilaturaExtractor:
     name = "trafilatura"
 
     def extract(self, html: str, *, url: str) -> Extraction:
-        # Imported here rather than at module scope: ``search.web`` lives in the
-        # same distribution, never extracts anything, and should not pay for an
-        # lxml import to answer a query.
+        # Imported here rather than at module scope: a dom render never
+        # extracts, and should not pay for an lxml import.
         from trafilatura import extract as extract_text
         from trafilatura import extract_metadata
         from trafilatura.utils import load_html
@@ -240,7 +253,7 @@ class TrafilaturaExtractor:
         if tree is None:
             raise decline(
                 PROVIDER_DECLINED,
-                "the retrieved document could not be parsed as HTML",
+                "the cited document could not be parsed as HTML",
                 url=url,
                 engine=self.name,
             )
@@ -257,7 +270,7 @@ class TrafilaturaExtractor:
         if not text:
             raise decline(
                 PROVIDER_DECLINED,
-                "no main content could be extracted from the retrieved document",
+                "no main content could be extracted from the cited document",
                 url=url,
                 engine=self.name,
             )
@@ -288,7 +301,15 @@ class PlaywrightRenderer:
 
     name = "playwright"
 
-    def render(self, url: str, *, timeout_seconds: float, recorder: EgressRecorder) -> RenderedPage:
+    def render(
+        self,
+        url: str,
+        *,
+        document: bytes,
+        content_type: str,
+        timeout_seconds: float,
+        recorder: EgressRecorder,
+    ) -> RenderedPage:
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
@@ -309,6 +330,8 @@ class PlaywrightRenderer:
                 return drive_page(
                     browser.new_page(user_agent=_USER_AGENT),
                     url,
+                    document=document,
+                    content_type=content_type,
                     timeout_seconds=timeout_seconds,
                     recorder=recorder,
                     engine=self.name,

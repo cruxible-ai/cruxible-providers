@@ -15,10 +15,12 @@ that has ``cruxible_client`` (Core's environment)::
     "$CRUXIBLE_CORE_PYTHON" scripts/render_web_contracts.py --check  # exit 1 on drift
 
 The definitions below are derived from the adapters' code: the request fields
-``_Request.parse`` (fetch) and ``_parse_input`` (search) read, the shared
-acquisition result ``cruxible_provider_runtime.acquisition`` builds and the
-coordinate both adapters pass it, and the detail keys of every refusal each
-operation raises. An optional field is an absent key; ``null`` is never valid.
+``_Request.parse`` (fetch), ``_parse_input`` (search) and ``_RenderRequest.parse``
+(render) read, the shared acquisition result
+``cruxible_provider_runtime.acquisition`` builds and the HTTP coordinate every
+operation passes it (``coordinate.http_coordinate``), and the detail keys of
+every refusal each operation raises. An optional field is an absent key;
+``null`` is never valid.
 """
 
 from __future__ import annotations
@@ -49,7 +51,7 @@ EFFECTIVE_TIME_TAG = "playbill-source-effective-time-v1"
 
 
 def _result(description: str, source_identity: str) -> dict[str, Any]:
-    """The shared external-capture result both operations return."""
+    """The shared external-capture result every operation returns."""
 
     return {
         "description": description,
@@ -72,7 +74,7 @@ def _result(description: str, source_identity: str) -> dict[str, Any]:
 
 
 def _redirect_refusals(operation: str) -> dict[str, dict[str, Any]]:
-    """``http._next_hop`` and ``RecordingClient.get``: both operations follow redirects."""
+    """``http._next_hop`` and ``RecordingClient.get``: fetch and search follow redirects."""
 
     return {
         f"{operation}.refusal.cross_origin_credentialed_redirect": {
@@ -99,23 +101,53 @@ def _redirect_refusals(operation: str) -> dict[str, dict[str, Any]]:
     }
 
 
+#: ``fetch``/``render`` ``page_weight_class``.
+WEIGHT = "enum[heavy, light, medium]"
+
 #: Name to definition, nested Contracts before the Contracts that pin them.
 DEFINITIONS: dict[str, dict[str, Any]] = {
-    "web.capture.coordinate": {
+    "web.capture.headers": {
         "description": (
-            "The HTTP exchange a web acquisition observed: the request's digest, the 2xx "
-            "status, the body's digest, and whether a network or a packaged recording "
-            "served it."
+            "The response headers a web Capture keeps for freshness, each present only "
+            "when the origin sent it."
         ),
         "fields": {
-            "request_digest": SHA256,
+            "etag": "string?",
+            "last_modified": "string?",
+            "content_length": "string?",
+        },
+    },
+    "web.capture.page": {
+        "description": (
+            "One page of a listing an operation assembled into one document: its URL, "
+            "its 2xx status and its body's digest."
+        ),
+        "fields": {"url": "string", "status": "int{200..299}", "bytes_digest": SHA256},
+    },
+    "web.capture.coordinate": {
+        "description": (
+            "How a web Capture's bytes were obtained, never inside them: the URL "
+            "requested and the URL settled on, the 2xx status, the bytes' media type, "
+            "the request digest, the kept freshness headers and whether a network or a "
+            "packaged recording answered; for a derived document, the engine that made "
+            "it and the content digest of the Capture it was made from; for an "
+            "assembled listing, its pages."
+        ),
+        "fields": {
+            "url": "string",
+            "final_url": "string",
             "status": "int{200..299}",
-            "body_sha256": SHA256,
+            "content_type": "string",
+            "request_digest": SHA256,
             "source": 'enum["network", "packaged-recording"]',
+            "headers": "web.capture.headers@1?",
+            "renderer": "string{min_len: 1}?",
+            "derived_from": SHA256 + "?",
+            "pages": "list<web.capture.page@1>{max_items: 10000}?",
         },
     },
     "web.capture.selector": {
-        "description": "The whole response: a web acquisition selects no part of it.",
+        "description": "The whole document: a web Capture selects no part of it.",
         "fields": {},
     },
     "web.capture.source_effective_time": {
@@ -128,15 +160,14 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
     },
     "web.fetch.request": {
         "description": (
-            "One resource to retrieve. A credential is named by reference; its material "
-            "stays in the run's secret custody, never in this payload."
+            "One resource to retrieve with one HTTP GET. A credential is named by "
+            "reference; its material stays in the run's secret custody, never in this "
+            "payload."
         ),
         "fields": {
             "url": HTTP_URL,
             "logical_source": LOGICAL_NAME + "?",
             "max_bytes": "int{1..33554432}?",
-            "render": "bool?",
-            "extract": "bool?",
             "paced": "bool?",
             "expected_format": "enum[auto, bytes, csv, html, json, text]?",
             "credential_ref": "string?",
@@ -144,8 +175,8 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
         },
     },
     "web.fetch.result": _result(
-        "One retrieved web resource as Capture wire: the observation bundle's exact bytes "
-        "(retrieved exchange and derived reading), its coordinate and the observation time.",
+        "One retrieved web resource as Capture wire: the exact body the origin sent, its "
+        "HTTP coordinate and the observation time.",
         LOGICAL_NAME,
     ),
     "web.fetch.refusal.credential_unavailable": {
@@ -155,43 +186,79 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
         ),
         "fields": {"ref": "string"},
     },
-    "web.fetch.refusal.engine_unavailable": {
+    "web.fetch.refusal.provider_declined": {
+        "description": (
+            "Detail of a provider_declined refusal: the URL when one was named; for a "
+            "weight refusal, the cap and the observed weight class."
+        ),
+        "fields": {
+            "url": "string?",
+            "cap_bytes": "int{1..}?",
+            "observed_weight": WEIGHT + "?",
+        },
+    },
+    **_redirect_refusals("web.fetch"),
+    "web.render.source": {
+        "description": (
+            "The fetched Capture a render reads: its exact bytes as base64 transport and "
+            "its HTTP coordinate."
+        ),
+        "fields": {"content_base64": "string", "coordinate": "web.capture.coordinate@1"},
+    },
+    "web.render.request": {
+        "description": (
+            "One derived form of a fetched Capture: dom assembles the document in a "
+            "browser with the main frame served from the cited bytes; text extracts its "
+            "main content as Markdown."
+        ),
+        "fields": {
+            "source": "web.render.source@1",
+            "form": "enum[dom, text]",
+            "logical_source": LOGICAL_NAME + "?",
+            "max_bytes": "int{1..33554432}?",
+        },
+    },
+    "web.render.result": _result(
+        "One derived web document as Capture wire: the exact bytes the render produced "
+        "(an assembled DOM or main-content Markdown), a coordinate naming the engine and "
+        "the content digest of the Capture it was made from, and the observation time.",
+        LOGICAL_NAME,
+    ),
+    "web.render.refusal.engine_unavailable": {
         "description": (
             "Detail of an engine_unavailable refusal: the Python extra the environment "
             "lacks and the engine that needs it."
         ),
         "fields": {"required_extra": 'enum["browser"]', "engine": "string"},
     },
-    "web.fetch.refusal.provider_declined": {
+    "web.render.refusal.provider_declined": {
         "description": (
-            "Detail of a provider_declined refusal: the URL when one was named; for a "
-            "weight refusal, the cap and the observed weight class; for an extraction "
-            "refusal, the extracting engine."
+            "Detail of a provider_declined refusal: the URL of the cited document when "
+            "known; for a weight refusal, the cap and the observed weight class; for an "
+            "extraction refusal, the extracting engine."
         ),
         "fields": {
             "url": "string?",
             "cap_bytes": "int{1..}?",
-            "observed_weight": "enum[heavy, light, medium]?",
+            "observed_weight": WEIGHT + "?",
             "engine": "string?",
         },
     },
-    **_redirect_refusals("web.fetch"),
     "search.web.request": {
         "description": (
-            "One query to the configured search instance. The instance and the evaluation "
-            "instant are run configuration, not request fields."
+            "One query to the configured search instance. The instance is run "
+            "configuration, not a request field; time_range is the instance's own "
+            "recency filter."
         ),
         "fields": {
             "query": NON_BLANK,
-            "limit": "int{1..}?",
-            "max_age_hours": "int{1..}?",
             "language": "string{min_len: 1}?",
+            "time_range": "enum[day, month, year]?",
         },
     },
     "search.web.result": _result(
-        "One search answer as Capture wire: the observation bundle's exact bytes (the "
-        "instance's answer and the derived recency-filtered ranking), its coordinate and "
-        "the observation time.",
+        "One search answer as Capture wire: the exact response body the instance sent, "
+        "its HTTP coordinate and the observation time.",
         'enum["search.response"]',
     ),
     "search.web.refusal.provider_declined": {

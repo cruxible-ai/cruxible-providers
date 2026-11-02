@@ -10,7 +10,6 @@ query string, where it would end up in the instance's access log.
 from __future__ import annotations
 
 import base64
-import json
 from typing import Any
 
 import pytest
@@ -93,8 +92,8 @@ def test_the_instance_credential_travels_as_a_header_and_not_in_the_query() -> N
 def test_a_run_served_by_a_real_transport_is_not_labelled_as_a_replay() -> None:
     """The negative half of the replay label, on a path that actually succeeds.
 
-    The full-loop suite asserts the label is present in the output *and* on the
-    trace whenever a packaged recording served a run. This is the other
+    The full-loop suite asserts the label is present in the coordinate *and* on
+    the trace whenever a packaged recording served a run. This is the other
     direction, and it needs a non-replayed run that still reaches ``ok``: the
     capturing client is one, because it answers from a canned body without being
     a packaged recording. A label emitted unconditionally rather than tracking
@@ -112,10 +111,7 @@ def test_a_run_served_by_a_real_transport_is_not_labelled_as_a_replay() -> None:
     )
     assert result.status == "ok"
     assert result.output is not None
-    assert (
-        json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"]["source"]
-        == "network"
-    )
+    assert result.output["coordinate"]["source"] == "network"
     assert not [event for event in result.events if event.get("kind") == "packaged_recording"]
 
 
@@ -152,23 +148,20 @@ def test_explicit_static_declaration_still_refuses_a_different_service() -> None
 
 
 def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
-    """The receipt's parameter block must not be a hopeful reconstruction."""
+    """The coordinate's request URL must not be a hopeful reconstruction."""
 
     client = _CapturingClient(INSTANCE_ANSWER, "application/json")
     provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]
     result = provider(
         _context(
             "search.web",
-            input={"query": "tide gauge", "max_age_hours": 6},
+            input={"query": "tide gauge", "time_range": "day"},
             coordinates={"instance_url": "https://instance.example"},
         )
     )
     assert result.output is not None
-    parameters = json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"][
-        "parameters"
-    ]
-    for key, value in parameters.items():
-        assert f"{key}={value}".replace(" ", "+") in client.urls[0].replace("%20", "+")
+    assert result.output["coordinate"]["url"] == client.urls[0]
+    assert "time_range=day" in client.urls[0]
 
 
 def test_a_fetch_naming_an_undelivered_credential_refuses() -> None:
@@ -226,7 +219,11 @@ def test_a_missing_browser_is_the_operations_declared_refusal() -> None:
         pytest.skip("the browser extra is installed here")
     with pytest.raises(Declined) as exc:
         PlaywrightRenderer().render(
-            "https://fixture.invalid/", timeout_seconds=1.0, recorder=EgressRecorder()
+            "https://fixture.invalid/",
+            document=b"<html></html>",
+            content_type="text/html",
+            timeout_seconds=1.0,
+            recorder=EgressRecorder(),
         )
     assert exc.value.code == ENGINE_UNAVAILABLE
     assert exc.value.refusal.detail["required_extra"] == "browser"

@@ -1,4 +1,4 @@
-"""``search.web`` — ranked results from a configured SearXNG instance.
+"""``search.web`` — the answer of a configured SearXNG instance to one query.
 
 A light client, not an engine. This adapter runs no index and hosts nothing: it
 submits a query to an instance somebody deployed and records what came back.
@@ -18,23 +18,23 @@ The instance's **credential** is a different thing and takes the other path: it
 arrives by secret-ref over the executor's descriptor channel, never in the
 coordinates, never in the manifest, and never in a digest preimage.
 
-**What the output claims.** ``retrieved`` holds what the instance answered — a
-record of an exchange, gradeable as observed-shaped material *about the
-instance's answer*, never about the world. ``derived`` holds what this adapter
-did with it: the recency filter SearXNG cannot express, and the truncation to the
-depth the run asked for. The adapter mints no Capture; the CaptureContract
-decides the grade.
+**What the output is.** The Capture's bytes are the instance's response body,
+verbatim: what the instance answered, a fact about the instance at a moment
+rather than about the world. How it answered (the request URL with the
+parameters actually submitted, the final URL, the status, the media type, the
+request digest) is the typed coordinate (:mod:`.coordinate`). Ranking the
+answer — by recency, by depth — would be a derived reading and is not done
+here; the instance's own ``time_range`` parameter is the only filter, and it is
+part of the request. The adapter mints no Capture; the CaptureKind governs it.
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
-from datetime import UTC, datetime, timedelta
-from typing import Any
+import json
+from datetime import UTC, datetime
+from urllib.parse import urlencode
 
 from cruxible_provider_runtime.acquisition import external_capture_result
-from cruxible_provider_runtime.canonical import canonical_json
 from cruxible_provider_runtime.egress import (
     DYNAMIC_TARGET_FROM_CONFIGURATION,
     normalize_endpoint,
@@ -43,20 +43,22 @@ from cruxible_provider_runtime.egress import (
 from cruxible_provider_runtime.errors import Declined, decline
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
+from .coordinate import COORDINATE_TYPE, SELECTOR_TYPE, http_coordinate
 from .http import ClientFactory, default_client_factory
 from .operations import PROVIDER_DECLINED, SEARCH_OPERATION, UNDECLARED_INSTANCE
 
-__all__ = ["CREDENTIAL_REF", "SearxngSearch"]
+__all__ = ["CREDENTIAL_REF", "TIME_RANGES", "SearxngSearch"]
 
 CREDENTIAL_REF = "search.web.instance_credential"
 """The ref under which an instance credential is delivered, when there is one."""
 
 RESPONSE_CAP_BYTES = 4 * 1024 * 1024
-HOURS_PER_DAY = 24
+TIME_RANGES = ("day", "month", "year")
+"""SearXNG's own recency vocabulary, submitted as its ``time_range`` parameter."""
 
 
 class SearxngSearch:
-    """Query a configured SearXNG instance and record its answer."""
+    """Query a configured SearXNG instance and return its answer as the Capture."""
 
     operations = (SEARCH_OPERATION,)
 
@@ -66,7 +68,7 @@ class SearxngSearch:
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
             instance = self._instance(context)
-            query, limit, max_age_hours, language = _parse_input(context)
+            query, language, time_range = _parse_input(context)
         except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 
@@ -77,7 +79,6 @@ class SearxngSearch:
             "pageno": "1",
             "safesearch": "1",
         }
-        time_range = _time_range(max_age_hours)
         if time_range is not None:
             parameters["time_range"] = time_range
 
@@ -86,16 +87,14 @@ class SearxngSearch:
         if credential is not None:
             headers["authorization"] = credential
 
-        endpoint = f"{instance}/search"
+        request_url = f"{instance}/search?{urlencode(parameters)}"
         client = self._client_factory(
             context.egress,
-            url=endpoint,
+            url=request_url,
             timeout_seconds=max(1.0, context.budgets.wall_clock_seconds * 0.8),
         )
         with client:
-            response = client.get(
-                _with_query(endpoint, parameters), headers=headers, cap_bytes=RESPONSE_CAP_BYTES
-            )
+            response = client.get(request_url, headers=headers, cap_bytes=RESPONSE_CAP_BYTES)
 
         if not 200 <= response.status_code < 300:
             return ProviderResult.failed(
@@ -105,9 +104,7 @@ class SearxngSearch:
                 status_code=response.status_code,
             )
         try:
-            import json
-
-            document = json.loads(response.text)
+            document = json.loads(response.body)
         except ValueError:
             # The overwhelmingly common cause, and worth naming: a SearXNG
             # instance with the json format disabled answers 200 with HTML.
@@ -124,59 +121,24 @@ class SearxngSearch:
                 "the instance answered JSON that is not an object",
                 instance=instance,
             )
-
-        results = [
-            _normalize(entry, rank)
-            for rank, entry in enumerate(document.get("results") or [], start=1)
-            if isinstance(entry, dict)
-        ]
-        as_of = _as_of(context)
-        kept, dropped = _filter_by_recency(results, max_age_hours, as_of)
-        truncated = kept[:limit]
-
-        material: dict[str, Any] = {
-            "retrieved": {
-                "instance": instance,
-                "query_submitted": query,
-                "parameters": parameters,
-                "number_of_results": document.get("number_of_results"),
-                "body_base64": base64.b64encode(response.body).decode("ascii"),
-                "body_sha256": "sha256:" + hashlib.sha256(response.body).hexdigest(),
-                "status_code": response.status_code,
-                "final_url": response.final_url,
-                "result_count": len(results),
-                "results": results,
-                "source": "packaged-recording" if response.from_recording else "network",
-            },
-            "derived": {
-                "kind": "recency_filtered_ranking",
-                "engine": "adapter",
-                "results": truncated,
-                "dropped_by_recency": dropped,
-                "truncated_to": limit,
-                # Recorded because the filter is a function of it. A
-                # derivation whose input is an implicit wall clock cannot be
-                # checked afterwards, and "cannot be checked afterwards" is
-                # the property this whole layer exists to remove.
-                "as_of": as_of.isoformat(),
-            },
-        }
+        results = document.get("results")
         return ProviderResult.ok(
             external_capture_result(
-                canonical_json(material),
+                response.body,
                 source_identity="search.response",
-                coordinate_type="http-response-v1",
-                selector_type="whole-response-v1",
-                coordinate={
-                    "request_digest": "sha256:"
-                    + hashlib.sha256(_with_query(endpoint, parameters).encode()).hexdigest(),
-                    "status": response.status_code,
-                    "body_sha256": material["retrieved"]["body_sha256"],
-                    "source": material["retrieved"]["source"],
-                },
+                coordinate_type=COORDINATE_TYPE,
+                selector_type=SELECTOR_TYPE,
+                coordinate=http_coordinate(
+                    url=request_url,
+                    final_url=response.final_url,
+                    status=response.status_code,
+                    content_type=response.content_type,
+                    response_headers=response.headers,
+                    from_recording=response.from_recording is not None,
+                ),
                 observed_at=datetime.now(UTC),
             ),
-            metrics={"result_count": float(len(results)), "returned": float(len(truncated))},
+            metrics={"result_count": float(len(results) if isinstance(results, list) else 0)},
         )
 
     # -- configuration -----------------------------------------------------
@@ -202,116 +164,15 @@ class SearxngSearch:
         return origin
 
 
-def _parse_input(context: ProviderRunContext) -> tuple[str, int, int | None, str]:
+def _parse_input(context: ProviderRunContext) -> tuple[str, str, str | None]:
     payload = context.input
     query = payload.get("query")
     if not isinstance(query, str) or not query.strip():
         raise decline(PROVIDER_DECLINED, "search.web needs a non-empty query")
-    limit = payload.get("limit", 10)
-    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
-        raise decline(PROVIDER_DECLINED, "limit must be a positive integer")
-    max_age_hours = payload.get("max_age_hours")
-    if max_age_hours is not None and (
-        not isinstance(max_age_hours, int) or isinstance(max_age_hours, bool) or max_age_hours <= 0
-    ):
-        raise decline(PROVIDER_DECLINED, "max_age_hours must be a positive integer")
     language = payload.get("language", "en")
     if not isinstance(language, str) or not language:
         raise decline(PROVIDER_DECLINED, "language must be a string")
-    return query.strip(), limit, max_age_hours, language
-
-
-def _time_range(max_age_hours: int | None) -> str | None:
-    """Map an hour bound onto SearXNG's three-value vocabulary.
-
-    The mapping loses precision in one direction only: SearXNG can say day,
-    month, or year, so a 90-day bound is submitted as ``year`` and the surplus is
-    removed by this adapter afterwards. Submitting the *narrower* range would
-    lose results the run asked for, which is the failure that cannot be repaired
-    downstream.
-    """
-
-    if max_age_hours is None:
-        return None
-    if max_age_hours <= HOURS_PER_DAY:
-        return "day"
-    if max_age_hours <= HOURS_PER_DAY * 30:
-        return "month"
-    return "year"
-
-
-def _with_query(endpoint: str, parameters: dict[str, str]) -> str:
-    from urllib.parse import urlencode
-
-    return f"{endpoint}?{urlencode(parameters)}"
-
-
-def _normalize(entry: dict[str, Any], rank: int) -> dict[str, Any]:
-    return {
-        "rank": rank,
-        "url": entry.get("url"),
-        "title": entry.get("title"),
-        "snippet": entry.get("content"),
-        "engine": entry.get("engine"),
-        "published": entry.get("publishedDate"),
-    }
-
-
-def _as_of(context: ProviderRunContext) -> datetime:
-    """The instant the recency filter is evaluated against.
-
-    Taken from the ``as_of`` coordinate when the executor supplies one, and from
-    the wall clock otherwise. The coordinate exists because a filter evaluated
-    against an implicit clock produces a result nobody can reproduce from the
-    receipt — including the run's own conformance fixtures, which would
-    otherwise start failing on a date nobody chose.
-    """
-
-    supplied = context.coordinates.get("as_of")
-    if supplied is None:
-        return datetime.now(UTC)
-    if not isinstance(supplied, str):
-        raise decline(PROVIDER_DECLINED, "the as_of coordinate must be a string")
-    try:
-        parsed = datetime.fromisoformat(supplied.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise decline(
-            PROVIDER_DECLINED,
-            f"the as_of coordinate {supplied!r} is not an ISO 8601 instant",
-        ) from exc
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
-
-
-def _filter_by_recency(
-    results: list[dict[str, Any]], max_age_hours: int | None, as_of: datetime
-) -> tuple[list[dict[str, Any]], int]:
-    """Drop results older than the bound, keeping undated ones.
-
-    An undated result is kept, and that is a judgement worth stating: a missing
-    ``publishedDate`` is the instance saying nothing, and dropping on silence
-    would quietly delete most of the web from every bounded query.
-    """
-
-    if max_age_hours is None:
-        return results, 0
-
-    horizon = as_of - timedelta(hours=max_age_hours)
-    kept: list[dict[str, Any]] = []
-    dropped = 0
-    for entry in results:
-        published = entry.get("published")
-        if not isinstance(published, str) or not published:
-            kept.append(entry)
-            continue
-        try:
-            when = datetime.fromisoformat(published.replace("Z", "+00:00"))
-        except ValueError:
-            kept.append(entry)
-            continue
-        if when.tzinfo is None:
-            when = when.replace(tzinfo=UTC)
-        if when >= horizon:
-            kept.append(entry)
-        else:
-            dropped += 1
-    return kept, dropped
+    time_range = payload.get("time_range")
+    if time_range is not None and time_range not in TIME_RANGES:
+        raise decline(PROVIDER_DECLINED, "time_range must be day, month or year")
+    return query.strip(), language, time_range

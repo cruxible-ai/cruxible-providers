@@ -20,11 +20,17 @@ def external_capture_result(
     selector_type: str,
     selector: object = None,
 ) -> dict[str, Any]:
-    """Commit the exact material supplied; Core verifies and retains these bytes.
+    """Build the Capture wire for ``content``; Core commits exactly these bytes.
 
-    A Procedure Source consumes a canonical JSON bundle; put non-JSON origin
-    bytes inside that bundle (for example as base64), alongside extraction.
-    Source identity and coordinate/selector names must match its CaptureContract.
+    ``content`` is the payload itself, verbatim: the body an origin sent, the
+    file read, the document a conversion produced -- in whatever format it is
+    (JSON, CSV, gzip, HTML, binary). Never wrap it: how the payload was obtained
+    (URLs, status, media type, request digest, kept headers, pages, the source a
+    derived document cites) belongs in ``coordinate``, which the operation's out
+    Contract types. Core never parses the bytes when it admits them; a
+    Procedure reads them only through a declared ``extract`` under its
+    CaptureKind's decoding. Source identity and coordinate/selector names must
+    match the CaptureKind.
 
     External observations are attested-only: retaining a response does not make
     a live endpoint replayable. This helper is wire construction, not authority.

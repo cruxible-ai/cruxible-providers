@@ -97,6 +97,9 @@ def test_the_manifest_declares_what_each_implementation_actually_needs(
     assert manifest.implementation("cruxible_provider_web.fetch:WebFetch").declared_endpoints == (
         DYNAMIC_TARGET_FROM_RUN_INPUT,
     )
+    assert manifest.implementation("cruxible_provider_web.render:WebRender").declared_endpoints == (
+        DYNAMIC_TARGET_FROM_RUN_INPUT,
+    )
     assert manifest.implementation(
         "cruxible_provider_web.search:SearxngSearch"
     ).declared_endpoints == (DYNAMIC_TARGET_FROM_CONFIGURATION,)

@@ -12,6 +12,7 @@ from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, ProviderManifes
 from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_web import operations
 from cruxible_provider_web.fetch import WebFetch
+from cruxible_provider_web.render import WebRender
 from cruxible_provider_web.search import SearxngSearch
 
 SRC = Path(cruxible_provider_web.__file__).resolve().parent
@@ -19,18 +20,20 @@ BUNDLE = load_registration(cruxible_provider_web.PACKAGE_ROOT)
 
 SERVED = {
     operations.FETCH_OPERATION: WebFetch,
+    operations.RENDER_OPERATION: WebRender,
     operations.SEARCH_OPERATION: SearxngSearch,
 }
 
 # Every module whose code path an operation's run can reach, per operation.
 REACHED_MODULES = {
-    operations.FETCH_OPERATION: ("fetch.py", "http.py", "engines.py"),
-    operations.SEARCH_OPERATION: ("search.py", "http.py"),
+    operations.FETCH_OPERATION: ("fetch.py", "http.py", "coordinate.py"),
+    operations.RENDER_OPERATION: ("render.py", "engines.py", "coordinate.py"),
+    operations.SEARCH_OPERATION: ("search.py", "http.py", "coordinate.py"),
 }
 
 
 def test_the_registration_declares_what_each_entrypoint_serves() -> None:
-    assert [item.name for item in BUNDLE.operations] == ["search.web", "web.fetch"]
+    assert [item.name for item in BUNDLE.operations] == ["search.web", "web.fetch", "web.render"]
     for operation in BUNDLE.operations:
         entrypoint = SERVED[operation.name]
         assert entrypoint.operations == (operation.name,)

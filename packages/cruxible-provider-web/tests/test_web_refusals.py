@@ -25,7 +25,7 @@ from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_runtime.resolution import environment_pin_key
 from cruxible_provider_runtime.testing import FakeContainerDriver, register_package
 
-from .conftest import FETCH_EXTRAS, MARKER_ENVIRONMENT, PROVIDER_ID
+from .conftest import MARKER_ENVIRONMENT, PROVIDER_ID, RENDER_EXTRAS
 
 
 def _request(
@@ -125,7 +125,7 @@ def test_undeclared_operation_refuses(
             local_backend=local_backend,
         )
     assert exc.value.code is RefusalCode.UNDECLARED_OPERATION
-    assert exc.value.refusal.detail["declared"] == ["search.web", "web.fetch"]
+    assert exc.value.refusal.detail["declared"] == ["search.web", "web.fetch", "web.render"]
 
 
 def test_unsupported_protocol_refuses(
@@ -175,13 +175,15 @@ def test_an_operation_naming_an_undeclared_entrypoint_refuses_at_registration(
 ) -> None:
     """Registration and manifest are two declarations; they must name one entrypoint."""
 
-    fetch, search = sorted(
+    fetch, *others = sorted(
         load_registration(cruxible_provider_web.PACKAGE_ROOT).operations,
         key=lambda item: item.name != "web.fetch",
     )
     moved = fetch.model_copy(update={"entrypoint": "cruxible_provider_web.fetch:Other"})
     with pytest.raises(RefusalError) as exc:
-        StubRegistry().register_provider(accepted_artifact, (search, moved))
+        StubRegistry().register_provider(
+            accepted_artifact, tuple(sorted((*others, moved), key=lambda item: item.name))
+        )
     assert exc.value.code is RefusalCode.MANIFEST_DIVERGENCE
 
 
@@ -243,13 +245,13 @@ def test_an_artifact_pinning_only_the_base_environment_refuses_the_engine_one(
     """The mismatch that only exists once one lock has two environments.
 
     Dropping the ``+browser`` pin leaves an artifact that is perfectly valid for
-    ``search.web`` and pins nothing for ``web.fetch``. Falling back to the base
-    pin would materialize an environment with no browser in it and then run an
-    implementation that declared it needed one.
+    ``web.fetch`` and ``search.web`` and pins nothing for ``web.render``. Falling
+    back to the base pin would materialize an environment with no browser in it
+    and then run an implementation that declared it needed one.
     """
 
     assert accepted_artifact.local_env is not None
-    engine_key = environment_pin_key(MARKER_ENVIRONMENT.id, FETCH_EXTRAS)
+    engine_key = environment_pin_key(MARKER_ENVIRONMENT.id, RENDER_EXTRAS)
     base_only = {
         key: digest
         for key, digest in accepted_artifact.local_env.materialization_digests.items()
@@ -264,10 +266,14 @@ def test_an_artifact_pinning_only_the_base_environment_refuses_the_engine_one(
     )
     registry = _registry_for(payload)
     with pytest.raises(RefusalError) as exc:
-        bind(registry, _request(manifest_path, lock_path), local_backend=local_backend)
+        bind(
+            registry,
+            _request(manifest_path, lock_path, operation="web.render"),
+            local_backend=local_backend,
+        )
     assert exc.value.code is RefusalCode.LOCK_MISMATCH
     assert exc.value.refusal.detail["environment_pin_key"] == engine_key
-    assert exc.value.refusal.detail["extras"] == list(FETCH_EXTRAS)
+    assert exc.value.refusal.detail["extras"] == list(RENDER_EXTRAS)
 
 
 def test_an_extra_the_lock_does_not_declare_refuses(

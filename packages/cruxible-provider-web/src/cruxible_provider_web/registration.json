@@ -2,7 +2,7 @@
   "schema_version": 2,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:73e089a689bb602d2df61d2c1179a4f037bdb8a03c988eedbc70c79b98d235b7"
+    "digest": "sha256:5848e2d3cab5819fb14c2ca3fc99319df916f26b8d793dfa5bc199d6e856c5b9"
   },
   "operations": [
     {
@@ -48,10 +48,6 @@
           "contract": "web.fetch.refusal.cross_origin_credentialed_redirect@1",
           "absorbable": false
         },
-        "engine_unavailable": {
-          "contract": "web.fetch.refusal.engine_unavailable@1",
-          "absorbable": false
-        },
         "provider_declined": {
           "contract": "web.fetch.refusal.provider_declined@1",
           "absorbable": true
@@ -66,20 +62,37 @@
         }
       },
       "entrypoint": "cruxible_provider_web.fetch:WebFetch"
+    },
+    {
+      "name": "web.render",
+      "in": "web.render.request@1",
+      "out": "web.render.result@1",
+      "effect": "external_read",
+      "refusals": {
+        "engine_unavailable": {
+          "contract": "web.render.refusal.engine_unavailable@1",
+          "absorbable": false
+        },
+        "provider_declined": {
+          "contract": "web.render.refusal.provider_declined@1",
+          "absorbable": true
+        }
+      },
+      "entrypoint": "cruxible_provider_web.render:WebRender"
     }
   ],
   "runtime_requirements": [
     {
-      "entrypoint": "cruxible_provider_web.fetch:WebFetch",
+      "entrypoint": "cruxible_provider_web.render:WebRender",
       "kind": "python_extra",
       "name": "browser",
       "description": "Required Python extra for this implementation."
     },
     {
-      "entrypoint": "cruxible_provider_web.fetch:WebFetch",
+      "entrypoint": "cruxible_provider_web.render:WebRender",
       "kind": "runtime_resource",
       "name": "playwright.chromium",
-      "description": "Rendered fetches require a Chromium browser matching the installed Playwright version; installing the Python extra alone is insufficient.",
+      "description": "Dom renders require a Chromium browser matching the installed Playwright version; installing the Python extra alone is insufficient.",
       "probe_entrypoint": "cruxible_provider_web.resources:chromium_available"
     }
   ]

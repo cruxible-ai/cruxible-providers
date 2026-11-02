@@ -15,18 +15,16 @@ schema_version: 2
 provider_id: cruxible-provider-web
 distribution:
   name: cruxible-provider-web
-  version: 0.3.0
+  version: 0.4.0
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [2]
 implementations:
   # Serves web.fetch.
   - entrypoint: "cruxible_provider_web.fetch:WebFetch"
     backends: [local_env, container]
-    # A rendered fetch needs a browser, and a browser is a heavy engine, so it
-    # lives behind the `browser` extra rather than in the base install.
-    # Declaring it here is what makes the resolver materialize an environment
-    # that has it -- and what makes the environment differ from search.web's.
-    requires_extras: [browser]
+    # One HTTP GET through the instrumented client; no engine. Its environment
+    # is the base one, shared with search.web.
+    requires_extras: []
     # EXPERIMENTAL declaration form. This implementation's target IS the run
     # input: enumerating endpoints at acceptance time could only ever be wrong,
     # and declaring [] and then contacting things would be a lie. What governs
@@ -38,17 +36,33 @@ implementations:
     # operation's effect (external_read), declared in registration.json.
     deterministic: false
 
+  # Serves web.render.
+  - entrypoint: "cruxible_provider_web.render:WebRender"
+    backends: [local_env, container]
+    # A dom render needs a browser, and a browser is a heavy engine, so it lives
+    # behind the `browser` extra rather than in the base install. Declaring it
+    # here is what makes the resolver materialize an environment that has it --
+    # and what makes this environment differ from the base one the other two share.
+    requires_extras: [browser]
+    # The main frame is served from the cited bytes; the subresources the page
+    # pulls are named by the document, so they cannot be enumerated either. Every
+    # origin the browser contacts lands in the run's egress recorder.
+    declared_endpoints:
+      - "dynamic:target-from-run-input"
+    # A dom render reads live subresources and runs page scripts.
+    deterministic: false
+
   # Serves search.web.
   - entrypoint: "cruxible_provider_web.search:SearxngSearch"
     backends: [local_env, container]
     # No engine: an HTTP client to somebody else's instance is the whole
-    # implementation. Its environment is therefore the base one, and differs
-    # from web.fetch's above -- one lock, two environments, two pins.
+    # implementation. Its environment is the base one, like web.fetch's, and
+    # differs from web.render's -- one lock, two environments, two pins.
     requires_extras: []
     # The exact instance URL is supplied as retained run configuration. The
     # package is reusable across instances; egress remains recorded per run.
     declared_endpoints:
       - "dynamic:target-from-configuration"
-    # A ranking is a fact about an instance at a moment, not a reproducible
+    # An answer is a fact about an instance at a moment, not a reproducible
     # function of the query.
     deterministic: false

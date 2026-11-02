@@ -1,4 +1,4 @@
-# The web plane. One distribution, one lock, one identity unit; two
+# The web plane. One distribution, one lock, one identity unit; three
 # implementations, each serving one operation.
 #
 # The base install is LIGHT. It carries the adapter logic, the registration,
@@ -8,8 +8,8 @@
 # `uv run pytest` therefore downloads no browser and opens no socket.
 [project]
 name = "cruxible-provider-web"
-version = "0.3.0"
-description = "Cruxible provider adapters for the web plane: page retrieval and web search."
+version = "0.4.0"
+description = "Cruxible provider adapters for the web plane: page retrieval, web search and derived renders."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The one per-engine extra: a browser. Its name is what the `web.fetch`
+# The one per-engine extra: a browser. Its name is what the `web.render`
 # implementation declares in `requires_extras`, and what the resolver is asked
 # for when that implementation's environment is materialized.
 browser = ["playwright>=1.44"]
@@ -47,6 +47,7 @@ browser = ["playwright>=1.44"]
 [project.entry-points."cruxible.providers"]
 "web.fetch" = "cruxible_provider_web.fetch:WebFetch"
 "search.web" = "cruxible_provider_web.search:SearxngSearch"
+"web.render" = "cruxible_provider_web.render:WebRender"
 
 [dependency-groups]
 dev = [

@@ -1,0 +1,26 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "One page of a listing an operation assembled into one document: its URL, its 2xx status and its body's digest.",
+  "fields": {
+    "bytes_digest": {
+      "type": {
+        "kind": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "status": {
+      "type": {
+        "kind": "int",
+        "max": 299,
+        "min": 200
+      }
+    },
+    "url": {
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "web.capture.page",
+  "version": 1
+}
