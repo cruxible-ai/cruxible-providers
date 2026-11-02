@@ -101,6 +101,7 @@ class _RecordedRenderer:
             status_code=200,
             headers={"content-type": DOM_MEDIA},
             body=document,
+            served_cited=True,
         )
 
 
@@ -177,6 +178,15 @@ class WebRender:
             timeout_seconds=max(1.0, context.budgets.wall_clock_seconds * 0.8),
             recorder=context.egress,
         )
+        if not page.served_cited:
+            # Whatever renderer ran, the output cites the supplied bytes only
+            # when they are what the page was assembled from.
+            raise decline(
+                PROVIDER_DECLINED,
+                "the renderer did not assemble the cited bytes; the render cannot cite them",
+                url=request.final_url,
+                engine=page.engine,
+            )
         return page.html.encode("utf-8"), DOM_MEDIA, page.engine
 
     def _text(self, request: _RenderRequest) -> tuple[bytes, str, str]:

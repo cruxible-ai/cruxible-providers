@@ -35,7 +35,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import decline
@@ -52,6 +52,7 @@ __all__ = [
     "RenderedPage",
     "TrafilaturaExtractor",
     "drive_page",
+    "navigation_key",
 ]
 
 
@@ -87,6 +88,29 @@ class RenderedPage:
     unavailable one are different facts, and a digest over the second would be a
     fabrication of the first.
     """
+    served_cited: bool = False
+    """Whether the main frame was answered with the cited bytes, and only them.
+
+    ``web.render`` refuses a page without it: a DOM assembled from anything but
+    the cited bytes cannot cite them.
+    """
+
+
+def navigation_key(url: str) -> str:
+    """``url`` as a browser requests it: the identity a main-frame route matches on.
+
+    Scheme and host lowercase, a default port dropped, an empty path ``/``, and
+    no fragment (a fragment never travels in a request). A bare origin and its
+    ``/`` are one navigation; ``#section`` is the document without it.
+    """
+
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    host = (parts.hostname or "").lower()
+    port = parts.port
+    if port is not None and (scheme, port) not in {("http", 80), ("https", 443)}:
+        host = f"{host}:{port}"
+    return urlunsplit((scheme, host, parts.path or "/", parts.query, ""))
 
 
 class MainFrameResponse(Protocol):
@@ -177,16 +201,20 @@ def drive_page(
     degree the page was interesting.
     """
 
+    main_frame = navigation_key(url)
+    served: list[bool] = []
+
     def serve_cited(route: Any) -> None:
         route.fulfill(status=200, headers={"content-type": content_type}, body=document)
+        served.append(True)
 
     # Attached before the navigation, like the hooks below: a main frame the
     # browser fetched itself would be a second retrieval, not the cited one.
-    page.route(lambda requested: requested == url, serve_cited)
+    page.route(lambda requested: navigation_key(requested) == main_frame, serve_cited)
 
     def contacted(event: Any) -> None:
         # The main frame is served from the cited bytes, so it contacts nobody.
-        if event.url != url:
+        if navigation_key(event.url) != main_frame:
             _record_contact(recorder, event.url)
 
     page.on("request", contacted)
@@ -194,19 +222,30 @@ def drive_page(
 
     response = page.goto(url, wait_until="networkidle", timeout=timeout_seconds * 1000)
     html = page.content()
-    if response is None:
-        # A navigation with no main-frame response — a same-document navigation,
-        # a download — leaves nothing true to say about the wire, so nothing is
-        # said about it. Where the browser ended up is still something it
-        # observed.
-        return RenderedPage(engine=engine, html=html, final_url=page.url)
+    body = None if response is None else _main_frame_body(response)
+    if (
+        not served
+        or response is None
+        or navigation_key(response.url) != main_frame
+        or (body is not None and body != document)
+    ):
+        # Fail closed: the interception missed, the navigation went elsewhere,
+        # or the frame holds other bytes. Whatever was assembled is not a
+        # reading of the cited Capture, so nothing may cite it as one.
+        raise decline(
+            PROVIDER_DECLINED,
+            "the main frame was not served from the cited bytes; the render cannot cite them",
+            url=url,
+            engine=engine,
+        )
     return RenderedPage(
         engine=engine,
         html=html,
         final_url=response.url,
         status_code=response.status,
         headers={key.lower(): value for key, value in response.all_headers().items()},
-        body=_main_frame_body(response),
+        body=body,
+        served_cited=True,
     )
 
 

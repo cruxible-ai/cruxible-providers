@@ -20,9 +20,11 @@ import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
+from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 from cruxible_provider_web.engines import Extraction, RenderedPage, drive_page
@@ -93,6 +95,7 @@ class _FakePage:
         self.url = "about:blank"
         self.served: dict[str, Any] | None = None
         self.order: list[str] = []
+        self.body_override: bytes | None = None
 
     def on(self, event: str, handler: Callable[[Any], None]) -> None:
         self.order.append(event)
@@ -105,6 +108,13 @@ class _FakePage:
     def goto(self, url: str, *, wait_until: str, timeout: float) -> _FakeResponse | None:
         del wait_until, timeout
         self.order.append("goto")
+        # What a browser puts on the wire: scheme and host lowercase, a default
+        # port dropped, a bare origin gains its "/", and a fragment never travels.
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        if parts.port not in (None, 80, 443):
+            host = f"{host}:{parts.port}"
+        url = urlunsplit((parts.scheme.lower(), host, parts.path or "/", parts.query, ""))
         self.url = url
         route = _FakeRoute()
         for matches, handler in self._routes:
@@ -121,7 +131,7 @@ class _FakePage:
             url=url,
             status=self.served["status"],
             headers=self.served["headers"],
-            payload=self.served["body"],
+            payload=self.body_override if self.body_override is not None else self.served["body"],
         )
 
     def content(self) -> str:
@@ -344,15 +354,43 @@ def test_a_recorded_render_replays_only_the_recorded_document() -> None:
 
 
 class _UnroutablePage(_FakePage):
-    """A page whose navigation produces no main-frame response at all."""
+    """A page whose route never intercepts: the browser fetched the frame itself."""
 
     def route(self, url: Callable[[str], bool], handler: Callable[[Any], None]) -> None:
         self.order.append("route")
 
 
-def test_a_navigation_with_no_main_frame_response_claims_no_status() -> None:
+@pytest.mark.parametrize(
+    ("cited", "requested"),
+    [
+        ("https://first.example", "https://first.example/"),
+        ("https://first.example/report#top", "https://first.example/report"),
+        ("HTTPS://First.Example:443/report", "https://first.example/report"),
+    ],
+    ids=["bare-origin", "fragment", "case-and-default-port"],
+)
+def test_the_main_frame_matches_as_the_browser_requests_it(cited: str, requested: str) -> None:
+    page = _page()
+    recorder = EgressRecorder()
     rendered = drive_page(
-        _UnroutablePage(html=ASSEMBLED),
+        page,
+        cited,
+        document=WIRE_BODY,
+        content_type="text/html",
+        timeout_seconds=1.0,
+        recorder=recorder,
+        engine="playwright",
+    )
+    assert page.url == requested
+    assert page.served is not None and page.served["body"] == WIRE_BODY
+    assert rendered.served_cited and rendered.body == WIRE_BODY
+    # The served frame contacted nobody; only the subresources are recorded.
+    assert "https://first.example" not in recorder.observed()
+
+
+def _drive(page: _FakePage) -> RenderedPage:
+    return drive_page(
+        page,
         REQUESTED,
         document=WIRE_BODY,
         content_type="text/html",
@@ -360,6 +398,31 @@ def test_a_navigation_with_no_main_frame_response_claims_no_status() -> None:
         recorder=EgressRecorder(),
         engine="playwright",
     )
-    assert rendered.status_code is None
-    assert rendered.body is None
-    assert rendered.final_url == REQUESTED
+
+
+def test_a_missed_interception_fails_closed() -> None:
+    with pytest.raises(Declined) as refused:
+        _drive(_UnroutablePage(html=ASSEMBLED))
+    assert refused.value.code == PROVIDER_DECLINED
+
+
+def test_a_frame_holding_other_bytes_fails_closed() -> None:
+    page = _page()
+    page.body_override = b"<html>another document</html>"
+    with pytest.raises(Declined):
+        _drive(page)
+
+
+def test_a_render_never_cites_bytes_it_did_not_assemble() -> None:
+    """Whatever the renderer, an output without served_cited is refused."""
+
+    class _Elsewhere:
+        name = "playwright"
+
+        def render(self, url: str, **_kwargs: Any) -> RenderedPage:
+            return RenderedPage(engine="playwright", html=ASSEMBLED, final_url=url)
+
+    result = WebRender(renderer=_Elsewhere())(_context())  # type: ignore[arg-type]
+    assert result.status == "refused" and result.output is None
+    unrouted = WebRender(renderer=_PageRenderer(_UnroutablePage(html=ASSEMBLED)))(_context())
+    assert unrouted.status == "refused" and unrouted.output is None
