@@ -335,7 +335,7 @@ for case in json.load(sys.stdin):
     )
     parsed = parse_provider(render_provider(provider), path=provider_path(provider.identity.name))
     assert provider_digest(parsed) == provider_digest(provider)
-assert count == 13, count
+assert count == 14, count
 assert not any(name.startswith("cruxible_provider_") for name in sys.modules)
 """
     result = subprocess.run(
