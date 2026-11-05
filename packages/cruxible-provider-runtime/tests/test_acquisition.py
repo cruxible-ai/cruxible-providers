@@ -141,9 +141,7 @@ def test_core_s_wire_without_the_default_keys_reads_the_same() -> None:
     """Core may leave the defaulted tag and encoding out; the bytes still verify."""
 
     wire = {
-        key: value
-        for key, value in _result().items()
-        if key not in {"tag", "content_encoding"}
+        key: value for key, value in _result().items() if key not in {"tag", "content_encoding"}
     }
     assert capture_input(wire).content == b"\x00exact bytes\xff"
 

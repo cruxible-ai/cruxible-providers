@@ -12,11 +12,14 @@ back the running interpreter instead of synthesising a venv.
 
 from __future__ import annotations
 
+import json
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
+from .acquisition import capture_input
 from .artifact import ImageProvenance, ProviderArtifactPayload
 from .backends import CHILD_MODULE, MaterializationRequest, verify_environment
 from .budget import ProcessOutcome, minimal_env, run_with_budget
@@ -30,11 +33,81 @@ from .resolution import MarkerEnvironment, ResolvedSet
 
 __all__ = [
     "ENGINE_MARKER_ENVIRONMENT",
+    "WRAPPER_KEYS",
+    "CapturedMember",
     "FakeContainerDriver",
     "FakeIndexTransport",
     "InjectedEnvironmentBuilder",
+    "assert_payload_verbatim",
+    "captured_members",
     "register_package",
 ]
+
+# -- Capture conformance ------------------------------------------------------------
+
+WRAPPER_KEYS = frozenset({"retrieved", "derived", "body_base64", "exchanges"})
+"""Keys of the envelopes a Capture's bytes must never be wrapped in (D-R25)."""
+
+
+@dataclass(frozen=True)
+class CapturedMember:
+    """One Capture an operation's output carries, at its place in the output."""
+
+    at: str
+    """``capture`` for a whole-wire output, the field name, or ``field/<index>``."""
+    stored: bytes
+    """The exact bytes Core would commit: the wire's content, verified."""
+    coordinate: Any
+    wire: Mapping[str, Any]
+
+
+def captured_members(output: Mapping[str, Any], out: Mapping[str, Any]) -> list[CapturedMember]:
+    """Every Capture in ``output``, read against its out Contract document ``out``.
+
+    Three forms, as Core reads them: an out Contract that *is* Capture wire (it
+    declares ``content_base64``) makes the whole output one Capture; a
+    ``capture<K>`` field holds one; a ``list<capture<K>>`` field holds one per
+    member, in order. Each member's bytes are verified against its own stated
+    length and digest (:func:`.acquisition.capture_input`).
+    """
+
+    fields: Mapping[str, Any] = out["fields"]
+    if "content_base64" in fields:
+        return [_member("capture", output)]
+    members: list[CapturedMember] = []
+    for name, declared in sorted(fields.items()):
+        kind = declared["type"]
+        if kind["kind"] == "capture" and name in output:
+            members.append(_member(name, output[name]))
+        elif kind["kind"] == "list" and kind["item"]["kind"] == "capture" and name in output:
+            assert isinstance(output[name], list), f"{name}: a Capture list is a list"
+            members += [_member(f"{name}/{index}", item) for index, item in enumerate(output[name])]
+    return members
+
+
+def _member(at: str, wire: Any) -> CapturedMember:
+    content, coordinate, _coordinate_type = capture_input(wire)
+    return CapturedMember(at=at, stored=content, coordinate=coordinate, wire=wire)
+
+
+def assert_payload_verbatim(members: Sequence[CapturedMember]) -> None:
+    """No member's bytes are a wrapper, and every member has its own coordinate.
+
+    The bytes are the payload itself: a JSON document whose top level carries a
+    wrapper key is an envelope around one, which is what D-R25 removed. Members
+    of one output are separate requests, so no two share a coordinate (a2).
+    """
+
+    for member in members:
+        try:
+            document = json.loads(member.stored)
+        except ValueError:
+            continue
+        if isinstance(document, dict):
+            wrapped = sorted(WRAPPER_KEYS & set(document))
+            assert not wrapped, f"{member.at}: the stored bytes carry wrapper keys {wrapped}"
+    coordinates = [canonical_json(member.coordinate) for member in members]
+    assert len(set(coordinates)) == len(coordinates), "two members share one coordinate"
 
 
 def register_package(
