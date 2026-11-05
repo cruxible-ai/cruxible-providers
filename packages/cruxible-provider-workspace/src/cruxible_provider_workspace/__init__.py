@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .file import OPERATION, WorkspaceFile, input_bucket_label, structure_bytes
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = PACKAGE_ROOT / "manifest.yaml"

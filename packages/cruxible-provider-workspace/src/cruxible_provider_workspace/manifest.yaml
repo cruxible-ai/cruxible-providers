@@ -14,7 +14,7 @@ schema_version: 2
 provider_id: cruxible-provider-workspace
 distribution:
   name: cruxible-provider-workspace
-  version: 0.3.0
+  version: 0.3.1
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [2]
 implementations:
