@@ -72,7 +72,7 @@ from .resolution import (
 if TYPE_CHECKING:  # pragma: no cover - resolved lazily at runtime, see __getattr__
     from .container_entry import SECRET_CHANNEL_FD, container_secret_channel
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "DYNAMIC_ENDPOINT_FORMS",
