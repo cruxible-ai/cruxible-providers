@@ -138,8 +138,10 @@ The adapter continues to enforce an explicit static allowlist when one is suppli
 
 `web.render.dom` does not go through that client: a browser opens its own
 sockets and pulls whatever the markup names. It gets its own hooks, on the page's
-`request` and `response` events, so the main frame, the CDN its script comes
-from and the API that script queries land in the same recorder. It declares
+`request`, `response` and `websocket` events, so the main frame, the CDN its
+script comes from, the API that script queries and any `ws`/`wss` stream the page
+opens land in the same recorder (a WebSocket endpoint as `wss://host[:port]`,
+normalised like an HTTP origin). It declares
 `dynamic:target-from-run-input`: the run names the page, and the page names its
 subresources. `web.render` declares no endpoints: a derive contacts nothing.
 

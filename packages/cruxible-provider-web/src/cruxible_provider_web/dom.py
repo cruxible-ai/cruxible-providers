@@ -15,9 +15,9 @@ assembled the page, so a reader never takes a DOM for the body an origin sent.
 
 **Egress.** A browser opens its own sockets, so nothing it does passes through
 the instrumented HTTP client. :func:`.browser.drive_page` hooks the page's
-request and response events instead, and every http(s) origin the page
-contacts -- the main frame, a CDN, the API a script queries -- reaches the run's
-egress recorder.
+request, response and websocket events instead, and every endpoint the page
+contacts -- the main frame, a CDN, the API a script queries, a ws/wss stream it
+opens -- reaches the run's egress recorder.
 
 A URL on the reserved ``fixture.invalid`` host is answered from a packaged
 recording's post-assembly DOM rather than a browser; the coordinate says

@@ -24,7 +24,7 @@ from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
-from cruxible_provider_web.browser import RenderedPage, drive_page
+from cruxible_provider_web.browser import PAGE_CONTACT_EVENTS, RenderedPage, drive_page
 from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.operations import ENGINE_UNAVAILABLE, PROVIDER_DECLINED
 from cruxible_provider_web.recordings import load_recordings
@@ -41,9 +41,38 @@ cycle, assembled client-side from the readings endpoint.</p></main></body></html
 """
 
 
+#: The events a Playwright ``Page`` emits (``Page.on``, playwright-python 1.4x).
+#: The double below refuses any other name, so a hook attached to a misspelt or
+#: invented event fails here rather than silently never firing in a browser;
+#: ``tests/test_web_engine.py`` holds the same names against the real class.
+PLAYWRIGHT_PAGE_EVENTS = frozenset(
+    {
+        "close",
+        "console",
+        "crash",
+        "dialog",
+        "domcontentloaded",
+        "download",
+        "filechooser",
+        "frameattached",
+        "framedetached",
+        "framenavigated",
+        "load",
+        "pageerror",
+        "popup",
+        "request",
+        "requestfailed",
+        "requestfinished",
+        "response",
+        "websocket",
+        "worker",
+    }
+)
+
+
 @dataclass
 class _Event:
-    """What a page hands its ``request`` and ``response`` handlers."""
+    """What a page hands its handlers: a ``Request``, ``Response`` or ``WebSocket``."""
 
     url: str
 
@@ -84,6 +113,8 @@ class _FakePage:
         self.order: list[str] = []
 
     def on(self, event: str, handler: Callable[[Any], None]) -> None:
+        if event not in PLAYWRIGHT_PAGE_EVENTS:
+            raise AssertionError(f"a Playwright page emits no {event!r} event")
         self.order.append(event)
         self._handlers.setdefault(event, []).append(handler)
 
@@ -166,7 +197,67 @@ def test_the_hooks_are_attached_before_the_navigation() -> None:
     page = _page()
     result, _ = _run(page)
     assert result.status == "ok", result
-    assert page.order[-1] == "goto" and set(page.order[:-1]) == {"request", "response"}
+    assert page.order[-1] == "goto"
+    assert set(page.order[:-1]) == {"request", "response", "websocket"}
+
+
+def test_every_hook_is_on_an_event_a_playwright_page_emits() -> None:
+    assert "websocket" in PAGE_CONTACT_EVENTS
+    assert set(PAGE_CONTACT_EVENTS) <= PLAYWRIGHT_PAGE_EVENTS
+
+
+def test_a_websocket_the_page_opens_reaches_the_recorder() -> None:
+    """Playwright reports a WebSocket only through ``websocket``, never ``request``."""
+
+    contacts = [
+        ("request", SETTLED),
+        ("websocket", "wss://stream.third.example/live?channel=gauges"),
+        ("websocket", "ws://Plain.Third.Example:80/feed"),
+        ("websocket", "wss://stream.other.example:8443/feed"),
+    ]
+    page = _page(contacts=contacts)
+    recorder = EgressRecorder()
+    serialized = page.content
+    at_serialization: list[str] = []
+
+    def content() -> str:
+        at_serialization.extend(recorder.observed())
+        return serialized()
+
+    page.content = content  # type: ignore[method-assign]
+    result = WebRenderDom(renderer=_PageRenderer(page))(_context(egress=recorder))
+    assert result.status == "ok", result
+    expected = {
+        "https://first.example",
+        "https://second.example",
+        # Normalised like an HTTP origin: path and query dropped, host lowered,
+        # the scheme's default port implicit, any other port kept.
+        "wss://stream.third.example",
+        "ws://plain.third.example",
+        "wss://stream.other.example:8443",
+    }
+    assert set(recorder.observed()) == expected
+    # Recorded before the DOM was serialized: the Capture never precedes them.
+    assert set(at_serialization) == expected
+
+
+def test_without_the_websocket_hook_the_endpoint_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The double plays WebSockets on their own event, as a browser does.
+
+    With only the HTTP hooks attached (the wiring before this fix) the stream's
+    host never reaches the recorder: the regression above is not satisfied by
+    the request/response hooks by accident.
+    """
+
+    from cruxible_provider_web import browser
+
+    monkeypatch.setattr(browser, "PAGE_CONTACT_EVENTS", ("request", "response"))
+    recorder = EgressRecorder()
+    page = _page(contacts=[("websocket", "wss://stream.third.example/live")])
+    drive_page(page, REQUESTED, timeout_seconds=1.0, recorder=recorder, engine="playwright")
+    assert recorder.observed() == ["https://first.example"]
 
 
 def test_every_origin_the_page_contacts_reaches_the_recorder() -> None:

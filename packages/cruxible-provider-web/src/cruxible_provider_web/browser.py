@@ -28,6 +28,8 @@ from cruxible_provider_runtime.errors import decline
 from .operations import ENGINE_UNAVAILABLE, PROVIDER_DECLINED
 
 __all__ = [
+    "CONTACT_SCHEMES",
+    "PAGE_CONTACT_EVENTS",
     "BrowserPage",
     "MainFrameResponse",
     "PageRenderer",
@@ -88,6 +90,23 @@ class PageRenderer(Protocol):
     ) -> RenderedPage: ...
 
 
+#: Every scheme a browser reaches a host over: page loads and fetches, and the
+#: WebSocket handshakes a page opens.
+CONTACT_SCHEMES = frozenset({"http", "https", "ws", "wss"})
+_WEBSOCKET_DEFAULT_PORTS = {"ws": 80, "wss": 443}
+
+PAGE_CONTACT_EVENTS = ("request", "response", "websocket")
+"""The Playwright ``Page`` events :func:`drive_page` records a contact from.
+
+``request`` and ``response`` cover every HTTP exchange the page makes, its
+redirects included. A WebSocket is not one of them: Playwright reports it only
+through the page's separate ``websocket`` event, so without that hook a page
+streaming from ``wss://stream.third.example`` would assemble into a Capture whose
+receipt never names the host. The names are Playwright's own (``Page.on``);
+``tests/test_web_engine.py`` holds them against a real browser.
+"""
+
+
 def _record_contact(recorder: EgressRecorder, url: str) -> None:
     """Record ``url`` when it names an origin the egress contract is about.
 
@@ -95,11 +114,25 @@ def _record_contact(recorder: EgressRecorder, url: str) -> None:
     recorder's subject is who a provider talked to over a network. Normalising a
     hostless URL refuses rather than records, so the filter has to be on the way
     in rather than left to the recorder.
+
+    A WebSocket endpoint is recorded under its own scheme, normalised the way an
+    HTTP origin is: ``scheme://host[:port]``, path and query dropped, and the
+    scheme's default port (80 for ``ws``, 443 for ``wss``) left implicit.
     """
 
     parts = urlsplit(url)
-    if parts.scheme in {"http", "https"} and parts.hostname:
-        recorder.record(url)
+    scheme = parts.scheme.lower()
+    if scheme not in CONTACT_SCHEMES or not parts.hostname:
+        return
+    if scheme in _WEBSOCKET_DEFAULT_PORTS:
+        host = parts.hostname.lower()
+        if ":" in host:
+            host = f"[{host}]"
+        port = parts.port
+        if port is not None and port != _WEBSOCKET_DEFAULT_PORTS[scheme]:
+            host = f"{host}:{port}"
+        url = f"{scheme}://{host}"
+    recorder.record(url)
 
 
 def drive_page(
@@ -112,20 +145,22 @@ def drive_page(
 ) -> RenderedPage:
     """Assemble the page at ``url`` in ``page``, recording every origin it contacts.
 
-    Both hooks are attached before the navigation and both are load-bearing. A
-    browser contacts hosts the adapter never named -- the CDN the markup pulls a
-    script from, the API that script queries, the redirects those answer with --
-    and none of that passes through an instrumented HTTP client, so without these
-    hooks none of it reaches the run's recorder and the receipt understates the
-    run to exactly the degree the page was interesting. The main frame is a
-    contact like any other.
+    Every hook in :data:`PAGE_CONTACT_EVENTS` is attached before the navigation
+    and each is load-bearing. A browser contacts hosts the adapter never named --
+    the CDN the markup pulls a script from, the API that script queries, the
+    redirects those answer with, the WebSocket a page streams over -- and none of
+    that passes through an instrumented HTTP client, so without these hooks none
+    of it reaches the run's recorder and the receipt understates the run to
+    exactly the degree the page was interesting. The main frame is a contact like
+    any other. Each event hands its handler an object with the contacted ``url``
+    (a Playwright ``Request``, ``Response`` or ``WebSocket``).
     """
 
     def contacted(event: Any) -> None:
         _record_contact(recorder, event.url)
 
-    page.on("request", contacted)
-    page.on("response", contacted)
+    for name in PAGE_CONTACT_EVENTS:
+        page.on(name, contacted)
     response = page.goto(url, wait_until="networkidle", timeout=timeout_seconds * 1000)
     if response is None:
         # A navigation the browser answered without a response (a same-document
