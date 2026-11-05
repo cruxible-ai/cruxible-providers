@@ -22,7 +22,7 @@ from .recordings import load_recordings
 from .to_markdown import OPERATION as MARKDOWN_OPERATION
 from .to_markdown import DoclingToMarkdown
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = PACKAGE_ROOT / "manifest.yaml"
