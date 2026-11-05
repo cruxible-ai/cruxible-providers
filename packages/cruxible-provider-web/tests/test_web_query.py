@@ -120,3 +120,57 @@ def test_a_query_the_adapter_cannot_build_is_declined(query: Any) -> None:
     assert result.status == "refused" and result.refusal is not None
     assert result.refusal.code == PROVIDER_DECLINED
     assert client.urls == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"{BASE}?cve=CVE-old",
+        f"{BASE}?limit=10&cve=",
+        # The comparison is on decoded names, the way an origin reads them.
+        f"{BASE}?%63ve=CVE-old",
+    ],
+    ids=["same-name", "blank-value", "encoded-name"],
+)
+def test_a_typed_parameter_the_url_already_names_is_declined(url: str) -> None:
+    """``url?cve=old`` plus a typed ``cve`` would send both, and an origin may read the first."""
+
+    result, client = _fetch({"url": url, "query": [{"name": "cve", "values": ["CVE-new"]}]})
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PROVIDER_DECLINED
+    assert "cve" in result.refusal.message
+    assert client.urls == []
+
+
+def test_a_parameter_the_url_does_not_name_is_added_beside_its_query() -> None:
+    result, client = _fetch(
+        {"url": f"{BASE}?limit=10", "query": [{"name": "cve", "values": ["CVE-new"]}]}
+    )
+    assert result.status == "ok", result
+    assert client.urls == [f"{BASE}?limit=10&cve=CVE-new"]
+
+
+def test_repeated_values_inside_one_typed_parameter_stay_allowed() -> None:
+    result, client = _fetch(
+        {"url": BASE, "query": [{"name": "cve", "values": ["CVE-1", "CVE-1"], "join": "repeat"}]}
+    )
+    assert result.status == "ok", result
+    assert client.urls == [f"{BASE}?cve=CVE-1&cve=CVE-1"]
+
+
+@pytest.mark.parametrize("with_query_field", [False, True], ids=["no-query", "empty-query"])
+def test_the_url_bound_holds_whether_or_not_a_query_is_supplied(with_query_field: bool) -> None:
+    long_url = f"{BASE}?filter=" + "x" * (MAX_URL_LENGTH - len(BASE))
+    assert len(long_url) > MAX_URL_LENGTH
+    payload: dict[str, Any] = {"url": long_url}
+    if with_query_field:
+        payload["query"] = []
+    result, client = _fetch(payload)
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PROVIDER_DECLINED
+    assert client.urls == []
+    # At the bound exactly, the url is sent.
+    at_bound = long_url[:MAX_URL_LENGTH]
+    result, client = _fetch({"url": at_bound})
+    assert result.status == "ok", result
+    assert client.urls == [at_bound]

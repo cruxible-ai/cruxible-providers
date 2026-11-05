@@ -98,8 +98,11 @@ can pass values it read from state rather than spelling them into a URL (D-R34):
 they are percent-encoded onto `url` in the order given, each value as its own
 `name=value` (`join: repeat`, the default) or comma-joined into one
 (`join: comma`, as an API taking `cve=A,B` wants). A parameter needs at least one
-value, a name appears once, and a built URL longer than 8192 characters refuses.
-The built URL is the request: the coordinate's `url` records it and
+value, a name appears once, and a typed name the `url`'s own query already
+carries (compared decoded) refuses, so a stale filter in the URL can never ride
+along beside the one the run derived. Repeated values inside one parameter stay
+allowed. A request URL longer than 8192 characters refuses, whether a query
+built it or it arrived that long. The built URL is the request: the coordinate's `url` records it and
 `request_digest` covers it. `logical_source` defaults to
 `web.response`; callers should name their dataset and pin that name in the
 CaptureKind. `expected_format` accepts `auto`, `html`, `json`, `csv`, `text`, or

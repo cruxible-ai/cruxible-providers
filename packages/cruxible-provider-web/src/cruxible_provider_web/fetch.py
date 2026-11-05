@@ -35,7 +35,7 @@ import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 from cruxible_provider_runtime.acquisition import external_capture_result
 from cruxible_provider_runtime.errors import Declined, decline
@@ -215,10 +215,32 @@ def _query(value: object) -> list[tuple[str, list[str], str]]:
     return parameters
 
 
+def _refuse_parameter_collisions(url: str, query: list[tuple[str, list[str], str]]) -> None:
+    """Refuse a typed parameter whose name ``url``'s own query already carries.
+
+    ``url?cve=CVE-old`` with a typed ``cve`` would send ``cve=CVE-old&cve=CVE-new``,
+    and an origin that reads the first value answers for a filter the run did not
+    derive. The names compared are the decoded ones, the way an origin reads them.
+    Repeated values inside one typed parameter are the parameter's own and stay.
+    """
+
+    if not query:
+        return
+    present = {name for name, _ in parse_qsl(urlsplit(url).query, keep_blank_values=True)}
+    for name, _values, _join in query:
+        if name in present:
+            raise decline(
+                PROVIDER_DECLINED,
+                f"query parameter {name!r} is already in the url; pass it once, as a typed "
+                "parameter or in the url",
+                url=url,
+            )
+
+
 class _Request:
     """The validated run input."""
 
-    __slots__ = ("expected_format", "headers", "logical_source", "max_bytes", "url")
+    __slots__ = ("expected_format", "headers", "logical_source", "max_bytes", "query", "url")
 
     def __init__(
         self,
@@ -228,8 +250,10 @@ class _Request:
         headers: Mapping[str, str],
         expected_format: str,
         logical_source: str,
+        query: list[tuple[str, list[str], str]],
     ) -> None:
         self.url = url
+        self.query = query
         self.max_bytes = max_bytes
         self.headers = dict(headers)
         self.expected_format = expected_format
@@ -255,14 +279,17 @@ class _Request:
                 "web.fetch needs an http or https url",
                 **({"url": url} if isinstance(url, str) else {}),
             )
-        if "query" in payload:
-            url = with_query(url, _query(payload["query"]))
-            if len(url) > MAX_URL_LENGTH:
-                raise decline(
-                    PROVIDER_DECLINED,
-                    f"the request URL the query builds is longer than {MAX_URL_LENGTH} "
-                    "characters; split the values across fetches",
-                )
+        query = _query(payload["query"]) if "query" in payload else []
+        _refuse_parameter_collisions(url, query)
+        url = with_query(url, query)
+        # The bound is on the request this adapter sends, so it holds for a url
+        # that arrived long as much as for one a query made long.
+        if len(url) > MAX_URL_LENGTH:
+            raise decline(
+                PROVIDER_DECLINED,
+                f"the request URL is longer than {MAX_URL_LENGTH} characters; split the "
+                "values across fetches",
+            )
         max_bytes = payload.get("max_bytes", DEFAULT_MAX_BYTES)
         if (
             not isinstance(max_bytes, int)
@@ -302,6 +329,7 @@ class _Request:
             headers=headers,
             expected_format=expected_format,
             logical_source=logical_source,
+            query=query,
         )
 
     def validate_format(self, response: HttpResponse) -> None:
