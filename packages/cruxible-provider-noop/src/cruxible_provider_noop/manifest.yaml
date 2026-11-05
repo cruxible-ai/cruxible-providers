@@ -15,7 +15,7 @@ schema_version: 2
 provider_id: cruxible-provider-noop
 distribution:
   name: cruxible-provider-noop
-  version: 0.3.0
+  version: 0.4.0
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [2]
 implementations:
@@ -23,5 +23,10 @@ implementations:
     backends: [local_env, container]
     # Zero declared endpoints: the reference provider contacts nothing, and the
     # egress-conformance lane asserts observed == declared == empty.
+    declared_endpoints: []
+    deterministic: true
+  - entrypoint: "cruxible_provider_noop.captures:NoopCaptures"
+    backends: [local_env, container]
+    # The recorded files ship in the distribution: nothing is contacted.
     declared_endpoints: []
     deterministic: true

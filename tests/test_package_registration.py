@@ -201,11 +201,12 @@ def test_an_implementation_serving_no_operation_refuses(docs_copy: Path) -> None
 
 def test_one_entrypoint_may_serve_two_operations(package_copy: Path) -> None:
     document = _document(package_copy)
-    second = {**document["operations"][0], "name": "noop.shout"}
-    document["operations"].append(second)
+    echo = next(item for item in document["operations"] if item["name"] == "noop.echo")
+    document["operations"].append({**echo, "name": "noop.shout"})
     _rewrite(package_copy, document)
     bundle = load_registration(package_copy)
     assert bundle.entry_points() == {
+        "noop.captures": "cruxible_provider_noop.captures:NoopCaptures",
         "noop.echo": "cruxible_provider_noop.provider:NoopEcho",
         "noop.shout": "cruxible_provider_noop.provider:NoopEcho",
     }
@@ -335,7 +336,7 @@ for case in json.load(sys.stdin):
     )
     parsed = parse_provider(render_provider(provider), path=provider_path(provider.identity.name))
     assert provider_digest(parsed) == provider_digest(provider)
-assert count == 15, count
+assert count == 16, count
 assert not any(name.startswith("cruxible_provider_") for name in sys.modules)
 """
     result = subprocess.run(
@@ -385,4 +386,48 @@ assert len(pinned) == 4 and len(refs) == 21, (len(pinned), len(refs))
 assert all(ref.digest == digests[(ref.name, ref.version)] for ref in refs)
 """
     result = subprocess.run([core_python, "-c", code, str(web)], capture_output=True)
+    assert result.returncode == 0, result.stderr.decode()
+
+
+def test_the_noop_contracts_are_core_canonical_and_pin_both_operations() -> None:
+    """The reference provider's shipped Contracts, read by Core's own model.
+
+    ``noop.echo``'s four are byte-identical to the ones Core's installer tests
+    accept, so shipping them moves no digest; ``noop.captures``'s out Contract
+    carries a ``list<capture<*>>`` field Core parses.
+    """
+
+    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
+    if not core_python:
+        pytest.skip("set CRUXIBLE_CORE_PYTHON for package-to-Core registration integration")
+    check = subprocess.run(
+        [core_python, str(ROOT / "scripts/render_noop_contracts.py"), "--check"],
+        capture_output=True,
+    )
+    assert check.returncode == 0, check.stderr.decode()
+    noop = ROOT / "packages/cruxible-provider-noop/src/cruxible_provider_noop"
+    code = """
+import sys
+from pathlib import Path
+from cruxible_client.contracts.provider_operations import capture_fields
+from cruxible_client.contracts.shapes import CaptureType, ListType, contract_digest, parse_contract
+from cruxible_core.providers.package_metadata import read_package_registration
+root = Path(sys.argv[1])
+shipped = {}
+for path in sorted((root / "contracts").rglob("*.json")):
+    member = "contracts/" + path.relative_to(root / "contracts").as_posix()
+    contract = parse_contract(path.read_bytes(), path=member)
+    shipped[(contract.name, contract.version)] = contract
+digests = {key: contract_digest(item).tagged for key, item in shipped.items()}
+pinned = read_package_registration(root).pinned_operations(
+    lambda ref: digests.get((ref.name, ref.version)))
+refs = [ref for operation in pinned for ref in (
+    operation.in_, operation.out, *(item.contract for item in operation.refusals.values()))]
+assert len(pinned) == 2 and len(refs) == 7, (len(pinned), len(refs))
+assert all(ref.digest == digests[(ref.name, ref.version)] for ref in refs)
+listed = shipped[("noop.captures.result", 1)].fields["captures"].type
+assert isinstance(listed, ListType) and isinstance(listed.item, CaptureType), listed
+assert listed.item.capture_kind == "*"
+"""
+    result = subprocess.run([core_python, "-c", code, str(noop)], capture_output=True)
     assert result.returncode == 0, result.stderr.decode()

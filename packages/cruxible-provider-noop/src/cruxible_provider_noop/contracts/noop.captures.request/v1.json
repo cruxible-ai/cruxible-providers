@@ -1,0 +1,17 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "The recorded files to return, in order: each is one request and becomes its own Capture.",
+  "fields": {
+    "files": {
+      "type": {
+        "item": {
+          "kind": "string"
+        },
+        "kind": "list",
+        "max_items": 16
+      }
+    }
+  },
+  "name": "noop.captures.request",
+  "version": 1
+}

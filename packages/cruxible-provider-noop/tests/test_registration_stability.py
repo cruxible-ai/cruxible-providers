@@ -6,24 +6,42 @@ import tomllib
 from pathlib import Path
 
 import cruxible_provider_noop
+from cruxible_provider_noop.captures import NoopCaptures
 from cruxible_provider_noop.provider import NoopEcho
 from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, load_manifest
 from cruxible_provider_runtime.registration import load_registration
 
 
-def test_the_registration_declares_the_one_operation_the_entrypoint_serves() -> None:
+def test_the_registration_declares_what_each_entrypoint_serves() -> None:
     bundle = load_registration(cruxible_provider_noop.PACKAGE_ROOT)
-    (operation,) = bundle.operations
-    assert operation.name == cruxible_provider_noop.OPERATION
-    assert operation.effect == "pure"
-    assert operation.in_.spelling == "noop.echo.request@1"
-    assert operation.out.spelling == "noop.echo.result@1"
-    assert set(operation.refusals) == {
+    assert [item.name for item in bundle.operations] == ["noop.captures", "noop.echo"]
+    echo = bundle.operation(cruxible_provider_noop.OPERATION)
+    assert echo.effect == "pure"
+    assert echo.in_.spelling == "noop.echo.request@1"
+    assert echo.out.spelling == "noop.echo.result@1"
+    assert set(echo.refusals) == {
         cruxible_provider_noop.CREDENTIAL_MISSING,
         cruxible_provider_noop.PROVIDER_DECLINED,
     }
-    assert NoopEcho.operations == (operation.name,)
-    assert operation.entrypoint == "cruxible_provider_noop.provider:NoopEcho"
+    assert NoopEcho.operations == (echo.name,)
+    assert echo.entrypoint == "cruxible_provider_noop.provider:NoopEcho"
+    captures = bundle.operation(cruxible_provider_noop.CAPTURES_OPERATION)
+    assert captures.effect == "pure"
+    assert captures.in_.spelling == "noop.captures.request@1"
+    assert captures.out.spelling == "noop.captures.result@1"
+    assert set(captures.refusals) == {"provider_declined"}
+    assert NoopCaptures.operations == (captures.name,)
+    assert captures.entrypoint == "cruxible_provider_noop.captures:NoopCaptures"
+
+
+def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None:
+    bundle = load_registration(cruxible_provider_noop.PACKAGE_ROOT)
+    named = {
+        f"contracts/{ref.name}/v{ref.version}.json"
+        for operation in bundle.operations
+        for ref in operation.contract_refs()
+    }
+    assert set(cruxible_provider_noop.contract_members()) == named
 
 
 def test_the_manifest_version_tracks_the_package_version(manifest_path: Path) -> None:

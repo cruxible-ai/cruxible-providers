@@ -217,7 +217,7 @@ def test_undeclared_operation_refuses(
             local_backend=local_backend,
         )
     assert exc.value.code is RefusalCode.UNDECLARED_OPERATION
-    assert exc.value.refusal.detail["declared"] == [OPERATION]
+    assert exc.value.refusal.detail["declared"] == ["noop.captures", OPERATION]
 
 
 def test_unsupported_protocol_refuses(
@@ -256,7 +256,8 @@ def test_unsupported_backend_refuses(
     container_backend: ContainerBackend,
 ) -> None:
     document = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    document["implementations"][0]["backends"] = ["local_env"]
+    for implementation in document["implementations"]:
+        implementation["backends"] = ["local_env"]
     target = tmp_path / "manifest.yaml"
     target.write_text(yaml.safe_dump(document), encoding="utf-8")
 
@@ -312,7 +313,9 @@ def test_an_operation_naming_an_undeclared_entrypoint_refuses_at_registration(
 
     from cruxible_provider_runtime.registration import load_registration
 
-    (operation,) = load_registration(cruxible_provider_noop.PACKAGE_ROOT).operations
+    operation = load_registration(cruxible_provider_noop.PACKAGE_ROOT).operation(
+        cruxible_provider_noop.OPERATION
+    )
     moved = operation.model_copy(update={"entrypoint": "cruxible_provider_noop.provider:Other"})
     with pytest.raises(RefusalError) as exc:
         StubRegistry().register_provider(accepted_artifact, (moved,))

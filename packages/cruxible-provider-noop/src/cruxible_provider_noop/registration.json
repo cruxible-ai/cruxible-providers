@@ -2,9 +2,21 @@
   "schema_version": 2,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:198f2f81748f01720b418d1b4d58b8bf6af727a282b14cb70590e51600566ea1"
+    "digest": "sha256:1955faa836ada4155c61382ac2ed65dd231ebb0e1b980003a816008a61082ee4"
   },
   "operations": [
+    {
+      "name": "noop.captures",
+      "in": "noop.captures.request@1",
+      "out": "noop.captures.result@1",
+      "effect": "pure",
+      "refusals": {
+        "provider_declined": {
+          "contract": "noop.captures.refusal.provider_declined@1"
+        }
+      },
+      "entrypoint": "cruxible_provider_noop.captures:NoopCaptures"
+    },
     {
       "name": "noop.echo",
       "in": "noop.echo.request@1",
