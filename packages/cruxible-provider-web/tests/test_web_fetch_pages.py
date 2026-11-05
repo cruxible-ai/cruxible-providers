@@ -220,6 +220,7 @@ def test_each_page_is_its_own_verbatim_capture_with_its_own_coordinate() -> None
     result, recorder = _call({"max_url_chars": 2048})
     assert result.status == "ok", result
     assert "failed_pages" not in result.output
+    assert result.incomplete_captures == []
     members = captured_members(result.output, OUT)
     assert_payload_verbatim(members)
     count = len(members)
@@ -276,6 +277,7 @@ def test_a_failed_page_is_left_out_and_listed() -> None:
         "status_code": 503,
     }
     assert result.metrics["failed_page_count"] == 1
+    assert result.incomplete_captures == ["captures"]
 
 
 def test_an_unreachable_page_is_a_failed_page_not_a_failed_call() -> None:
@@ -285,6 +287,7 @@ def test_an_unreachable_page_is_a_failed_page_not_a_failed_call() -> None:
     (failure,) = result.output["failed_pages"]
     assert failure["page_index"] == 0 and failure["code"] == "ConnectError"
     assert len(result.output["captures"]) == len(pages) - 1
+    assert result.incomplete_captures == ["captures"]
 
 
 def test_a_refused_page_is_listed_with_its_code() -> None:

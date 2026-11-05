@@ -25,11 +25,12 @@ is the page's built URL and ``request_digest`` covers it, and ``page_index``
 **A page that fails** -- refused (a redirect the client will not follow, a body
 over ``max_bytes``) or failed (a status outside 2xx, a body not in the declared
 format, a transport error) -- is left out of ``captures`` and listed in
-``failed_pages`` with its index, URL, request digest and why. The result is then
-incomplete, and says so in a typed field rather than by a short list: core
-reads ``failed_pages`` and marks the extract incomplete, so absence never
-retires on it (D-R37 a4). When no page succeeds there is nothing to commit: a
-single page's outcome is returned as ``web.fetch`` would return it, and several
+``failed_pages`` with its index, URL, request digest and why. The result's
+envelope then names ``captures`` in its generic ``incomplete_captures``
+(the provider-runtime protocol field core reads for any ``list<capture<...>>``
+out field missing members, D-R37 a4): the call is incomplete and absence over
+it never retires. When no page succeeds there is nothing to commit: a single
+page's outcome is returned as ``web.fetch`` would return it, and several
 failed pages are one failed result naming each.
 
 Egress is ``web.fetch``'s: every page goes through the instrumented client, so
@@ -227,6 +228,7 @@ class WebFetchPages:
             output["failed_pages"] = failed
         return ProviderResult.ok(
             output,
+            incomplete_captures=["captures"] if failed else None,
             metrics={
                 "byte_count": float(byte_count),
                 "page_count": float(count),

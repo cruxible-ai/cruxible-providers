@@ -201,6 +201,7 @@ def test_pages_success_path(
     )
     assert outcome.status == "ok", outcome.envelope.error
     assert outcome.receipt_fields()["operation"] == "web.fetch.pages"
+    assert outcome.envelope.incomplete_captures == []
     output = outcome.envelope.output
     assert output is not None and "failed_pages" not in output
     recorded = load_recordings()["article-static"].response.body.encode("utf-8")

@@ -136,9 +136,10 @@ coordinate is `web.fetch`'s for that exchange (`url` is the page's built URL,
 that is refused or fails is left out of `captures` and listed in `failed_pages`
 (`web.fetch.pages.failure@1`: index, count, URL, request digest, `refused` or
 `failed`, the code or error kind, the message, the status when the origin
-answered outside 2xx). The result is then incomplete: core marks the extract
-incomplete and absence never retires on it (D-R37 a4). When no page succeeds
-there is nothing to commit: one page returns exactly what `web.fetch` would, and
+answered outside 2xx). The result's envelope then names `captures` in its
+generic `incomplete_captures`: core marks the extract incomplete and absence
+never retires on it (D-R37 a4). When no page succeeds there is nothing to
+commit: one page returns exactly what `web.fetch` would, and
 several are one `AllPagesFailed` error listing each.
 
 The operation's effect is `external_read`: it reads the world and mutates nothing.
