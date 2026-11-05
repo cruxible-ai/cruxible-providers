@@ -194,6 +194,11 @@ def contract() -> dict[str, Any]:
                     "error",
                     error=ProviderErrorPayload(kind="FixtureError", message="fixture failure"),
                 ),
+                "ok_incomplete_captures": _result(
+                    "ok",
+                    output={"note": "two of three pages failed", "pages": []},
+                    incomplete_captures=["pages"],
+                ),
             },
         },
         "invalid_vectors": {
@@ -205,6 +210,20 @@ def contract() -> dict[str, Any]:
                 "status": "ok",
                 "output": None,
                 "refusal": None,
+                "error": None,
+                "trace": _TRACE,
+            },
+            "result_incomplete_captures_not_ok": {
+                "protocol_version": protocol.PROTOCOL_VERSION.render(),
+                "run_id": _RUN_ID,
+                "status": "refused",
+                "output": None,
+                "incomplete_captures": ["pages"],
+                "refusal": {
+                    "code": "too_long",
+                    "message": "declined by fixture",
+                    "detail": {"limit": 3},
+                },
                 "error": None,
                 "trace": _TRACE,
             },

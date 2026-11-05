@@ -158,6 +158,20 @@ class Echo:
                 "implementation_digest": context.implementation_digest,
             }
         )
+
+
+class IncompleteCaptures:
+    operations = ("sample.incomplete",)
+
+    def __call__(self, context):
+        return ProviderResult.ok({"captures": []}, incomplete_captures=["captures"])
+
+
+class CompleteCaptures:
+    operations = ("sample.complete",)
+
+    def __call__(self, context):
+        return ProviderResult.ok({"captures": []})
 '''
 
 SIGNATURE = "sha256:" + "51" * 32
@@ -230,6 +244,22 @@ def test_the_provider_reads_its_operation_signature_and_build(provider_root: Pat
         "build_digest": BUILD,
         "implementation_digest": IMPLEMENTATION,
     }
+
+
+def test_an_ok_result_carries_incomplete_captures_across_the_pipe(provider_root: Path) -> None:
+    envelope = _run(provider_root, _context("sample.incomplete", "IncompleteCaptures"))
+    assert envelope.status == "ok"
+    assert envelope.incomplete_captures == ["captures"]
+    document = json.loads(envelope.model_dump_json())
+    assert document["incomplete_captures"] == ["captures"]
+
+
+def test_a_complete_result_omits_incomplete_captures(provider_root: Path) -> None:
+    envelope = _run(provider_root, _context("sample.complete", "CompleteCaptures"))
+    assert envelope.status == "ok"
+    assert envelope.incomplete_captures == []
+    document = json.loads(envelope.model_dump_json())
+    assert "incomplete_captures" not in document
 
 
 def test_an_operation_the_entrypoint_does_not_declare_refuses(provider_root: Path) -> None:

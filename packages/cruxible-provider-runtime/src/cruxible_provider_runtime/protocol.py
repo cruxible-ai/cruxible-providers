@@ -367,6 +367,17 @@ class ResultEnvelope(BaseModel):
     run_id: str
     status: Literal["ok", "refused", "error"]
     output: dict[str, Any] | None = None
+    # The provider's own word that ``output`` is missing members: it names
+    # out-Contract ``list<capture<...>>`` fields the provider could not fill
+    # whole (a page it failed to fetch, say). Core treats each named field
+    # exactly as a list it dropped a member from itself (D-R37 a4): the call
+    # is incomplete, and absence over it never retires. It is generic: core
+    # reads no provider- or operation-specific field to learn it. Only an ok
+    # result carries it, and it is omitted when empty -- so existing vectors
+    # round-trip byte-exactly. Kept off the class docstring deliberately: a
+    # docstring becomes the JSON schema's "description" and core's vendored
+    # fixture predates this explanation.
+    incomplete_captures: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
     refusal: Refusal | None = None
     error: ProviderErrorPayload | None = None
     trace: Trace = Field(default_factory=Trace)
@@ -387,6 +398,8 @@ class ResultEnvelope(BaseModel):
             raise ValueError("an error result must carry an error")
         if self.status != "ok" and self.output is not None:
             raise ValueError("only an ok result may carry output")
+        if self.status != "ok" and self.incomplete_captures:
+            raise ValueError("only an ok result may name incomplete captures")
         require_supported_major(self.protocol_version, where="the result envelope")
         # A typed refusal rather than a ValueError, and therefore not wrapped
         # into a validation error: this is the runtime declining under a named

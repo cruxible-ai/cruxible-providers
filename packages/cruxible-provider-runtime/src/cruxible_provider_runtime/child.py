@@ -279,11 +279,13 @@ def _captured(returned: Any) -> tuple[ProviderResult | None, str | None]:
             detail=_plain_detail(returned.error.detail),
         )
     output = _plain(returned.output) if returned.output is not None else None
+    incomplete_captures = _plain(getattr(returned, "incomplete_captures", []))
     events = _plain(returned.events)
     metrics = _plain(returned.metrics)
     result = ProviderResult(
         status=cast(ProviderStatus, status),
         output=output,
+        incomplete_captures=incomplete_captures if isinstance(incomplete_captures, list) else [],
         refusal=refusal,
         error=error,
         metrics=metrics if isinstance(metrics, dict) else {},
@@ -314,6 +316,7 @@ def _envelope(run_id: str, result: ProviderResult, trace: Trace) -> ResultEnvelo
         run_id=run_id,
         status=result.status,
         output=result.output,
+        incomplete_captures=result.incomplete_captures,
         refusal=result.refusal,
         error=result.error,
         trace=trace,

@@ -56,10 +56,17 @@ ProviderStatus = Literal["ok", "refused", "error"]
 
 @dataclass(frozen=True)
 class ProviderResult:
-    """What a provider returns: exactly one of output, refusal, or error."""
+    """What a provider returns: exactly one of output, refusal, or error.
+
+    ``incomplete_captures`` names out-Contract ``list<capture<...>>`` fields
+    this result's ``output`` is missing members of (a page that failed to
+    fetch, say). It travels through to the result envelope's own field of the
+    same name and is only meaningful on an ok result.
+    """
 
     status: ProviderStatus
     output: dict[str, Any] | None = None
+    incomplete_captures: list[str] = field(default_factory=list)
     refusal: Refusal | None = None
     error: ProviderErrorPayload | None = None
     metrics: dict[str, float] = field(default_factory=dict)
@@ -70,12 +77,14 @@ class ProviderResult:
         cls,
         output: dict[str, Any],
         *,
+        incomplete_captures: list[str] | None = None,
         metrics: dict[str, float] | None = None,
         events: list[dict[str, Any]] | None = None,
     ) -> ProviderResult:
         return cls(
             status="ok",
             output=output,
+            incomplete_captures=incomplete_captures or [],
             metrics=metrics or {},
             events=events or [],
         )

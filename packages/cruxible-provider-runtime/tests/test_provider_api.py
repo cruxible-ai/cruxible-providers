@@ -49,6 +49,7 @@ def test_a_result_carries_exactly_one_outcome() -> None:
     ok = ProviderResult.ok({"a": 1}, metrics={"n": 1.0})
     assert ok.status == "ok"
     assert ok.refusal is None and ok.error is None
+    assert ok.incomplete_captures == []
 
     refused = ProviderResult.refused("provider_declined", "no")
     assert refused.status == "refused"
@@ -57,6 +58,11 @@ def test_a_result_carries_exactly_one_outcome() -> None:
     failed = ProviderResult.failed("Kind", "boom")
     assert failed.status == "error"
     assert failed.output is None and failed.refusal is None
+
+
+def test_ok_exposes_incomplete_captures_without_hand_building_an_envelope() -> None:
+    ok = ProviderResult.ok({"captures": []}, incomplete_captures=["captures"])
+    assert ok.incomplete_captures == ["captures"]
 
 
 @pytest.mark.parametrize("code", sorted(RefusalCode))

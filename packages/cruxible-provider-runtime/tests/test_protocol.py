@@ -191,6 +191,38 @@ def test_only_ok_carries_output() -> None:
         )
 
 
+def test_incomplete_captures_is_omitted_when_empty() -> None:
+    """An ok result with no incomplete captures round-trips byte-exactly."""
+
+    envelope = ResultEnvelope(protocol_version="2.0", run_id="r", status="ok", output={"x": 1})
+    assert envelope.incomplete_captures == []
+    assert "incomplete_captures" not in json.loads(envelope.model_dump_json())
+
+
+def test_incomplete_captures_round_trips_on_an_ok_result() -> None:
+    envelope = ResultEnvelope(
+        protocol_version="2.0",
+        run_id="r",
+        status="ok",
+        output={"captures": []},
+        incomplete_captures=["captures"],
+    )
+    document = json.loads(envelope.model_dump_json())
+    assert document["incomplete_captures"] == ["captures"]
+    assert ResultEnvelope.model_validate(document).incomplete_captures == ["captures"]
+
+
+def test_only_ok_may_name_incomplete_captures() -> None:
+    with pytest.raises(ValueError, match="only an ok result may name incomplete captures"):
+        ResultEnvelope(
+            protocol_version="2.0",
+            run_id="r",
+            status="refused",
+            refusal={"code": "too_long", "message": "y"},  # type: ignore[arg-type]
+            incomplete_captures=["captures"],
+        )
+
+
 def test_malformed_envelope_refuses() -> None:
     with pytest.raises(RefusalError) as exc:
         parse_result_envelope(b'{"protocol_version": "2.0"}')
