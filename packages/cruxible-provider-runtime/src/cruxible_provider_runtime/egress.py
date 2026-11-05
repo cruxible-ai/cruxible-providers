@@ -53,7 +53,7 @@ __all__ = [
     "write_child_guard",
 ]
 
-_DEFAULT_PORTS = {"http": 80, "https": 443, "ftp": 21}
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ftp": 21, "ws": 80, "wss": 443}
 
 DYNAMIC_TARGET_FROM_RUN_INPUT = "dynamic:target-from-run-input"
 """EXPERIMENTAL. Declares that the target is decided by the run input.
@@ -124,6 +124,9 @@ def normalize_endpoint(value: str) -> str:
             f"cannot normalise endpoint {value!r}: no host",
             endpoint=value,
         )
+    # An IPv6 literal keeps its brackets, so the result normalises to itself.
+    if ":" in host:
+        host = f"[{host}]"
     port = parts.port
     if port is None or port == _DEFAULT_PORTS.get(scheme):
         return f"{scheme}://{host}"

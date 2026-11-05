@@ -122,3 +122,31 @@ def test_no_network_restores_the_socket_module() -> None:
     with no_network():
         assert socket.socket.connect is not original
     assert socket.socket.connect is original
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("ws://[::1]:9000/live", "ws://[::1]:9000"),
+        ("ws://[::1]:80/live", "ws://[::1]"),
+        ("wss://[2001:db8::1]:443/live", "wss://[2001:db8::1]"),
+        ("wss://[2001:DB8::1]:8443/x?y=1", "wss://[2001:db8::1]:8443"),
+        ("https://[::1]/", "https://[::1]"),
+        ("wss://stream.example:443/live", "wss://stream.example"),
+    ],
+)
+def test_ipv6_and_websocket_endpoints_normalise_to_a_fixed_point(url: str, expected: str) -> None:
+    """IPv6 literals keep their brackets and ws/wss default ports stay implicit,
+    so normalising a recorded endpoint again changes nothing."""
+
+    once = normalize_endpoint(url)
+    assert once == expected
+    assert normalize_endpoint(once) == once
+
+
+def test_a_recorded_ipv6_websocket_compares_against_its_dynamic_declaration() -> None:
+    recorder = EgressRecorder()
+    recorder.record("wss://[2001:db8::1]:443/live")
+    recorder.record("ws://[::1]:9000/live")
+    comparison = compare_egress((DYNAMIC_TARGET_FROM_RUN_INPUT,), recorder.observed())
+    assert set(comparison.observed) == {"wss://[2001:db8::1]", "ws://[::1]:9000"}
