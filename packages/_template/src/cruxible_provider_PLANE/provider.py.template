@@ -49,6 +49,19 @@ class Implementation:
         #
         # Output is never world-state truth. It enters core as the operation's
         # declared output Contract.
+        #
+        # Captures (cruxible_provider_runtime.acquisition). A Capture's bytes are
+        # one document, verbatim; how it was obtained goes in its coordinate.
+        #   one:    return the whole output as external_capture_result(content, ...)
+        #   many:   an out field `docs: list<capture<*>>{max_items: N}` holds
+        #           external_capture_results([(content, coordinate), ...], ...),
+        #           one member per request, each with its own coordinate
+        #           (reference: cruxible-provider-noop's noop.captures)
+        #   derive: an in field `source: capture<*>` arrives as Capture wire;
+        #           `content, coordinate, coordinate_type = capture_input(...)`
+        #           reads it. A derive declares effect: pure, contacts nothing,
+        #           and stamps its result with capture_observed_at(source), never
+        #           the clock (reference: cruxible-provider-web's web.render).
         if not context.input:
             return ProviderResult.refused(PROVIDER_DECLINED, "no input was supplied")
         return ProviderResult.ok({"result": None})
