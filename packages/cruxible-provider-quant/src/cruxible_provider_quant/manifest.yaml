@@ -15,7 +15,7 @@ schema_version: 2
 provider_id: cruxible-provider-quant
 distribution:
   name: cruxible-provider-quant
-  version: 0.3.0
+  version: 0.3.1
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [2]
 implementations:
