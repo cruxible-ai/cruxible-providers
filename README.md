@@ -22,7 +22,7 @@ operation of one build per run) is the protocol they speak.
 packages/cruxible-provider-runtime/   the support library every provider uses
 packages/cruxible-provider-noop/      the reference provider: the smallest
                                       package that exercises every rule
-packages/cruxible-provider-web/       the web plane: web.fetch, search.web, web.render
+packages/cruxible-provider-web/       the web plane: web.fetch, search.web, web.render(.dom)
 packages/cruxible-provider-docs/       the document plane: doc.to_markdown, ocr.extract
 packages/cruxible-providers/          the umbrella meta-package: zero code, plane extras
 packages/cruxible-provider-quant/     the quantitative plane: classical

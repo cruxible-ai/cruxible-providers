@@ -11,6 +11,7 @@ import pytest
 from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, ProviderManifest
 from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_web import operations
+from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.render import WebRender
 from cruxible_provider_web.search import SearxngSearch
@@ -21,24 +22,39 @@ BUNDLE = load_registration(cruxible_provider_web.PACKAGE_ROOT)
 SERVED = {
     operations.FETCH_OPERATION: WebFetch,
     operations.RENDER_OPERATION: WebRender,
+    operations.RENDER_DOM_OPERATION: WebRenderDom,
     operations.SEARCH_OPERATION: SearxngSearch,
+}
+
+#: The one derive: pure computation over a Capture. The rest read the world.
+EFFECTS = {
+    operations.FETCH_OPERATION: "external_read",
+    operations.RENDER_OPERATION: "pure",
+    operations.RENDER_DOM_OPERATION: "external_read",
+    operations.SEARCH_OPERATION: "external_read",
 }
 
 # Every module whose code path an operation's run can reach, per operation.
 REACHED_MODULES = {
     operations.FETCH_OPERATION: ("fetch.py", "http.py", "coordinate.py"),
     operations.RENDER_OPERATION: ("render.py", "engines.py", "coordinate.py"),
+    operations.RENDER_DOM_OPERATION: ("dom.py", "browser.py", "coordinate.py", "recordings.py"),
     operations.SEARCH_OPERATION: ("search.py", "http.py", "coordinate.py"),
 }
 
 
 def test_the_registration_declares_what_each_entrypoint_serves() -> None:
-    assert [item.name for item in BUNDLE.operations] == ["search.web", "web.fetch", "web.render"]
+    assert [item.name for item in BUNDLE.operations] == [
+        "search.web",
+        "web.fetch",
+        "web.render",
+        "web.render.dom",
+    ]
     for operation in BUNDLE.operations:
         entrypoint = SERVED[operation.name]
         assert entrypoint.operations == (operation.name,)
         assert operation.entrypoint == f"{entrypoint.__module__}:{entrypoint.__qualname__}"
-        assert operation.effect == "external_read"
+        assert operation.effect == EFFECTS[operation.name]
         assert operation.in_.spelling == f"{operation.name}.request@1"
         assert operation.out.spelling == f"{operation.name}.result@1"
         for code, refusal in operation.refusals.items():

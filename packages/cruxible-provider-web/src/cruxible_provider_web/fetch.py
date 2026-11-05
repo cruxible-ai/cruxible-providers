@@ -35,7 +35,7 @@ import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from cruxible_provider_runtime.acquisition import external_capture_result
 from cruxible_provider_runtime.errors import Declined, decline
@@ -45,12 +45,45 @@ from .coordinate import COORDINATE_TYPE, SELECTOR_TYPE, http_coordinate
 from .http import ClientFactory, HttpResponse, ResponseTooLarge, default_client_factory
 from .operations import CREDENTIAL_UNAVAILABLE, FETCH_OPERATION, PROVIDER_DECLINED
 
-__all__ = ["DEFAULT_MAX_BYTES", "MAX_RESPONSE_BYTES", "WebFetch", "page_weight_class"]
+__all__ = [
+    "DEFAULT_MAX_BYTES",
+    "MAX_QUERY_PARAMETERS",
+    "MAX_QUERY_VALUES",
+    "MAX_RESPONSE_BYTES",
+    "MAX_URL_LENGTH",
+    "WebFetch",
+    "page_weight_class",
+    "with_query",
+]
 
 DEFAULT_MAX_BYTES = 262_144
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 LIGHT_CEILING_BYTES = 262_144
 MEDIUM_CEILING_BYTES = 2 * 1024 * 1024
+MAX_QUERY_PARAMETERS = 64
+MAX_QUERY_VALUES = 1000
+MAX_URL_LENGTH = 8192
+"""The longest request URL this adapter builds; many origins refuse longer ones."""
+_QUERY_SAFE = "-._~!$'()*,;:@/?"
+"""RFC 3986 query characters kept literal; ``&``, ``=``, ``+`` and ``#`` are encoded."""
+
+
+def with_query(url: str, query: list[tuple[str, list[str], str]]) -> str:
+    """``url`` with ``query``'s ``(name, values, join)`` parameters appended, in order."""
+
+    pairs: list[str] = []
+    for name, values, join in query:
+        key = quote(name, safe=_QUERY_SAFE)
+        if join == "comma":
+            item_safe = _QUERY_SAFE.replace(",", "")
+            pairs.append(key + "=" + ",".join(quote(value, safe=item_safe) for value in values))
+        else:
+            pairs.extend(f"{key}={quote(value, safe=_QUERY_SAFE)}" for value in values)
+    if not pairs:
+        return url
+    parts = urlsplit(url)
+    query_string = "&".join([parts.query, *pairs] if parts.query else pairs)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query_string, parts.fragment))
 
 
 def page_weight_class(byte_count: int) -> str:
@@ -147,6 +180,41 @@ class WebFetch:
         )
 
 
+def _query(value: object) -> list[tuple[str, list[str], str]]:
+    """The validated ``query``: one parameter per name, each with at least one value."""
+
+    if not isinstance(value, list) or len(value) > MAX_QUERY_PARAMETERS:
+        raise decline(
+            PROVIDER_DECLINED, f"query must be a list of at most {MAX_QUERY_PARAMETERS} parameters"
+        )
+    parameters: list[tuple[str, list[str], str]] = []
+    names: set[str] = set()
+    for item in value:
+        if not isinstance(item, Mapping) or set(item) - {"name", "values", "join"}:
+            raise decline(PROVIDER_DECLINED, "a query parameter is {name, values, join?}")
+        name, values, join = item.get("name"), item.get("values"), item.get("join", "repeat")
+        if not isinstance(name, str) or not name:
+            raise decline(PROVIDER_DECLINED, "a query parameter needs a name")
+        if name in names:
+            raise decline(PROVIDER_DECLINED, f"query parameter {name!r} is named twice")
+        names.add(name)
+        if (
+            not isinstance(values, list)
+            or not 0 < len(values) <= MAX_QUERY_VALUES
+            or not all(isinstance(entry, str) for entry in values)
+        ):
+            # No values is refused rather than sent as nothing: an empty filter
+            # usually means "everything", which is not what an empty list asked.
+            raise decline(
+                PROVIDER_DECLINED,
+                f"query parameter {name!r} needs between 1 and {MAX_QUERY_VALUES} string values",
+            )
+        if join not in {"comma", "repeat"}:
+            raise decline(PROVIDER_DECLINED, "a query parameter's join is comma or repeat")
+        parameters.append((name, list(values), str(join)))
+    return parameters
+
+
 class _Request:
     """The validated run input."""
 
@@ -187,6 +255,14 @@ class _Request:
                 "web.fetch needs an http or https url",
                 **({"url": url} if isinstance(url, str) else {}),
             )
+        if "query" in payload:
+            url = with_query(url, _query(payload["query"]))
+            if len(url) > MAX_URL_LENGTH:
+                raise decline(
+                    PROVIDER_DECLINED,
+                    f"the request URL the query builds is longer than {MAX_URL_LENGTH} "
+                    "characters; split the values across fetches",
+                )
         max_bytes = payload.get("max_bytes", DEFAULT_MAX_BYTES)
         if (
             not isinstance(max_bytes, int)

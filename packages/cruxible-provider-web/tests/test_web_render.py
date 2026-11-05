@@ -1,184 +1,49 @@
-"""``web.render``: a derived Capture citing the fetched one, and what it records.
+"""``web.render``: a derive -- pure computation over a Capture this run fetched.
 
-A dom render is the one path in this plane that does not go through the
-instrumented HTTP client: a browser opens its own sockets and pulls whatever the
-markup names, so nothing it does reaches the run's recorder unless the adapter
-asks it to. And the document it assembles must be the cited one: the main frame
-is served from the cited bytes, never fetched again.
-
-Both decisions live in ``drive_page`` rather than inside the engine, which is
-what makes this lane possible: the page double below implements the same
-surface a Playwright page does, so the wiring is reviewed here rather than only
-on a machine with a browser installed. ``tests/test_web_engine.py`` is the other
-half — it asserts a real page satisfies that surface.
+A derive declares ``effect: pure`` (D-R37 b5). Core hands it each ``capture<*>``
+input as Capture wire (the exact stored bytes, their coordinate), and it must
+compute only over that: no network, no clock, byte-identical output for
+identical input, so that a re-run makes the same Capture and its Claims
+re-observe. These tests hold the forms (``text``, ``json``), the coordinate of
+the derived Capture, and the declines; the purity conformance test at the
+repository root runs every pure operation twice with the network blocked.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+import json
+from datetime import datetime
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
 import pytest
-from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import Declined
+from cruxible_provider_runtime.acquisition import external_capture_result
+from cruxible_provider_runtime.egress import EgressRecorder, no_network
 from cruxible_provider_runtime.protocol import Budgets
-from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
-from cruxible_provider_web.engines import Extraction, RenderedPage, drive_page
+from cruxible_provider_runtime.provider_api import ProviderRunContext
+from cruxible_provider_web.engines import Extraction, ExtractionOutput
 from cruxible_provider_web.operations import PROVIDER_DECLINED
-from cruxible_provider_web.recordings import load_recordings
-from cruxible_provider_web.render import WebRender
+from cruxible_provider_web.render import WebRender, document_json
 
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=1_000_000)
 
 REQUESTED = "https://first.example/report"
-SETTLED = "https://second.example/report"
-ASSEMBLED = """<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>Gauge report</title></head>
-<body><main><h1>Gauge report</h1>
+SETTLED = "https://second.example/reports/latest"
+OBSERVED = "2026-11-04T08:30:00Z"
+PAGE = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>  Gauge
+  report </title><base href="https://second.example/reports/"></head>
+<body><nav><a href="/">Home</a> <a href="#main">Skip</a></nav>
+<main id="main"><h1>Gauge report</h1>
 <p>Newlyn reported a mean sea level of 3.214 metres over the last complete tidal
-cycle, assembled client-side from the readings endpoint.</p></main></body></html>
+cycle. See the <a href="method.html#calibration">method</a>, the
+<a href="https://data.example/gauges?id=7">readings</a> and the
+<a href="method.html">method</a> again.</p>
+<p><a href="mailto:ops@example.org">Mail</a> <a href="javascript:void(0)">Run</a></p>
+</main></body></html>
 """
-WIRE_BODY = b'<!DOCTYPE html>\n<html lang="en"><body><div id="root"></div></body></html>\n'
-
-
-@dataclass
-class _Event:
-    """What a page hands its ``request`` and ``response`` handlers."""
-
-    url: str
-
-
-@dataclass
-class _FakeResponse:
-    """The main-frame response surface, as a browser exposes it."""
-
-    url: str
-    status: int
-    headers: dict[str, str] = field(default_factory=dict)
-    payload: bytes = b""
-
-    def all_headers(self) -> dict[str, str]:
-        return dict(self.headers)
-
-    def body(self) -> bytes:
-        return self.payload
-
-
-class _FakeRoute:
-    def __init__(self) -> None:
-        self.fulfilled: dict[str, Any] | None = None
-
-    def fulfill(self, **kwargs: Any) -> None:
-        self.fulfilled = kwargs
-
-
-class _FakePage:
-    """A page double carrying the surface ``drive_page`` drives.
-
-    ``contacts`` is the script this navigation plays back: the ``(event, url)``
-    pairs a browser would emit while loading — the main frame, the script the
-    markup names, the endpoint that script queries. It stands in for the
-    sequence of events, not for a browser. A main-frame request a route matches
-    is fulfilled by the route, as a browser does, and the response carries the
-    fulfilled body.
-    """
-
-    def __init__(self, *, html: str, contacts: Sequence[tuple[str, str]] = ()) -> None:
-        self._html = html
-        self._contacts = list(contacts)
-        self._handlers: dict[str, list[Callable[[Any], None]]] = {}
-        self._routes: list[tuple[Callable[[str], bool], Callable[[Any], None]]] = []
-        self.url = "about:blank"
-        self.served: dict[str, Any] | None = None
-        self.order: list[str] = []
-        self.body_override: bytes | None = None
-
-    def on(self, event: str, handler: Callable[[Any], None]) -> None:
-        self.order.append(event)
-        self._handlers.setdefault(event, []).append(handler)
-
-    def route(self, url: Callable[[str], bool], handler: Callable[[Any], None]) -> None:
-        self.order.append("route")
-        self._routes.append((url, handler))
-
-    def goto(self, url: str, *, wait_until: str, timeout: float) -> _FakeResponse | None:
-        del wait_until, timeout
-        self.order.append("goto")
-        # What a browser puts on the wire: scheme and host lowercase, a default
-        # port dropped, a bare origin gains its "/", and a fragment never travels.
-        parts = urlsplit(url)
-        host = (parts.hostname or "").lower()
-        if parts.port not in (None, 80, 443):
-            host = f"{host}:{parts.port}"
-        url = urlunsplit((parts.scheme.lower(), host, parts.path or "/", parts.query, ""))
-        self.url = url
-        route = _FakeRoute()
-        for matches, handler in self._routes:
-            if matches(url):
-                handler(route)
-                break
-        self.served = route.fulfilled
-        for event, contacted in [("request", url), *self._contacts, ("response", url)]:
-            for handler in self._handlers.get(event, []):
-                handler(_Event(contacted))
-        if self.served is None:
-            return None
-        return _FakeResponse(
-            url=url,
-            status=self.served["status"],
-            headers=self.served["headers"],
-            payload=self.body_override if self.body_override is not None else self.served["body"],
-        )
-
-    def content(self) -> str:
-        return self._html
-
-
-class _PageRenderer:
-    """A renderer that drives the production wiring over a page double."""
-
-    name = "playwright"
-
-    def __init__(self, page: _FakePage) -> None:
-        self._page = page
-
-    def render(
-        self,
-        url: str,
-        *,
-        document: bytes,
-        content_type: str,
-        timeout_seconds: float,
-        recorder: EgressRecorder,
-    ) -> RenderedPage:
-        return drive_page(
-            self._page,
-            url,
-            document=document,
-            content_type=content_type,
-            timeout_seconds=timeout_seconds,
-            recorder=recorder,
-            engine=self.name,
-        )
-
-
-def _page() -> _FakePage:
-    return _FakePage(
-        html=ASSEMBLED,
-        contacts=[
-            ("request", "https://cdn.thirdparty.example/bundle.js"),
-            ("request", "https://api.readings.example/v1/gauges"),
-            # A browser also loads things that have no origin at all. They are
-            # not egress and must not be pushed at a recorder that would refuse
-            # to normalise them.
-            ("request", "data:text/css;base64,Ym9keXt9"),
-            ("response", "https://api.readings.example/v1/gauges"),
-        ],
-    )
 
 
 def _coordinate(**changes: Any) -> dict[str, Any]:
@@ -193,107 +58,65 @@ def _coordinate(**changes: Any) -> dict[str, Any]:
     }
 
 
-def _context(**overrides: Any) -> ProviderRunContext:
-    fields: dict[str, Any] = {
-        "run_id": "run-rendered",
-        "operation": "web.render",
-        "operation_signature_digest": "sha256:" + "aa" * 32,
-        "build_digest": "sha256:" + "cc" * 32,
-        "implementation_digest": "sha256:" + "bb" * 32,
-        "input": {
-            "form": "dom",
-            "source": {
-                "content_base64": base64.b64encode(WIRE_BODY).decode("ascii"),
-                "coordinate": _coordinate(),
-            },
-        },
-        "coordinates": {},
-        "budgets": BUDGETS,
-        "declared_endpoints": ("dynamic:target-from-run-input",),
-        "capture_contract": None,
-        "secrets": {},
-        "egress": EgressRecorder(),
-    }
-    fields.update(overrides)
-    return ProviderRunContext(**fields)
+def _source(document: bytes = PAGE.encode(), **coordinate: Any) -> dict[str, Any]:
+    """The fetched Capture as Core hands it to a derive: its Capture wire."""
 
-
-def _run(page: _FakePage, **overrides: Any) -> tuple[ProviderResult, EgressRecorder]:
-    recorder = EgressRecorder()
-    context = _context(egress=recorder, **overrides)
-    return WebRender(renderer=_PageRenderer(page))(context), recorder
-
-
-def test_the_main_frame_is_served_from_the_cited_bytes() -> None:
-    page = _page()
-    result, _ = _run(page)
-    assert result.status == "ok", result
-    assert page.served == {
-        "status": 200,
-        "headers": {"content-type": "text/html; charset=utf-8"},
-        "body": WIRE_BODY,
-    }
-    # The route and both hooks are attached before the navigation starts.
-    assert page.order[-1] == "goto" and set(page.order[:-1]) == {"route", "request", "response"}
-
-
-def test_every_origin_the_page_contacts_reaches_the_recorder_but_the_served_frame() -> None:
-    result, recorder = _run(_page())
-    assert result.status == "ok", result
-    assert set(recorder.observed()) == {
-        "https://cdn.thirdparty.example",
-        "https://api.readings.example",
-    }
-
-
-def test_the_derived_capture_is_the_dom_and_cites_the_fetched_bytes() -> None:
-    result, _ = _run(_page())
-    assert result.status == "ok", result
-    output = result.output
-    derived = base64.b64decode(output["content_base64"])
-    assert derived == ASSEMBLED.encode("utf-8")
-    assert output["bytes_digest"] == "sha256:" + hashlib.sha256(derived).hexdigest()
-    coordinate = output["coordinate"]
-    assert coordinate["derived_from"] == "sha256:" + hashlib.sha256(WIRE_BODY).hexdigest()
-    assert coordinate["renderer"] == "playwright"
-    assert coordinate["content_type"] == "text/html; charset=utf-8"
-    # The cited document's own coordinate is carried over, not re-derived.
-    assert (coordinate["url"], coordinate["final_url"], coordinate["status"]) == (
-        REQUESTED,
-        SETTLED,
-        200,
+    return external_capture_result(
+        document,
+        source_identity="web.response",
+        coordinate_type="http-response-v1",
+        coordinate=_coordinate(**coordinate),
+        observed_at=datetime.fromisoformat(OBSERVED),
+        selector_type="whole-response-v1",
     )
-    assert coordinate["source"] == "network"
-    assert output["source_identity"] == "web.rendered"
+
+
+def _context(input_: dict[str, Any], *, egress: EgressRecorder | None = None) -> ProviderRunContext:
+    return ProviderRunContext(
+        run_id="run-derive",
+        operation="web.render",
+        operation_signature_digest="sha256:" + "aa" * 32,
+        build_digest="sha256:" + "cc" * 32,
+        implementation_digest="sha256:" + "bb" * 32,
+        input=input_,
+        coordinates={},
+        budgets=BUDGETS,
+        declared_endpoints=(),
+        capture_contract=None,
+        secrets={},
+        egress=egress or EgressRecorder(),
+    )
 
 
 class _Extractor:
+    """A fixed extractor, so the derive's own wiring is what is under test."""
+
     name = "fixed-extractor"
 
-    def __init__(self) -> None:
-        self.read: list[str] = []
+    def __init__(self, text: str = "Gauge report\n") -> None:
+        self.text = text
+        self.read: list[tuple[str, str, bool]] = []
 
-    def extract(self, html: str, *, url: str) -> Extraction:
-        self.read.append(html)
-        return Extraction(engine=self.name, kind="markdown", text="# Gauge report\n")
+    def extract(
+        self,
+        html: str,
+        *,
+        url: str,
+        output: ExtractionOutput = "markdown",
+        require_content: bool = True,
+    ) -> Extraction:
+        self.read.append((html, output, require_content))
+        return Extraction(engine=self.name, kind=output, text=self.text)
 
 
-def test_a_text_render_extracts_the_cited_document_and_contacts_nothing() -> None:
-    extractor = _Extractor()
+def test_a_text_derive_extracts_the_cited_bytes_and_contacts_nothing() -> None:
+    extractor = _Extractor("# Gauge report\n")
     recorder = EgressRecorder()
-    context = _context(
-        egress=recorder,
-        input={
-            "form": "text",
-            "source": {
-                "content_base64": base64.b64encode(ASSEMBLED.encode()).decode("ascii"),
-                "coordinate": _coordinate(),
-            },
-        },
+    result = WebRender(extractor=extractor)(
+        _context({"form": "text", "source": _source()}, egress=recorder)
     )
-    result = WebRender(extractor=extractor)(context)
     assert result.status == "ok", result
-    assert extractor.read == [ASSEMBLED]
+    assert extractor.read == [(PAGE, "markdown", True)]
     assert base64.b64decode(result.output["content_base64"]) == b"# Gauge report\n"
     coordinate = result.output["coordinate"]
     assert coordinate["renderer"] == "fixed-extractor"
@@ -301,128 +124,129 @@ def test_a_text_render_extracts_the_cited_document_and_contacts_nothing() -> Non
     assert recorder.observed() == []
 
 
+def test_a_json_derive_is_the_canonical_reading_of_the_page() -> None:
+    extractor = _Extractor("Gauge report\nNewlyn reported 3.214 metres.")
+    result = WebRender(extractor=extractor)(_context({"form": "json", "source": _source()}))
+    assert result.status == "ok", result
+    assert extractor.read == [(PAGE, "text", False)]
+    stored = base64.b64decode(result.output["content_base64"])
+    document = json.loads(stored)
+    assert document == {
+        "url": REQUESTED,
+        "final_url": SETTLED,
+        "title": "Gauge report",
+        "text": "Gauge report\nNewlyn reported 3.214 metres.",
+        # Resolved against <base href>, fragment dropped, first occurrence kept,
+        # in document order; only http(s) targets.
+        "links": [
+            "https://second.example/",
+            "https://second.example/reports/",
+            "https://second.example/reports/method.html",
+            "https://data.example/gauges?id=7",
+        ],
+    }
+    # Canonical: sorted keys, no insignificant whitespace, UTF-8.
+    assert stored == json.dumps(
+        document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    assert result.output["coordinate"]["content_type"] == "application/json"
+
+
+def test_a_page_without_a_title_or_main_content_still_has_a_reading() -> None:
+    stored = document_json(
+        "<html><body><a href='/x'>x</a></body></html>",
+        url=REQUESTED,
+        final_url=SETTLED,
+        text="",
+    )
+    assert json.loads(stored) == {
+        "url": REQUESTED,
+        "final_url": SETTLED,
+        "text": "",
+        "links": ["https://second.example/x"],
+    }
+
+
+def test_the_derived_capture_cites_the_source_and_keeps_its_observation_time() -> None:
+    source = _source(source="packaged-recording")
+    result = WebRender(extractor=_Extractor())(_context({"form": "text", "source": source}))
+    assert result.status == "ok", result
+    output = result.output
+    coordinate = output["coordinate"]
+    assert coordinate["derived_from"] == "sha256:" + hashlib.sha256(PAGE.encode()).hexdigest()
+    assert coordinate["derived_from"] == source["bytes_digest"]
+    # The cited document's own coordinate is carried over, not re-derived.
+    assert (coordinate["url"], coordinate["final_url"], coordinate["status"]) == (
+        REQUESTED,
+        SETTLED,
+        200,
+    )
+    assert coordinate["source"] == "packaged-recording"
+    assert output["source_identity"] == "web.rendered"
+    # Never the clock: identical input gives an identical Capture (c6).
+    assert output["observed_at"] == OBSERVED
+    assert "headers" not in coordinate
+
+
+def test_identical_input_gives_byte_identical_output_with_the_network_blocked() -> None:
+    payload = {"form": "json", "source": _source(), "logical_source": "tide.page"}
+    with no_network():
+        first = WebRender(extractor=_Extractor())(_context(payload))
+        second = WebRender(extractor=_Extractor())(_context(payload))
+    assert first.status == second.status == "ok"
+    assert first.output == second.output
+
+
+def _altered(**changes: Any) -> dict[str, Any]:
+    return {**_source(), **changes}
+
+
 @pytest.mark.parametrize(
     "input_",
     [
-        {"form": "pdf", "source": {"content_base64": "", "coordinate": _coordinate()}},
-        {"form": "dom"},
-        {"form": "dom", "source": {"content_base64": "not base64!", "coordinate": _coordinate()}},
-        {"form": "dom", "source": {"content_base64": "", "coordinate": _coordinate()}},
-        {"form": "dom", "source": {"content_base64": "eA==", "coordinate": {"url": REQUESTED}}},
-        {
-            "form": "text",
-            "source": {
-                "content_base64": base64.b64encode(b'{"a": 1}').decode("ascii"),
-                "coordinate": _coordinate(content_type="application/json"),
-            },
-        },
+        {"form": "dom", "source": _source()},
+        {"form": "text"},
+        {"form": "text", "source": "sha256:" + "a" * 64},
+        {"form": "text", "source": _altered(content_base64="not base64!")},
+        {"form": "text", "source": _altered(bytes_digest="sha256:" + "0" * 64)},
+        {"form": "text", "source": _altered(observed_at=None)},
+        {"form": "text", "source": _altered(coordinate_type="noop-recording-v1")},
+        {"form": "text", "source": _altered(coordinate={"url": REQUESTED})},
+        {"form": "text", "source": _source(b"")},
+        {"form": "text", "source": _source(b'{"a": 1}', content_type="application/json")},
+        {"form": "json", "source": _source(b"\xff\xfe<html>")},
+        {"form": "text", "source": _source(), "logical_source": "Not A Name"},
+        {"form": "text", "source": _source(), "max_bytes": 0},
     ],
-    ids=["form", "no-source", "bad-base64", "empty", "bad-coordinate", "text-of-json"],
+    ids=[
+        "dom-is-not-a-derive",
+        "no-source",
+        "a-digest-not-wire",
+        "bad-base64",
+        "digest-does-not-reproduce",
+        "no-observation-time",
+        "not-http",
+        "bad-coordinate",
+        "empty",
+        "text-of-json",
+        "not-utf8",
+        "logical-source",
+        "max-bytes",
+    ],
 )
-def test_a_render_declines_what_it_cannot_cite_or_read(input_: dict[str, Any]) -> None:
-    result = WebRender(renderer=_PageRenderer(_page()), extractor=_Extractor())(
-        _context(input=input_)
-    )
+def test_a_derive_declines_what_it_cannot_cite_or_read(input_: dict[str, Any]) -> None:
+    result = WebRender(extractor=_Extractor())(_context(input_))
     assert result.status == "refused"
     assert result.refusal is not None and result.refusal.code == PROVIDER_DECLINED
 
 
-def test_a_recorded_render_replays_only_the_recorded_document() -> None:
-    recording = load_recordings()["dashboard-rendered"]
-    assert recording.rendered_body is not None
-    url = recording.request_url
-    fetched = recording.response.body.encode("utf-8")
-
-    def context(document: bytes) -> ProviderRunContext:
-        return _context(
-            input={
-                "form": "dom",
-                "source": {
-                    "content_base64": base64.b64encode(document).decode("ascii"),
-                    "coordinate": _coordinate(url=url, final_url=url, source="packaged-recording"),
-                },
-            }
-        )
-
-    replayed = WebRender()(context(fetched))
-    assert replayed.status == "ok", replayed
-    assert base64.b64decode(replayed.output["content_base64"]) == recording.rendered_body.encode()
-    assert replayed.output["coordinate"]["renderer"] == f"recorded:{recording.id}"
-    assert replayed.output["coordinate"]["source"] == "packaged-recording"
-    other = WebRender()(context(fetched + b"<!-- another document -->"))
-    assert other.status == "refused"
-
-
-class _UnroutablePage(_FakePage):
-    """A page whose route never intercepts: the browser fetched the frame itself."""
-
-    def route(self, url: Callable[[str], bool], handler: Callable[[Any], None]) -> None:
-        self.order.append("route")
-
-
-@pytest.mark.parametrize(
-    ("cited", "requested"),
-    [
-        ("https://first.example", "https://first.example/"),
-        ("https://first.example/report#top", "https://first.example/report"),
-        ("HTTPS://First.Example:443/report", "https://first.example/report"),
-    ],
-    ids=["bare-origin", "fragment", "case-and-default-port"],
-)
-def test_the_main_frame_matches_as_the_browser_requests_it(cited: str, requested: str) -> None:
-    page = _page()
-    recorder = EgressRecorder()
-    rendered = drive_page(
-        page,
-        cited,
-        document=WIRE_BODY,
-        content_type="text/html",
-        timeout_seconds=1.0,
-        recorder=recorder,
-        engine="playwright",
+def test_a_derived_document_heavier_than_max_bytes_is_declined() -> None:
+    result = WebRender(extractor=_Extractor("x" * 64))(
+        _context({"form": "text", "source": _source(), "max_bytes": 16})
     )
-    assert page.url == requested
-    assert page.served is not None and page.served["body"] == WIRE_BODY
-    assert rendered.served_cited and rendered.body == WIRE_BODY
-    # The served frame contacted nobody; only the subresources are recorded.
-    assert "https://first.example" not in recorder.observed()
-
-
-def _drive(page: _FakePage) -> RenderedPage:
-    return drive_page(
-        page,
-        REQUESTED,
-        document=WIRE_BODY,
-        content_type="text/html",
-        timeout_seconds=1.0,
-        recorder=EgressRecorder(),
-        engine="playwright",
-    )
-
-
-def test_a_missed_interception_fails_closed() -> None:
-    with pytest.raises(Declined) as refused:
-        _drive(_UnroutablePage(html=ASSEMBLED))
-    assert refused.value.code == PROVIDER_DECLINED
-
-
-def test_a_frame_holding_other_bytes_fails_closed() -> None:
-    page = _page()
-    page.body_override = b"<html>another document</html>"
-    with pytest.raises(Declined):
-        _drive(page)
-
-
-def test_a_render_never_cites_bytes_it_did_not_assemble() -> None:
-    """Whatever the renderer, an output without served_cited is refused."""
-
-    class _Elsewhere:
-        name = "playwright"
-
-        def render(self, url: str, **_kwargs: Any) -> RenderedPage:
-            return RenderedPage(engine="playwright", html=ASSEMBLED, final_url=url)
-
-    result = WebRender(renderer=_Elsewhere())(_context())  # type: ignore[arg-type]
-    assert result.status == "refused" and result.output is None
-    unrouted = WebRender(renderer=_PageRenderer(_UnroutablePage(html=ASSEMBLED)))(_context())
-    assert unrouted.status == "refused" and unrouted.output is None
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.detail == {
+        "url": SETTLED,
+        "cap_bytes": 16,
+        "observed_weight": "light",
+    }

@@ -18,6 +18,7 @@ __all__ = [
     "FETCH_OPERATION",
     "PROVIDER_DECLINED",
     "REDIRECT_LIMIT",
+    "RENDER_DOM_OPERATION",
     "RENDER_OPERATION",
     "SEARCH_OPERATION",
     "UNDECLARED_INSTANCE",
@@ -27,6 +28,9 @@ __all__ = [
 FETCH_OPERATION = "web.fetch"
 SEARCH_OPERATION = "search.web"
 RENDER_OPERATION = "web.render"
+"""A pure derive: a fetched Capture read into text or JSON. Contacts nothing."""
+RENDER_DOM_OPERATION = "web.render.dom"
+"""A fetch: a browser assembles a page, pulling its subresources live."""
 
 PROVIDER_DECLINED = "provider_declined"
 """The input names something this adapter will not retrieve, or retrieve that way."""
@@ -37,7 +41,7 @@ CROSS_ORIGIN_CREDENTIALED_REDIRECT = "cross_origin_credentialed_redirect"
 """The three ways an origin's redirect chain is refused (web.fetch and search.web)."""
 
 ENGINE_UNAVAILABLE = "engine_unavailable"
-"""web.render: a dom render needs the browser extra and the environment lacks it."""
+"""web.render.dom: a browser needs the browser extra and the environment lacks it."""
 
 CREDENTIAL_UNAVAILABLE = "credential_unavailable"
 """web.fetch: the run names a credential that was not delivered."""

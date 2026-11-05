@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from cruxible_provider_runtime.acquisition import external_capture_result
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import Binding, BindRequest, bind
 from cruxible_provider_runtime.digests import implementation_digest
@@ -97,6 +101,27 @@ def render_binding(
     backend_kind: BackendKind = getattr(request, "param", "local_env")
     return _bind(
         "web.render",
+        backend_kind,
+        registry,
+        manifest_path,
+        lock_path,
+        local_backend,
+        container_backend,
+    )
+
+
+@pytest.fixture()
+def dom_binding(
+    request: pytest.FixtureRequest,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> Binding:
+    backend_kind: BackendKind = getattr(request, "param", "local_env")
+    return _bind(
+        "web.render.dom",
         backend_kind,
         registry,
         manifest_path,
@@ -200,9 +225,9 @@ def test_fetch_records_the_endpoint_it_requested(
     assert receipt["dynamic_endpoint_forms"] == [DYNAMIC_TARGET_FROM_RUN_INPUT]
 
 
-@pytest.mark.parametrize("render_binding", BACKENDS, indirect=True)
-def test_render_assembles_a_fetched_capture_into_a_derived_one(
-    render_binding: Binding,
+@pytest.mark.parametrize("dom_binding", BACKENDS, indirect=True)
+def test_dom_fetch_captures_the_assembled_page(
+    dom_binding: Binding,
     registry: StubRegistry,
     local_backend: LocalEnvBackend,
     container_backend: ContainerBackend,
@@ -211,38 +236,71 @@ def test_render_assembles_a_fetched_capture_into_a_derived_one(
 
     recording = load_recordings()["dashboard-rendered"]
     assert recording.rendered_body is not None
-    fetched = recording.response.body.encode("utf-8")
     outcome = invoke(
-        render_binding,
+        dom_binding,
         registry=registry,
-        payload={
-            "form": "dom",
-            "source": {
-                "content_base64": base64.b64encode(fetched).decode("ascii"),
-                "coordinate": {
-                    "url": "https://fixture.invalid/dashboard",
-                    "final_url": "https://fixture.invalid/dashboard",
-                    "status": 200,
-                    "content_type": recording.response.headers["content-type"],
-                    "request_digest": "sha256:" + "0" * 64,
-                    "source": "packaged-recording",
-                },
-            },
-        },
+        payload={"url": "https://fixture.invalid/dashboard"},
         budgets=BUDGETS,
         local_backend=local_backend,
         container_backend=container_backend,
     )
     assert outcome.status == "ok", outcome.envelope
     assert outcome.envelope.output is not None
-    derived = base64.b64decode(outcome.envelope.output["content_base64"])
-    assert derived == recording.rendered_body.encode("utf-8")
-    assert b"3.214" in derived
+    assembled = base64.b64decode(outcome.envelope.output["content_base64"])
+    assert assembled == recording.rendered_body.encode("utf-8")
+    assert b"3.214" in assembled
     coordinate = outcome.envelope.output["coordinate"]
     assert coordinate["renderer"] == "recorded:dashboard-rendered"
-    assert coordinate["derived_from"] == "sha256:" + hashlib.sha256(fetched).hexdigest()
+    assert "derived_from" not in coordinate
     # A recorded render is a replay too, and carries a label on the trace.
     assert [event["kind"] for event in outcome.envelope.trace.events] == ["recorded_render"]
+    assert outcome.receipt_fields()["endpoints_contacted"] == ["https://fixture.invalid"]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("trafilatura") is None, reason="web.render needs trafilatura"
+)
+@pytest.mark.parametrize("render_binding", BACKENDS, indirect=True)
+def test_render_derives_a_fetched_capture_and_contacts_nothing(
+    render_binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    recording = load_recordings()["article-static"]
+    fetched = recording.response.body.encode("utf-8")
+    source = external_capture_result(
+        fetched,
+        source_identity="web.response",
+        coordinate_type="http-response-v1",
+        coordinate={
+            "url": recording.request_url,
+            "final_url": recording.request_url,
+            "status": 200,
+            "content_type": recording.response.headers["content-type"],
+            "request_digest": "sha256:" + "0" * 64,
+            "source": "packaged-recording",
+        },
+        observed_at=datetime(2026, 11, 4, tzinfo=UTC),
+        selector_type="whole-response-v1",
+    )
+    outcome = invoke(
+        render_binding,
+        registry=registry,
+        payload={"form": "json", "source": source},
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "ok", outcome.envelope
+    assert outcome.envelope.output is not None
+    document = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))
+    assert document["url"] == recording.request_url
+    assert document["title"] == "Recalibrating the Newlyn tide gauge"
+    coordinate = outcome.envelope.output["coordinate"]
+    assert coordinate["derived_from"] == "sha256:" + hashlib.sha256(fetched).hexdigest()
+    assert outcome.envelope.output["observed_at"] == "2026-11-04T00:00:00Z"
+    assert outcome.receipt_fields()["endpoints_contacted"] == []
 
 
 @pytest.mark.parametrize("fetch_binding", BACKENDS, indirect=True)

@@ -6,8 +6,10 @@ held here, in the default lane and without Core:
 
 * the set: every Contract the registration names is shipped, every nested pin
   resolves to a shipped file by its exact digest, and nothing else is shipped;
-* the outputs: what ``web.fetch``, ``search.web`` and ``web.render`` actually
-  return, on the packaged recordings, is exactly their result Contract;
+* the outputs: what ``web.fetch``, ``search.web``, ``web.render`` and
+  ``web.render.dom`` actually return, on the packaged recordings, is exactly
+  their result Contract (a ``capture<K>`` input is checked in the digest form
+  the Contract types; the operation receives the Capture wire Core builds);
 * the refusals: every refusal each operation declares, produced by driving the
   adapter into it, carries a detail that is exactly its detail Contract.
 
@@ -36,6 +38,7 @@ from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_runtime.provider_api import ProviderResult
 from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_web import CONTRACTS_DIR, PACKAGE_ROOT, contract_members
+from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.fetch import MAX_RESPONSE_BYTES, WebFetch
 from cruxible_provider_web.http import RecordingClient
 from cruxible_provider_web.operations import (
@@ -57,6 +60,12 @@ ARTICLE_URL = "https://fixture.invalid/articles/tide-gauge-recalibration"
 MEASUREMENTS_URL = "https://fixture.invalid/api/v1/measurements.json"
 DASHBOARD_URL = "https://fixture.invalid/dashboard"
 FIXTURE_INSTANCE = {"instance_url": "https://fixture.invalid"}
+
+
+def _has_trafilatura() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("trafilatura") is not None
 
 
 def _contracts() -> dict[tuple[str, int], dict[str, Any]]:
@@ -134,6 +143,12 @@ def _type_problems(value: Any, field_type: Mapping[str, Any], at: str) -> list[s
         for index, item in enumerate(value):
             problems += _type_problems(item, field_type["item"], f"{at}[{index}]")
         return problems
+    if kind == "capture":
+        # A Capture input or output is typed by its digest (Core's check_value);
+        # the bytes behind it travel as Capture wire, outside the Contract.
+        if not isinstance(value, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+            return [f"{at}: not a Capture digest"]
+        return []
     if kind == "contract":
         ref = field_type["contract"]
         nested = CONTRACTS.get((ref["name"], ref["version"]))
@@ -209,7 +224,7 @@ def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None
         for operation in registration.operations
         for ref in operation.contract_refs()
     }
-    assert len(named) == 18
+    assert len(named) == 21
     pins = [
         ref
         for document in CONTRACTS.values()
@@ -255,8 +270,15 @@ def test_the_empty_selector_and_detail_are_zero_field_contracts() -> None:
         {"url": ARTICLE_URL},
         {"url": MEASUREMENTS_URL, "expected_format": "json", "logical_source": "tide.readings"},
         {"url": DASHBOARD_URL},
+        {
+            "url": MEASUREMENTS_URL,
+            "query": [
+                {"name": "station", "values": ["newlyn"]},
+                {"name": "cve", "values": ["CVE-2021-44228", "CVE-2023-4863"], "join": "comma"},
+            ],
+        },
     ],
-    ids=["static", "structured", "unassembled"],
+    ids=["static", "structured", "unassembled", "query"],
 )
 def test_fetch_outputs_are_exactly_the_result_contract(payload: dict[str, Any]) -> None:
     _conforms(payload, _operation("web.fetch").in_.spelling)
@@ -266,27 +288,44 @@ def test_fetch_outputs_are_exactly_the_result_contract(payload: dict[str, Any]) 
     _conforms(result.output, _operation("web.fetch").out.spelling)
 
 
-def _render_payload(form: str, url: str) -> dict[str, Any]:
-    """A render of the recorded fetch of ``url``: the fetched Capture is its source."""
+def _fetched_wire(url: str) -> dict[str, Any]:
+    """The recorded fetch of ``url``, as the Capture wire Core hands a derive."""
 
     fetched = WebFetch()(_context("web.fetch", input={"url": url}))
     assert fetched.status == "ok", fetched
-    return {
-        "form": form,
-        "source": {
-            "content_base64": fetched.output["content_base64"],
-            "coordinate": fetched.output["coordinate"],
-        },
-    }
+    return dict(fetched.output)
 
 
-def test_render_output_is_exactly_the_result_contract() -> None:
-    payload = _render_payload("dom", DASHBOARD_URL)
-    _conforms(payload, _operation("web.render").in_.spelling)
+def _render_payload(form: str, url: str) -> dict[str, Any]:
+    """A derive over the recorded fetch of ``url``: its Capture wire is the source."""
+
+    return {"form": form, "source": _fetched_wire(url)}
+
+
+def _as_typed(payload: dict[str, Any]) -> dict[str, Any]:
+    """The payload as its Contract types it: a Capture input is its digest."""
+
+    return {**payload, "source": payload["source"]["bytes_digest"]}
+
+
+@pytest.mark.skipif(not _has_trafilatura(), reason="web.render needs trafilatura")
+@pytest.mark.parametrize("form", ["json", "text"])
+def test_render_output_is_exactly_the_result_contract(form: str) -> None:
+    payload = _render_payload(form, ARTICLE_URL)
+    _conforms(_as_typed(payload), _operation("web.render").in_.spelling)
     result = WebRender()(_context("web.render", input=payload))
     assert result.status == "ok", result
     assert "source_effective_time" not in result.output
     _conforms(result.output, _operation("web.render").out.spelling)
+
+
+def test_dom_output_is_exactly_the_result_contract() -> None:
+    payload = {"url": DASHBOARD_URL}
+    _conforms(payload, _operation("web.render.dom").in_.spelling)
+    result = WebRenderDom()(_context("web.render.dom", input=payload))
+    assert result.status == "ok", result
+    assert "source_effective_time" not in result.output
+    _conforms(result.output, _operation("web.render.dom").out.spelling)
 
 
 def test_search_output_is_exactly_the_result_contract() -> None:
@@ -309,6 +348,7 @@ def test_the_request_contracts_refuse_what_the_adapters_decline() -> None:
     fetch_in = CONTRACTS[_spelling(_operation("web.fetch").in_.spelling)]
     search_in = CONTRACTS[_spelling(_operation("search.web").in_.spelling)]
     render_in = CONTRACTS[_spelling(_operation("web.render").in_.spelling)]
+    dom_in = CONTRACTS[_spelling(_operation("web.render.dom").in_.spelling)]
     for payload in (
         {},
         {"url": "ftp://fixture.invalid/x"},
@@ -320,6 +360,11 @@ def test_the_request_contracts_refuse_what_the_adapters_decline() -> None:
         {"url": ARTICLE_URL, "credential_header": "bad header"},
         {"url": ARTICLE_URL, "credential_ref": None},
         {"url": ARTICLE_URL, "logical_source": "https://not-a-name"},
+        {"url": ARTICLE_URL, "query": {"cve": ["CVE-2021-44228"]}},
+        {"url": ARTICLE_URL, "query": [{"name": "cve", "values": "CVE-2021-44228"}]},
+        {"url": ARTICLE_URL, "query": [{"name": "", "values": ["x"]}]},
+        {"url": ARTICLE_URL, "query": [{"name": "cve", "values": ["x"], "join": "pipe"}]},
+        {"url": ARTICLE_URL, "query": [{"name": "cve", "value": "x"}]},
     ):
         assert _problems(payload, fetch_in), payload
     for payload in (
@@ -332,13 +377,25 @@ def test_the_request_contracts_refuse_what_the_adapters_decline() -> None:
         {"query": "x", "instance_url": "https://fixture.invalid"},
     ):
         assert _problems(payload, search_in), payload
+    digest = "sha256:" + "a" * 64
     for payload in (
         {},
-        {"form": "dom"},
-        {"form": "pdf", "source": {"content_base64": "", "coordinate": {}}},
-        {"form": "dom", "source": {"content_base64": ""}},
+        {"form": "text"},
+        {"form": "dom", "source": digest},
+        {"form": "pdf", "source": digest},
+        {"form": "text", "source": {"content_base64": "", "coordinate": {}}},
+        {"form": "json", "source": "not-a-digest"},
     ):
         assert _problems(payload, render_in), payload
+    assert _problems({"form": "json", "source": digest}, render_in) == []
+    for payload in (
+        {},
+        {"url": "ftp://fixture.invalid/x"},
+        {"url": ARTICLE_URL, "form": "dom"},
+        {"url": ARTICLE_URL, "source": digest},
+        {"url": ARTICLE_URL, "max_bytes": 0},
+    ):
+        assert _problems(payload, dom_in), payload
 
 
 # -- the refusals ----------------------------------------------------------
@@ -352,7 +409,7 @@ def _declared(operation: str, code: str) -> str:
 def test_every_declared_refusal_has_a_case_below() -> None:
     declared = {
         (operation, code)
-        for operation in ("web.fetch", "search.web", "web.render")
+        for operation in ("web.fetch", "search.web", "web.render", "web.render.dom")
         for code in _operation(operation).refusals
     }
     assert set(REFUSAL_CASES) == declared
@@ -421,55 +478,56 @@ def _render(payload: dict[str, Any], **kwargs: Any) -> Any:
     return _called(WebRender(**kwargs), _context("web.render", input=payload))
 
 
+def _dom(payload: dict[str, Any]) -> Any:
+    return _called(WebRenderDom(), _context("web.render.dom", input=payload))
+
+
 def _render_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
-    """Input declines, the weight decline, an extraction that finds nothing, and a
-    recording that carries no rendered document."""
+    """Input declines, the weight decline, and an extraction that finds nothing."""
 
     empty_page = {
-        "form": "text",
-        "source": {
-            "content_base64": base64.b64encode(b"<html><body></body></html>").decode("ascii"),
-            "coordinate": {
-                "url": "https://example.test/page",
-                "final_url": "https://example.test/page",
-                "status": 200,
-                "content_type": "text/html",
-                "request_digest": "sha256:" + "0" * 64,
-                "source": "network",
-            },
-        },
+        **_fetched_wire(ARTICLE_URL),
     }
+    body = b"<html><body></body></html>"
+    empty_page.update(
+        content_base64=base64.b64encode(body).decode("ascii"),
+        byte_length=len(body),
+        bytes_digest="sha256:" + hashlib.sha256(body).hexdigest(),
+    )
     declined = [
         _render({}),
-        _render({"form": "dom"}),
-        _render({**_render_payload("dom", DASHBOARD_URL), "logical_source": "Not A Name"}),
-        _render({**_render_payload("dom", DASHBOARD_URL), "max_bytes": 16}),
-        _render(_render_payload("dom", MEASUREMENTS_URL)),
+        _render({"form": "dom", "source": _fetched_wire(ARTICLE_URL)}),
+        _render({"form": "text", "source": {"content_base64": "eA=="}}),
         _render(_render_payload("text", MEASUREMENTS_URL)),
+        _render(_render_payload("json", MEASUREMENTS_URL)),
     ]
     if _has_trafilatura():
-        declined.append(_render(empty_page))
+        declined += [
+            _render({**_render_payload("text", ARTICLE_URL), "logical_source": "Not A Name"}),
+            _render({**_render_payload("text", ARTICLE_URL), "max_bytes": 16}),
+            _render({"form": "text", "source": empty_page}),
+        ]
     return declined
 
 
-def _has_trafilatura() -> bool:
-    import importlib.util
+def _dom_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Input declines, the weight decline, and a recording with no rendered document."""
 
-    return importlib.util.find_spec("trafilatura") is not None
+    return [
+        _dom({}),
+        _dom({"url": "ftp://fixture.invalid/x"}),
+        _dom({"url": DASHBOARD_URL, "logical_source": "Not A Name"}),
+        _dom({"url": DASHBOARD_URL, "max_bytes": 16}),
+        _dom({"url": ARTICLE_URL}),
+    ]
 
 
-def _render_engine_unavailable(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+def _dom_engine_unavailable(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     # Importing a module set to None raises ImportError: the environment
     # without the browser extra, whatever this one happens to carry.
     monkeypatch.setitem(sys.modules, "playwright", None)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
-    payload = _render_payload("dom", ARTICLE_URL)
-    payload["source"]["coordinate"] = {
-        **payload["source"]["coordinate"],
-        "url": "https://example.test/page",
-        "final_url": "https://example.test/page",
-    }
-    return [_render(payload)]
+    return [_dom({"url": "https://example.test/page"})]
 
 
 def _search_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
@@ -508,7 +566,8 @@ REFUSAL_CASES: dict[tuple[str, str], Any] = {
         )
     ],
     ("web.render", PROVIDER_DECLINED): _render_declined,
-    ("web.render", ENGINE_UNAVAILABLE): _render_engine_unavailable,
+    ("web.render.dom", PROVIDER_DECLINED): _dom_declined,
+    ("web.render.dom", ENGINE_UNAVAILABLE): _dom_engine_unavailable,
     ("search.web", PROVIDER_DECLINED): _search_declined,
     ("search.web", UNDECLARED_INSTANCE): lambda monkeypatch: [
         _search(coordinates={"instance_url": "https://other.example"})

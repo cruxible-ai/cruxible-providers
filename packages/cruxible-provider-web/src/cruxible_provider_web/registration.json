@@ -2,7 +2,7 @@
   "schema_version": 2,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:5848e2d3cab5819fb14c2ca3fc99319df916f26b8d793dfa5bc199d6e856c5b9"
+    "digest": "sha256:95e4a2439ed825c0313e35d4c661c29ba6dbf4a631a2428b4144a1e25ec8fe4c"
   },
   "operations": [
     {
@@ -67,29 +67,42 @@
       "name": "web.render",
       "in": "web.render.request@1",
       "out": "web.render.result@1",
-      "effect": "external_read",
+      "effect": "pure",
       "refusals": {
-        "engine_unavailable": {
-          "contract": "web.render.refusal.engine_unavailable@1",
-          "absorbable": false
-        },
         "provider_declined": {
           "contract": "web.render.refusal.provider_declined@1",
           "absorbable": true
         }
       },
       "entrypoint": "cruxible_provider_web.render:WebRender"
+    },
+    {
+      "name": "web.render.dom",
+      "in": "web.render.dom.request@1",
+      "out": "web.render.dom.result@1",
+      "effect": "external_read",
+      "refusals": {
+        "engine_unavailable": {
+          "contract": "web.render.dom.refusal.engine_unavailable@1",
+          "absorbable": false
+        },
+        "provider_declined": {
+          "contract": "web.render.dom.refusal.provider_declined@1",
+          "absorbable": true
+        }
+      },
+      "entrypoint": "cruxible_provider_web.dom:WebRenderDom"
     }
   ],
   "runtime_requirements": [
     {
-      "entrypoint": "cruxible_provider_web.render:WebRender",
+      "entrypoint": "cruxible_provider_web.dom:WebRenderDom",
       "kind": "python_extra",
       "name": "browser",
       "description": "Required Python extra for this implementation."
     },
     {
-      "entrypoint": "cruxible_provider_web.render:WebRender",
+      "entrypoint": "cruxible_provider_web.dom:WebRenderDom",
       "kind": "runtime_resource",
       "name": "playwright.chromium",
       "description": "Dom renders require a Chromium browser matching the installed Playwright version; installing the Python extra alone is insufficient.",

@@ -212,18 +212,14 @@ def test_a_missing_browser_is_the_operations_declared_refusal() -> None:
 
     from cruxible_provider_runtime.egress import EgressRecorder
     from cruxible_provider_runtime.errors import Declined
-    from cruxible_provider_web.engines import PlaywrightRenderer
+    from cruxible_provider_web.browser import PlaywrightRenderer
     from cruxible_provider_web.operations import ENGINE_UNAVAILABLE
 
     if importlib.util.find_spec("playwright") is not None:
         pytest.skip("the browser extra is installed here")
     with pytest.raises(Declined) as exc:
         PlaywrightRenderer().render(
-            "https://fixture.invalid/",
-            document=b"<html></html>",
-            content_type="text/html",
-            timeout_seconds=1.0,
-            recorder=EgressRecorder(),
+            "https://fixture.invalid/", timeout_seconds=1.0, recorder=EgressRecorder()
         )
     assert exc.value.code == ENGINE_UNAVAILABLE
     assert exc.value.refusal.detail["required_extra"] == "browser"

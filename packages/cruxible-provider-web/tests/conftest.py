@@ -5,8 +5,9 @@ from the package's own committed lock: a committed artifact would carry a
 materialization digest that goes stale the moment a dependency moves, and a
 stale pin nobody notices is what the bind-time recomputation exists to catch.
 
-Two environments, one lock. ``web.render`` declares the ``browser`` extra and
-``web.fetch`` and ``search.web`` declare none, so the artifact pins two
+Two environments, one lock. ``web.render.dom`` declares the ``browser`` extra
+and ``web.fetch``, ``search.web`` and ``web.render`` declare none, so the
+artifact pins two
 materializations — ``linux-cp311-engines`` and ``linux-cp311-engines+browser`` —
 and a bind for one implementation cannot pick up the other's environment.
 

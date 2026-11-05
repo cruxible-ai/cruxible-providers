@@ -1,4 +1,4 @@
-# The web plane. One distribution, one lock, one identity unit; three
+# The web plane. One distribution, one lock, one identity unit; four
 # implementations, each serving one operation.
 #
 # The base install is LIGHT. It carries the adapter logic, the registration,
@@ -8,8 +8,8 @@
 # `uv run pytest` therefore downloads no browser and opens no socket.
 [project]
 name = "cruxible-provider-web"
-version = "0.4.0"
-description = "Cruxible provider adapters for the web plane: page retrieval, web search and derived renders."
+version = "0.5.0"
+description = "Cruxible provider adapters for the web plane: page retrieval, web search, browser-assembled pages and derived readings."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -25,7 +25,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "cruxible-provider-runtime>=0.3.0",
+  "cruxible-provider-runtime>=0.4.0",
   # The HTTP client is base, not an extra: it is how both implementations reach
   # anything at all, and it is how egress gets recorded. An adapter that could
   # not make a request would have no adapter logic left to test.
@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The one per-engine extra: a browser. Its name is what the `web.render`
+# The one per-engine extra: a browser. Its name is what the `web.render.dom`
 # implementation declares in `requires_extras`, and what the resolver is asked
 # for when that implementation's environment is materialized.
 browser = ["playwright>=1.44"]
@@ -48,6 +48,7 @@ browser = ["playwright>=1.44"]
 "web.fetch" = "cruxible_provider_web.fetch:WebFetch"
 "search.web" = "cruxible_provider_web.search:SearxngSearch"
 "web.render" = "cruxible_provider_web.render:WebRender"
+"web.render.dom" = "cruxible_provider_web.dom:WebRenderDom"
 
 [dependency-groups]
 dev = [

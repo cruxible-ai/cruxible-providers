@@ -89,7 +89,7 @@ RATIFIED_ENVIRONMENT_PAYLOADS = {
 EXPECTED_ENGINE_ENVIRONMENTS = {
     "doc.to_markdown+docling",
     "ocr.extract+paddleocr",
-    "web.render+browser",
+    "web.render.dom+browser",
 }
 ENGINE_ENVIRONMENTS: list[tuple[str, str, tuple[str, ...]]] = []
 for manifest_path in sorted((REPO_ROOT / "packages").glob("*/src/*/manifest.yaml")):

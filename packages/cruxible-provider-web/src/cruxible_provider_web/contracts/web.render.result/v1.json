@@ -1,6 +1,6 @@
 {
   "artifact_format": "cruxible-contract-v1",
-  "description": "One derived web document as Capture wire: the exact bytes the render produced (an assembled DOM or main-content Markdown), a coordinate naming the engine and the content digest of the Capture it was made from, and the observation time.",
+  "description": "One derived web document as Capture wire: the exact bytes the derive produced (main-content Markdown or the page's canonical JSON), a coordinate naming the engine and the content digest of the Capture it was made from, and that Capture's observation time.",
   "fields": {
     "byte_length": {
       "type": {

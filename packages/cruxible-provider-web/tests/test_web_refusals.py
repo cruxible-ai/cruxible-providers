@@ -125,7 +125,12 @@ def test_undeclared_operation_refuses(
             local_backend=local_backend,
         )
     assert exc.value.code is RefusalCode.UNDECLARED_OPERATION
-    assert exc.value.refusal.detail["declared"] == ["search.web", "web.fetch", "web.render"]
+    assert exc.value.refusal.detail["declared"] == [
+        "search.web",
+        "web.fetch",
+        "web.render",
+        "web.render.dom",
+    ]
 
 
 def test_unsupported_protocol_refuses(
@@ -245,7 +250,8 @@ def test_an_artifact_pinning_only_the_base_environment_refuses_the_engine_one(
     """The mismatch that only exists once one lock has two environments.
 
     Dropping the ``+browser`` pin leaves an artifact that is perfectly valid for
-    ``web.fetch`` and ``search.web`` and pins nothing for ``web.render``. Falling
+    ``web.fetch``, ``search.web`` and ``web.render`` and pins nothing for
+    ``web.render.dom``. Falling
     back to the base pin would materialize an environment with no browser in it
     and then run an implementation that declared it needed one.
     """
@@ -268,7 +274,7 @@ def test_an_artifact_pinning_only_the_base_environment_refuses_the_engine_one(
     with pytest.raises(RefusalError) as exc:
         bind(
             registry,
-            _request(manifest_path, lock_path, operation="web.render"),
+            _request(manifest_path, lock_path, operation="web.render.dom"),
             local_backend=local_backend,
         )
     assert exc.value.code is RefusalCode.LOCK_MISMATCH

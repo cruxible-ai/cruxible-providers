@@ -15,7 +15,7 @@ schema_version: 2
 provider_id: cruxible-provider-web
 distribution:
   name: cruxible-provider-web
-  version: 0.4.0
+  version: 0.5.0
 entrypoint_group: cruxible.providers
 supported_protocol_majors: [2]
 implementations:
@@ -36,20 +36,32 @@ implementations:
     # operation's effect (external_read), declared in registration.json.
     deterministic: false
 
-  # Serves web.render.
+  # Serves web.render: a derive.
   - entrypoint: "cruxible_provider_web.render:WebRender"
     backends: [local_env, container]
-    # A dom render needs a browser, and a browser is a heavy engine, so it lives
-    # behind the `browser` extra rather than in the base install. Declaring it
-    # here is what makes the resolver materialize an environment that has it --
-    # and what makes this environment differ from the base one the other two share.
+    # Main-content extraction over the bytes of a Capture core hands it. The
+    # extractor is a base dependency, so this is the base environment.
+    requires_extras: []
+    # A derive contacts nothing: it reads only the Capture bytes in its input.
+    declared_endpoints: []
+    # Pure computation: identical input gives byte-identical output, which the
+    # purity conformance test holds with the network blocked.
+    deterministic: true
+
+  # Serves web.render.dom: a fetch through a browser.
+  - entrypoint: "cruxible_provider_web.dom:WebRenderDom"
+    backends: [local_env, container]
+    # A browser is a heavy engine, so it lives behind the `browser` extra rather
+    # than in the base install. Declaring it here is what makes the resolver
+    # materialize an environment that has it -- and what makes this environment
+    # differ from the base one the other three share.
     requires_extras: [browser]
-    # The main frame is served from the cited bytes; the subresources the page
-    # pulls are named by the document, so they cannot be enumerated either. Every
-    # origin the browser contacts lands in the run's egress recorder.
+    # The page is named by the run, and the subresources it pulls by the page,
+    # so neither can be enumerated. Every origin the browser contacts lands in
+    # the run's egress recorder.
     declared_endpoints:
       - "dynamic:target-from-run-input"
-    # A dom render reads live subresources and runs page scripts.
+    # A browser reads the live web and runs page scripts.
     deterministic: false
 
   # Serves search.web.
@@ -57,7 +69,7 @@ implementations:
     backends: [local_env, container]
     # No engine: an HTTP client to somebody else's instance is the whole
     # implementation. Its environment is the base one, like web.fetch's, and
-    # differs from web.render's -- one lock, two environments, two pins.
+    # differs from web.render.dom's -- one lock, two environments, two pins.
     requires_extras: []
     # The exact instance URL is supplied as retained run configuration. The
     # package is reusable across instances; egress remains recorded per run.

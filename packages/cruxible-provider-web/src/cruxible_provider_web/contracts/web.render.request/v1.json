@@ -1,12 +1,12 @@
 {
   "artifact_format": "cruxible-contract-v1",
-  "description": "One derived form of a fetched Capture: dom assembles the document in a browser with the main frame served from the cited bytes; text extracts its main content as Markdown.",
+  "description": "A derive over one Capture this run fetched (an HTML document): text is its main content as Markdown; json is canonical JSON {url, final_url, title?, text, links}. Pure: it reads only the Capture's bytes and contacts nothing.",
   "fields": {
     "form": {
       "type": {
         "kind": "enum",
         "members": [
-          "dom",
+          "json",
           "text"
         ]
       }
@@ -28,12 +28,8 @@
     },
     "source": {
       "type": {
-        "contract": {
-          "digest": "sha256:45c0c2671f2c9c58a3abd4e2b36f9fde252715d8134db2f4c01c0c0c7ffbb311",
-          "name": "web.render.source",
-          "version": 1
-        },
-        "kind": "contract"
+        "capture_kind": "*",
+        "kind": "capture"
       }
     }
   },

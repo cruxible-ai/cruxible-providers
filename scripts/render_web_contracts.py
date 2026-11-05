@@ -15,11 +15,11 @@ that has ``cruxible_client`` (Core's environment)::
     "$CRUXIBLE_CORE_PYTHON" scripts/render_web_contracts.py --check  # exit 1 on drift
 
 The definitions below are derived from the adapters' code: the request fields
-``_Request.parse`` (fetch), ``_parse_input`` (search) and ``_RenderRequest.parse``
-(render) read, the shared acquisition result
-``cruxible_provider_runtime.acquisition`` builds and the HTTP coordinate every
-operation passes it (``coordinate.http_coordinate``), and the detail keys of
-every refusal each operation raises. An optional field is an absent key;
+``_Request.parse`` / ``_query`` (fetch), ``_parse_input`` (search),
+``_RenderRequest.parse`` (render) and ``dom._parse`` (render.dom) read, the
+shared acquisition result ``cruxible_provider_runtime.acquisition`` builds and
+the HTTP coordinate every operation passes it (``coordinate.http_coordinate``),
+and the detail keys of every refusal each operation raises. An optional field is an absent key;
 ``null`` is never valid.
 """
 
@@ -45,6 +45,9 @@ NON_BLANK = 'string{pattern: "^\\\\s*\\\\S[\\\\s\\\\S]*$"}'
 DYNAMIC_FORMS = 'enum["dynamic:target-from-configuration", "dynamic:target-from-run-input"]'
 #: An accepted manifest's concrete endpoints a refusal may list.
 MAX_LISTED_ENDPOINTS = 256
+#: ``fetch.MAX_QUERY_PARAMETERS`` / ``fetch.MAX_QUERY_VALUES``.
+MAX_QUERY_PARAMETERS = 64
+MAX_QUERY_VALUES = 1000
 
 ACQUISITION_TAG = "playbill-provider-result-to-external-capture-v1"
 EFFECTIVE_TIME_TAG = "playbill-source-effective-time-v1"
@@ -158,14 +161,28 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "effective_until": "datetime?",
         },
     },
+    "web.fetch.query_param": {
+        "description": (
+            "One query parameter of a fetch: its name and its values, each sent as its "
+            "own name=value (join: repeat, the default) or comma-joined into one "
+            "(join: comma). A parameter has at least one value."
+        ),
+        "fields": {
+            "name": "string{min_len: 1}",
+            "values": f"list<string>{{max_items: {MAX_QUERY_VALUES}}}",
+            "join": "enum[comma, repeat]?",
+        },
+    },
     "web.fetch.request": {
         "description": (
-            "One resource to retrieve with one HTTP GET. A credential is named by "
-            "reference; its material stays in the run's secret custody, never in this "
-            "payload."
+            "One resource to retrieve with one HTTP GET. query parameters are encoded "
+            "onto url in order, and the built URL is the request its coordinate records. "
+            "A credential is named by reference; its material stays in the run's secret "
+            "custody, never in this payload."
         ),
         "fields": {
             "url": HTTP_URL,
+            "query": f"list<web.fetch.query_param@1>{{max_items: {MAX_QUERY_PARAMETERS}}}?",
             "logical_source": LOGICAL_NAME + "?",
             "max_bytes": "int{1..33554432}?",
             "paced": "bool?",
@@ -198,44 +215,69 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
         },
     },
     **_redirect_refusals("web.fetch"),
-    "web.render.source": {
-        "description": (
-            "The fetched Capture a render reads: its exact bytes as base64 transport and "
-            "its HTTP coordinate."
-        ),
-        "fields": {"content_base64": "string", "coordinate": "web.capture.coordinate@1"},
-    },
     "web.render.request": {
         "description": (
-            "One derived form of a fetched Capture: dom assembles the document in a "
-            "browser with the main frame served from the cited bytes; text extracts its "
-            "main content as Markdown."
+            "A derive over one Capture this run fetched (an HTML document): text is its "
+            "main content as Markdown; json is canonical JSON {url, final_url, title?, "
+            "text, links}. Pure: it reads only the Capture's bytes and contacts nothing."
         ),
         "fields": {
-            "source": "web.render.source@1",
-            "form": "enum[dom, text]",
+            "source": "capture<*>",
+            "form": "enum[json, text]",
             "logical_source": LOGICAL_NAME + "?",
             "max_bytes": "int{1..33554432}?",
         },
     },
     "web.render.result": _result(
-        "One derived web document as Capture wire: the exact bytes the render produced "
-        "(an assembled DOM or main-content Markdown), a coordinate naming the engine and "
-        "the content digest of the Capture it was made from, and the observation time.",
+        "One derived web document as Capture wire: the exact bytes the derive produced "
+        "(main-content Markdown or the page's canonical JSON), a coordinate naming the "
+        "engine and the content digest of the Capture it was made from, and that "
+        "Capture's observation time.",
         LOGICAL_NAME,
     ),
-    "web.render.refusal.engine_unavailable": {
+    "web.render.refusal.provider_declined": {
+        "description": (
+            "Detail of a provider_declined refusal: the URL of the cited document when "
+            "known; for a weight refusal, the cap and the observed weight class; for an "
+            "extraction refusal, the extracting engine."
+        ),
+        "fields": {
+            "url": "string?",
+            "cap_bytes": "int{1..}?",
+            "observed_weight": WEIGHT + "?",
+            "engine": "string?",
+        },
+    },
+    "web.render.dom.request": {
+        "description": (
+            "One page to assemble in a browser: the browser navigates to url, runs the "
+            "page's scripts and pulls its subresources, and the serialized DOM is the "
+            "Capture."
+        ),
+        "fields": {
+            "url": HTTP_URL,
+            "logical_source": LOGICAL_NAME + "?",
+            "max_bytes": "int{1..33554432}?",
+        },
+    },
+    "web.render.dom.result": _result(
+        "One browser-assembled page as Capture wire: the exact serialized DOM, an HTTP "
+        "coordinate naming the main-frame exchange and the engine that assembled it, "
+        "and the observation time.",
+        LOGICAL_NAME,
+    ),
+    "web.render.dom.refusal.engine_unavailable": {
         "description": (
             "Detail of an engine_unavailable refusal: the Python extra the environment "
             "lacks and the engine that needs it."
         ),
         "fields": {"required_extra": 'enum["browser"]', "engine": "string"},
     },
-    "web.render.refusal.provider_declined": {
+    "web.render.dom.refusal.provider_declined": {
         "description": (
-            "Detail of a provider_declined refusal: the URL of the cited document when "
-            "known; for a weight refusal, the cap and the observed weight class; for an "
-            "extraction refusal, the extracting engine."
+            "Detail of a provider_declined refusal: the page URL when one was named; for "
+            "a weight refusal, the cap and the observed weight class; for a navigation "
+            "without a response, the engine."
         ),
         "fields": {
             "url": "string?",
@@ -284,8 +326,12 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
 }
 
 
-def render() -> dict[str, bytes]:
-    """Every Contract's relative path under ``contracts/`` to its canonical bytes."""
+def render(definitions: dict[str, dict[str, Any]] | None = None) -> dict[str, bytes]:
+    """Every Contract's relative path under ``contracts/`` to its canonical bytes.
+
+    ``definitions`` defaults to the web plane's; another package's script passes
+    its own (nested Contracts before the Contracts that pin them).
+    """
 
     from cruxible_client.contracts.shapes import (
         Contract,
@@ -304,7 +350,7 @@ def render() -> dict[str, bytes]:
         return ref.model_copy(update={"digest": contract_digest(target).tagged})
 
     files: dict[str, bytes] = {}
-    for name, definition in DEFINITIONS.items():
+    for name, definition in (DEFINITIONS if definitions is None else definitions).items():
         contract = pin_contract_refs(
             Contract.model_validate({"name": name, "version": 1, **definition}), pin
         )
@@ -314,26 +360,39 @@ def render() -> dict[str, bytes]:
     return files
 
 
+def write(
+    target: Path,
+    files: dict[str, bytes],
+    *,
+    check: bool,
+    script: str,
+) -> int:
+    """Rewrite ``target`` to exactly ``files`` (or, with ``check``, report drift)."""
+
+    present = {
+        str(path.relative_to(target)): path.read_bytes() for path in sorted(target.rglob("*.json"))
+    }
+    if check:
+        if present != files:
+            print(f"Contracts drifted under {target}; run {script}", file=sys.stderr)
+            return 1
+        return 0
+    for stale in set(present) - set(files):
+        (target / stale).unlink()
+        if not any((target / stale).parent.iterdir()):
+            (target / stale).parent.rmdir()
+    for relative, content in files.items():
+        path = target / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="exit 1 if the files drifted")
     args = parser.parse_args(argv)
-    files = render()
-    present = {
-        str(path.relative_to(TARGET)): path.read_bytes() for path in sorted(TARGET.rglob("*.json"))
-    }
-    if args.check:
-        if present != files:
-            print("web Contracts drifted; run scripts/render_web_contracts.py", file=sys.stderr)
-            return 1
-        return 0
-    for stale in set(present) - set(files):
-        (TARGET / stale).unlink()
-    for relative, content in files.items():
-        path = TARGET / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(content)
-    return 0
+    return write(TARGET, render(), check=args.check, script="scripts/render_web_contracts.py")
 
 
 if __name__ == "__main__":

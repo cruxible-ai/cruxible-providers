@@ -6,7 +6,8 @@ Cruxible provider adapters for the web plane. Apache-2.0.
 |---|---|---|---|
 | `web.fetch` | `cruxible_provider_web.fetch:WebFetch` | none — one HTTP GET | — |
 | `search.web` | `cruxible_provider_web.search:SearxngSearch` | none — an HTTP client to somebody else's instance | — |
-| `web.render` | `cruxible_provider_web.render:WebRender` | trafilatura (base), Playwright (extra) | `browser` |
+| `web.render` | `cruxible_provider_web.render:WebRender` | trafilatura (base) — a pure derive | — |
+| `web.render.dom` | `cruxible_provider_web.dom:WebRenderDom` | Playwright (extra) — a browser | `browser` |
 
 Operators install it into a daemon by name, through a governed install:
 `cruxible playbill provider install cruxible-provider-web`. The umbrella
@@ -20,10 +21,10 @@ replays. `uv run pytest` therefore downloads no browser and
 opens no socket.
 
 A **browser** is the one heavy engine here, and it lives behind the `browser`
-extra. The `web.render` manifest row declares that extra in `requires_extras`,
-which is what makes the resolver materialize an environment containing it — and
-what makes that environment different from the base one `web.fetch` and
-`search.web` bind. One lock, two environments, two pins in the accepted artifact
+extra. The `web.render.dom` manifest row declares that extra in
+`requires_extras`, which is what makes the resolver materialize an environment
+containing it — and what makes that environment different from the base one
+`web.fetch`, `search.web` and `web.render` bind. One lock, two environments, two pins in the accepted artifact
 (`linux-cp311-engines` and `linux-cp311-engines+browser`).
 
 Trafilatura is base rather than an extra on purpose. The split exists to keep a
@@ -65,10 +66,19 @@ the document itself, in whatever format it is — never a bundle around it:
 - **`search.web`** — the instance's response body, exactly. No ranking or
   recency filter is derived here; the instance's own `time_range` parameter is
   part of the request.
-- **`web.render`** — a derived document made from a fetched Capture (M5): `dom`
-  assembles it in a browser with the main frame served from the cited bytes,
-  never fetched again; `text` extracts its main content as Markdown. The result
-  is its own Capture, citing the fetched one.
+- **`web.render.dom`** — a fetch through a browser: it navigates to the URL the
+  run names, runs the page's scripts, pulls its subresources, and the serialized
+  DOM is the Capture. Use it for pages that carry nothing until assembled.
+- **`web.render`** — a **derive** (D-R37): pure computation over the exact bytes
+  of a Capture this run fetched (`source: capture<*>`; core hands the operation
+  that Capture's wire, and `cruxible_provider_runtime.acquisition.capture_input`
+  reads it). `text` is the main content as Markdown; `json` is canonical JSON
+  `{url, final_url, title?, text, links}` (sorted keys, no insignificant
+  whitespace; `links` are the page's http(s) `<a href>` targets, resolved,
+  fragment dropped, first occurrence kept, in order). It contacts nothing and
+  reads no clock: its observation time is the cited Capture's, so identical
+  input gives a byte-identical result, the same Capture, and Claims that
+  re-observe. The result is its own derived Capture, citing the fetched one.
 
 How the bytes were obtained is the typed coordinate, `web.capture.coordinate@1`,
 never inside the bytes: `url` and `final_url` (core's acquisition origin gate
@@ -76,11 +86,21 @@ reads both), the 2xx `status`, the bytes' `content_type`, `request_digest`, the
 kept freshness `headers` (`etag`, `last_modified`, `content_length`), and
 `source` (`network`, or `packaged-recording`). A derived document adds
 `renderer` (the engine) and `derived_from` (the content digest of the Capture it
-was made from) and otherwise carries the cited document's coordinate. `pages`
+was made from) and otherwise carries the cited document's coordinate; a
+browser-assembled page adds `renderer` (the browser) to its main frame's
+coordinate. `pages`
 is declared for an operation that assembles the pages of one listing into one
 document; nothing in this plane pages today.
 
-`web.fetch.request@1` carries ordinary fields. `logical_source` defaults to
+`web.fetch.request@1` carries ordinary fields. `query` is a typed list of
+parameters, `{name, values, join?}` (`web.fetch.query_param@1`), so a Procedure
+can pass values it read from state rather than spelling them into a URL (D-R34):
+they are percent-encoded onto `url` in the order given, each value as its own
+`name=value` (`join: repeat`, the default) or comma-joined into one
+(`join: comma`, as an API taking `cve=A,B` wants). A parameter needs at least one
+value, a name appears once, and a built URL longer than 8192 characters refuses.
+The built URL is the request: the coordinate's `url` records it and
+`request_digest` covers it. `logical_source` defaults to
 `web.response`; callers should name their dataset and pin that name in the
 CaptureKind. `expected_format` accepts `auto`, `html`, `json`, `csv`, `text`, or
 `bytes`: an explicit mismatch refuses, and JSON and CSV bodies are validated by
@@ -113,12 +133,12 @@ origin comes from retained invocation configuration; it is recorded like other
 dynamic egress. This is not a network allowlist or a hosted containment policy.
 The adapter continues to enforce an explicit static allowlist when one is supplied.
 
-A **dom render** does not go through that client: a browser opens its own
+`web.render.dom` does not go through that client: a browser opens its own
 sockets and pulls whatever the markup names. It gets its own hooks, on the page's
-`request` and `response` events, so the CDN its script comes from and the API
-that script queries land in the same recorder. The main frame is served from the
-cited bytes and contacts nobody, so it is not recorded. `web.render` declares
-`dynamic:target-from-run-input`: the document names its subresources.
+`request` and `response` events, so the main frame, the CDN its script comes
+from and the API that script queries land in the same recorder. It declares
+`dynamic:target-from-run-input`: the run names the page, and the page names its
+subresources. `web.render` declares no endpoints: a derive contacts nothing.
 
 ## Credentials and redirects
 
@@ -155,16 +175,15 @@ vocabulary, recorded with the batch rather than decided here.
 Every recorded exchange targets `fixture.invalid`. `.invalid` is reserved by
 RFC 2606 and can never resolve, so a recording cannot stand in for a resource a
 caller actually asked for; and a run served from one says so, in the
-coordinate's `source` and in an event on its trace. A recorded render
-(`recorded:<id>`) replays only for the exact document the recording was made
-from. The recordings are served
+coordinate's `source` and in an event on its trace. A recorded browser render
+(`recorded:<id>`) replays the post-assembly DOM recorded for that URL. The recordings are served
 through an `httpx.MockTransport`, so the real client, the real event hook, and
 the real size cap all execute — what is replaced is the socket, and nothing above
 it.
 
 ## Operations and their refusals
 
-`registration.json` declares all three operations (runtime protocol 2.0). Each names
+`registration.json` declares all four operations (runtime protocol 2.0). Each names
 its input and output Contracts by `name@N` — the install pins them to the
 versions accepted at its base — and declares the typed refusals it may return,
 each with a detail Contract:
@@ -173,12 +192,13 @@ each with a detail Contract:
 |---|---|---|---|---|
 | `search.web` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
 | `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable` |
-| `web.render` | `web.render.request@1` | `web.render.result@1` | `external_read` | `provider_declined` (absorbable), `engine_unavailable` |
+| `web.render` | `web.render.request@1` | `web.render.result@1` | `pure` | `provider_declined` (absorbable) |
+| `web.render.dom` | `web.render.dom.request@1` | `web.render.dom.result@1` | `external_read` | `provider_declined` (absorbable), `engine_unavailable` |
 
-This package ships the bodies of all eighteen, and of the six nested Contracts
+This package ships the bodies of all twenty-one, and of the six nested Contracts
 they pin (`web.capture.coordinate@1` with `web.capture.headers@1` and
 `web.capture.page@1`, the zero-field `web.capture.selector@1`,
-`web.capture.source_effective_time@1`, and `web.render.source@1`), under
+`web.capture.source_effective_time@1`, and `web.fetch.query_param@1`), under
 `src/cruxible_provider_web/contracts/<name>/v1.json`. Each file is the exact
 member Core accepts at `contracts/<name>/v1.json`; accept
 `cruxible_provider_web.contract_members()` before installing the package.
@@ -196,9 +216,14 @@ Weight is declared by the caller and *checked* rather than trusted: a response
 heavier than the run's `max_bytes` refuses.
 
 `tests/test_web_capture_conformance.py` holds the payload rule for every
-Capture-producing operation the registration declares: against every recorded
-exchange, the stored bytes are the origin bytes (digest equality) and carry no
-wrapper keys, and a derived document's coordinate cites the bytes it read.
+Capture-producing operation the registration declares, in every form Core reads
+(the whole result, a `capture<K>` field, each member of a `list<capture<K>>`
+field): against every recorded exchange, each member's stored bytes are the
+origin bytes (digest equality), carry no wrapper keys and have their own
+coordinate, and a derived document's coordinate cites the bytes it read. The
+repository's `tests/test_pure_operations.py` runs `web.render` (like every
+`effect: pure` operation) twice with the network blocked and requires
+byte-identical output.
 
 ## Running the tests
 
@@ -207,6 +232,6 @@ uv run pytest packages/cruxible-provider-web/tests -q     # default: no engines
 uv run pytest -m engine packages/cruxible-provider-web    # needs the browser extra
 ```
 
-The engine lane drives a real browser over a cited document served by the route. It is opt-in, it is not
+The engine lane drives a real browser over a page served from a loopback server. It is opt-in, it is not
 in the default CI lane, and every test in it skips with a reason when the engine
 is absent, so collecting it on a machine with no engines still works.

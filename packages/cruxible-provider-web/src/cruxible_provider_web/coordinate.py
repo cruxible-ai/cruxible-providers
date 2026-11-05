@@ -1,9 +1,10 @@
 """The HTTP coordinate every Capture this plane produces carries.
 
 A Capture's bytes are the document an operation returns, verbatim: the body an
-origin sent for ``web.fetch`` and ``search.web``, the derived document for
-``web.render``. How that document was obtained is metadata, and it travels here,
-in the typed coordinate (``web.capture.coordinate@1``), never inside the bytes:
+origin sent for ``web.fetch`` and ``search.web``, the DOM a browser assembled
+for ``web.render.dom``, the derived document for ``web.render``. How that
+document was obtained is metadata, and it travels here, in the typed coordinate
+(``web.capture.coordinate@1``), never inside the bytes:
 
 ``url`` / ``final_url``
     The URL the request named and the URL the exchange settled on after its
@@ -11,16 +12,21 @@ in the typed coordinate (``web.capture.coordinate@1``), never inside the bytes:
 ``status`` / ``content_type``
     The 2xx status the origin answered with and the media type of the bytes.
 ``request_digest``
-    ``sha256`` of the request URL, so two Captures of one request group.
+    ``sha256`` of the request URL (for ``web.fetch``, ``url`` with its typed
+    ``query`` encoded on), so two Captures of one request group.
 ``headers``
     The response headers kept for freshness (``etag``, ``last-modified``,
     ``content-length``); absent when the origin sent none of them.
 ``source``
     ``network``, or ``packaged-recording`` when a recording shipped in this
     distribution served the exchange and no origin was contacted.
-``renderer`` / ``derived_from``
-    Present only on a derived document (``web.render``): the engine that made
-    it, and the content digest of the Capture it was made from (M5).
+``renderer``
+    The engine that made the bytes when they are not what an origin sent: the
+    extractor of a derived document (``web.render``), or the browser that
+    assembled a page (``web.render.dom``).
+``derived_from``
+    Present only on a derived document (``web.render``): the content digest of
+    the Capture it was made from (M5).
 ``pages``
     For an operation that assembles the pages of one listing into one document
     (each page's url, status and body digest). No operation in this plane pages
