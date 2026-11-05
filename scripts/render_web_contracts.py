@@ -15,7 +15,8 @@ that has ``cruxible_client`` (Core's environment)::
     "$CRUXIBLE_CORE_PYTHON" scripts/render_web_contracts.py --check  # exit 1 on drift
 
 The definitions below are derived from the adapters' code: the request fields
-``_Request.parse`` / ``_query`` (fetch), ``_parse_input`` (search),
+``FetchRequest.parse`` / ``_query`` (fetch), ``pages._paging`` (fetch.pages),
+``_parse_input`` (search),
 ``_RenderRequest.parse`` (render) and ``dom._parse`` (render.dom) read, the
 shared acquisition result ``cruxible_provider_runtime.acquisition`` builds and
 the HTTP coordinate every operation passes it (``coordinate.http_coordinate``),
@@ -35,7 +36,7 @@ TARGET = REPO_ROOT / "packages/cruxible-provider-web/src/cruxible_provider_web/c
 
 SHA256 = 'string{pattern: "^sha256:[0-9a-f]{64}$"}'
 LOGICAL_NAME = 'string{pattern: "^[a-z][a-z0-9_.-]{0,255}$"}'
-#: ``fetch._Request.parse``: an RFC 9110 token names the credential's header.
+#: ``fetch.FetchRequest.parse``: an RFC 9110 token names the credential's header.
 HEADER_TOKEN = 'string{pattern: "^[!#$%&\'*+.^_`|~0-9A-Za-z-]+$"}'
 #: http or https, either case (``urlsplit`` lowercases the scheme it reads).
 HTTP_URL = 'string{pattern: "^[Hh][Tt][Tt][Pp][Ss]?://\\\\S+$"}'
@@ -48,6 +49,10 @@ MAX_LISTED_ENDPOINTS = 256
 #: ``fetch.MAX_QUERY_PARAMETERS`` / ``fetch.MAX_QUERY_VALUES``.
 MAX_QUERY_PARAMETERS = 64
 MAX_QUERY_VALUES = 1000
+#: ``fetch.MAX_URL_LENGTH``: the longest request URL the adapters build.
+MAX_URL_LENGTH = 8192
+#: ``pages.MAX_PAGES``: the most page requests one web.fetch.pages call sends.
+MAX_PAGES = 64
 
 ACQUISITION_TAG = "playbill-provider-result-to-external-capture-v1"
 EFFECTIVE_TIME_TAG = "playbill-source-effective-time-v1"
@@ -106,6 +111,24 @@ def _redirect_refusals(operation: str) -> dict[str, dict[str, Any]]:
 
 #: ``fetch``/``render`` ``page_weight_class``.
 WEIGHT = "enum[heavy, light, medium]"
+
+#: ``fetch.FetchRequest.parse``: the request web.fetch and web.fetch.pages share.
+FETCH_REQUEST_FIELDS: dict[str, str] = {
+    "url": HTTP_URL,
+    "query": f"list<web.fetch.query_param@1>{{max_items: {MAX_QUERY_PARAMETERS}}}?",
+    "logical_source": LOGICAL_NAME + "?",
+    "max_bytes": "int{1..33554432}?",
+    "paced": "bool?",
+    "expected_format": "enum[auto, bytes, csv, html, json, text]?",
+    "credential_ref": "string?",
+    "credential_header": HEADER_TOKEN + "?",
+}
+
+_FETCH_DECLINED_FIELDS = {
+    "url": "string?",
+    "cap_bytes": "int{1..}?",
+    "observed_weight": WEIGHT + "?",
+}
 
 #: Name to definition, nested Contracts before the Contracts that pin them.
 DEFINITIONS: dict[str, dict[str, Any]] = {
@@ -180,16 +203,7 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "A credential is named by reference; its material stays in the run's secret "
             "custody, never in this payload."
         ),
-        "fields": {
-            "url": HTTP_URL,
-            "query": f"list<web.fetch.query_param@1>{{max_items: {MAX_QUERY_PARAMETERS}}}?",
-            "logical_source": LOGICAL_NAME + "?",
-            "max_bytes": "int{1..33554432}?",
-            "paced": "bool?",
-            "expected_format": "enum[auto, bytes, csv, html, json, text]?",
-            "credential_ref": "string?",
-            "credential_header": HEADER_TOKEN + "?",
-        },
+        "fields": FETCH_REQUEST_FIELDS,
     },
     "web.fetch.result": _result(
         "One retrieved web resource as Capture wire: the exact body the origin sent, its "
@@ -208,13 +222,70 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "Detail of a provider_declined refusal: the URL when one was named; for a "
             "weight refusal, the cap and the observed weight class."
         ),
-        "fields": {
-            "url": "string?",
-            "cap_bytes": "int{1..}?",
-            "observed_weight": WEIGHT + "?",
-        },
+        "fields": _FETCH_DECLINED_FIELDS,
     },
     **_redirect_refusals("web.fetch"),
+    "web.fetch.pages.failure": {
+        "description": (
+            "One page of a web.fetch.pages call that has no Capture: its 0-based index "
+            "and the page count, its built URL and request digest, whether it was "
+            "refused or failed, the refusal code or error kind, the message, and the "
+            "origin's status when it answered outside 2xx."
+        ),
+        "fields": {
+            "page_index": f"int{{0..{MAX_PAGES - 1}}}",
+            "page_count": f"int{{1..{MAX_PAGES}}}",
+            "url": "string",
+            "request_digest": SHA256,
+            "outcome": "enum[failed, refused]",
+            "code": "string{min_len: 1}",
+            "message": "string",
+            "status_code": "int{100..599}?",
+        },
+    },
+    "web.fetch.pages.request": {
+        "description": (
+            "web.fetch's request, sent as pages: the values of the query parameter "
+            "page_param are split, in order, across as few requests as keep each built "
+            f"URL within max_url_chars (default {MAX_URL_LENGTH}), and every other "
+            "parameter is repeated on each page. The split is a function of the request "
+            "alone; every value is sent on exactly one page."
+        ),
+        "fields": {
+            **FETCH_REQUEST_FIELDS,
+            "page_param": "string{min_len: 1}",
+            "max_url_chars": f"int{{1..{MAX_URL_LENGTH}}}?",
+        },
+    },
+    "web.fetch.pages.result": {
+        "description": (
+            "One Capture per page, in page order: each member is the exact body that "
+            "page's origin sent, with web.fetch's HTTP coordinate for that exchange "
+            "(url is the page's built URL, request_digest covers it) plus page_index "
+            "(0-based) and page_count. A page without a Capture is listed in "
+            "failed_pages, and the result is then incomplete (D-R37 a4): absence never "
+            "retires on it."
+        ),
+        "fields": {
+            "captures": f"list<capture<*>>{{max_items: {MAX_PAGES}}}",
+            "failed_pages": f"list<web.fetch.pages.failure@1>{{max_items: {MAX_PAGES}}}?",
+        },
+    },
+    "web.fetch.pages.refusal.credential_unavailable": {
+        "description": (
+            "Detail of a credential_unavailable refusal: the credential reference the run "
+            "named and did not deliver."
+        ),
+        "fields": {"ref": "string"},
+    },
+    "web.fetch.pages.refusal.provider_declined": {
+        "description": (
+            "Detail of a provider_declined refusal: the URL when one was named; for a "
+            "single page's weight refusal, the cap and the observed weight class."
+        ),
+        "fields": _FETCH_DECLINED_FIELDS,
+    },
+    **_redirect_refusals("web.fetch.pages"),
     "web.render.request": {
         "description": (
             "A derive over one Capture this run fetched (an HTML document): text is its "

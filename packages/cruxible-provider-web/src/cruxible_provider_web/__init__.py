@@ -1,10 +1,11 @@
 """Cruxible provider adapters for the web plane.
 
-Four operations, each served by its own entrypoint. Three are fetches:
-``web.fetch`` retrieves one resource the run names, ``search.web`` queries a
-configured SearXNG instance, and ``web.render.dom`` assembles a page in a
-browser; each returns the document it got as its Capture, verbatim, with how it
-was obtained in the typed HTTP coordinate. ``web.render`` is a derive: pure
+Five operations, each served by its own entrypoint. Four are fetches:
+``web.fetch`` retrieves one resource the run names, ``web.fetch.pages`` sends
+the same request split into as few page requests as fit (one Capture per page),
+``search.web`` queries a configured SearXNG instance, and ``web.render.dom``
+assembles a page in a browser; each returns the documents it got as Captures,
+verbatim, with how each was obtained in the typed HTTP coordinate. ``web.render`` is a derive: pure
 computation over a Capture this run fetched, returning a derived Capture citing
 it (the main content as Markdown, or the page as canonical JSON). The heavy
 engine — a browser — lives behind the ``browser`` extra, which the
@@ -25,10 +26,12 @@ from .dom import WebRenderDom
 from .fetch import WebFetch
 from .operations import (
     FETCH_OPERATION,
+    FETCH_PAGES_OPERATION,
     RENDER_DOM_OPERATION,
     RENDER_OPERATION,
     SEARCH_OPERATION,
 )
+from .pages import WebFetchPages
 from .recordings import FIXTURE_HOST, load_recordings
 from .render import WebRender
 from .search import SearxngSearch
@@ -60,6 +63,7 @@ __all__ = [
     "CONTAINER_DIR",
     "CONTRACTS_DIR",
     "FETCH_OPERATION",
+    "FETCH_PAGES_OPERATION",
     "FIXTURE_HOST",
     "MANIFEST_PATH",
     "PACKAGE_ROOT",
@@ -68,6 +72,7 @@ __all__ = [
     "SEARCH_OPERATION",
     "SearxngSearch",
     "WebFetch",
+    "WebFetchPages",
     "WebRender",
     "WebRenderDom",
     "__version__",

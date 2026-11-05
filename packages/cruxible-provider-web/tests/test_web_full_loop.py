@@ -90,6 +90,27 @@ def fetch_binding(
 
 
 @pytest.fixture()
+def pages_binding(
+    request: pytest.FixtureRequest,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> Binding:
+    backend_kind: BackendKind = getattr(request, "param", "local_env")
+    return _bind(
+        "web.fetch.pages",
+        backend_kind,
+        registry,
+        manifest_path,
+        lock_path,
+        local_backend,
+        container_backend,
+    )
+
+
+@pytest.fixture()
 def render_binding(
     request: pytest.FixtureRequest,
     registry: StubRegistry,
@@ -150,6 +171,51 @@ def search_binding(
         local_backend,
         container_backend,
     )
+
+
+# -- web.fetch.pages -------------------------------------------------------
+
+
+@pytest.mark.parametrize("pages_binding", BACKENDS, indirect=True)
+def test_pages_success_path(
+    pages_binding: Binding,
+    registry: StubRegistry,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    """Through the child harness: one verbatim Capture per page, in page order."""
+
+    values = [f"station-{index:02d}" for index in range(10)]
+    outcome = invoke(
+        pages_binding,
+        registry=registry,
+        payload={
+            "url": ARTICLE_URL,
+            "query": [{"name": "station", "values": values, "join": "comma"}],
+            "page_param": "station",
+            "max_url_chars": len(ARTICLE_URL) + 40,
+        },
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "ok", outcome.envelope.error
+    assert outcome.receipt_fields()["operation"] == "web.fetch.pages"
+    output = outcome.envelope.output
+    assert output is not None and "failed_pages" not in output
+    recorded = load_recordings()["article-static"].response.body.encode("utf-8")
+    sent: list[str] = []
+    for index, member in enumerate(output["captures"]):
+        assert base64.b64decode(member["content_base64"]) == recorded
+        coordinate = member["coordinate"]
+        assert coordinate["page_index"] == index
+        assert coordinate["page_count"] == len(output["captures"])
+        assert coordinate["source"] == "packaged-recording"
+        sent += coordinate["url"].partition("?station=")[2].split(",")
+    assert len(output["captures"]) > 1
+    assert sent == values
+    events = outcome.envelope.trace.events
+    assert [event["kind"] for event in events] == ["packaged_recording"] * len(output["captures"])
 
 
 # -- web.fetch -------------------------------------------------------------

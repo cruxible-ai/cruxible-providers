@@ -51,8 +51,13 @@ __all__ = [
     "MAX_QUERY_VALUES",
     "MAX_RESPONSE_BYTES",
     "MAX_URL_LENGTH",
+    "FetchRequest",
     "WebFetch",
+    "encoded_name",
+    "encoded_value",
+    "exchange",
     "page_weight_class",
+    "recording_events",
     "with_query",
 ]
 
@@ -68,17 +73,28 @@ _QUERY_SAFE = "-._~!$'()*,;:@/?"
 """RFC 3986 query characters kept literal; ``&``, ``=``, ``+`` and ``#`` are encoded."""
 
 
+def encoded_name(name: str) -> str:
+    """A query parameter's name, percent-encoded the way :func:`with_query` sends it."""
+
+    return quote(name, safe=_QUERY_SAFE)
+
+
+def encoded_value(value: str, join: str) -> str:
+    """One value, percent-encoded for its join (a comma inside a comma-joined value is)."""
+
+    return quote(value, safe=_QUERY_SAFE.replace(",", "") if join == "comma" else _QUERY_SAFE)
+
+
 def with_query(url: str, query: list[tuple[str, list[str], str]]) -> str:
     """``url`` with ``query``'s ``(name, values, join)`` parameters appended, in order."""
 
     pairs: list[str] = []
     for name, values, join in query:
-        key = quote(name, safe=_QUERY_SAFE)
+        key = encoded_name(name)
         if join == "comma":
-            item_safe = _QUERY_SAFE.replace(",", "")
-            pairs.append(key + "=" + ",".join(quote(value, safe=item_safe) for value in values))
+            pairs.append(key + "=" + ",".join(encoded_value(value, join) for value in values))
         else:
-            pairs.extend(f"{key}={quote(value, safe=_QUERY_SAFE)}" for value in values)
+            pairs.extend(f"{key}={encoded_value(value, join)}" for value in values)
     if not pairs:
         return url
     parts = urlsplit(url)
@@ -109,75 +125,97 @@ class WebFetch:
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
-            request = _Request.parse(context)
+            request = FetchRequest.parse(context)
         except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 
         timeout_seconds = max(1.0, context.budgets.wall_clock_seconds * 0.8)
-        try:
-            client = self._client_factory(
-                context.egress, url=request.url, timeout_seconds=timeout_seconds
-            )
-            with client:
-                response = client.get(
-                    request.url, headers=request.headers, cap_bytes=request.max_bytes
-                )
-        except Declined as exc:
-            return ProviderResult(status="refused", refusal=exc.refusal)
-        except ResponseTooLarge as exc:
-            return ProviderResult.refused(
-                PROVIDER_DECLINED,
-                "the origin sent more than the max_bytes this run declared",
-                url=request.url,
-                cap_bytes=exc.cap_bytes,
-                observed_weight=page_weight_class(exc.read_bytes),
-            )
-
-        if not 200 <= response.status_code < 300:
-            # A status outside 2xx is a failed attempt at an answer, not a
-            # declined one: the operation's product is a retrieved resource, and
-            # this run did not get one.
-            return ProviderResult.failed(
-                "HttpStatus",
-                f"origin answered {response.status_code}",
-                url=request.url,
-                final_url=response.final_url,
-                status_code=response.status_code,
-            )
-        try:
-            request.validate_format(response)
-        except (ValueError, UnicodeError, csv.Error) as exc:
-            return ProviderResult.failed("ResponseFormat", str(exc))
-
-        events: list[dict[str, Any]] = []
-        if response.from_recording is not None:
-            events.append(
-                {
-                    "kind": "packaged_recording",
-                    "url": request.url,
-                    "note": "served from a recording shipped in this distribution; no origin "
-                    "was contacted",
-                }
-            )
+        exchanged = exchange(
+            self._client_factory, context, request, request.url, timeout_seconds=timeout_seconds
+        )
+        if isinstance(exchanged, ProviderResult):
+            return exchanged
         return ProviderResult.ok(
             external_capture_result(
-                response.body,
+                exchanged.body,
                 source_identity=request.logical_source,
                 coordinate_type=COORDINATE_TYPE,
                 selector_type=SELECTOR_TYPE,
                 coordinate=http_coordinate(
                     url=request.url,
-                    final_url=response.final_url,
-                    status=response.status_code,
-                    content_type=response.content_type,
-                    response_headers=response.headers,
-                    from_recording=response.from_recording is not None,
+                    final_url=exchanged.final_url,
+                    status=exchanged.status_code,
+                    content_type=exchanged.content_type,
+                    response_headers=exchanged.headers,
+                    from_recording=exchanged.from_recording is not None,
                 ),
                 observed_at=datetime.now(UTC),
             ),
-            metrics={"byte_count": float(len(response.body))},
-            events=events,
+            metrics={"byte_count": float(len(exchanged.body))},
+            events=recording_events(exchanged, request.url),
         )
+
+
+def exchange(
+    client_factory: ClientFactory,
+    context: ProviderRunContext,
+    request: FetchRequest,
+    url: str,
+    *,
+    timeout_seconds: float,
+) -> HttpResponse | ProviderResult:
+    """One GET of ``url`` under ``request``: a 2xx response in the declared format,
+    or the refused or failed result that says why there is none.
+
+    ``web.fetch`` returns that result as its own; ``web.fetch.pages`` records it
+    against the page it was for.
+    """
+
+    try:
+        client = client_factory(context.egress, url=url, timeout_seconds=timeout_seconds)
+        with client:
+            response = client.get(url, headers=request.headers, cap_bytes=request.max_bytes)
+    except Declined as exc:
+        return ProviderResult(status="refused", refusal=exc.refusal)
+    except ResponseTooLarge as exc:
+        return ProviderResult.refused(
+            PROVIDER_DECLINED,
+            "the origin sent more than the max_bytes this run declared",
+            url=url,
+            cap_bytes=exc.cap_bytes,
+            observed_weight=page_weight_class(exc.read_bytes),
+        )
+
+    if not 200 <= response.status_code < 300:
+        # A status outside 2xx is a failed attempt at an answer, not a declined
+        # one: the operation's product is a retrieved resource, and this run did
+        # not get one.
+        return ProviderResult.failed(
+            "HttpStatus",
+            f"origin answered {response.status_code}",
+            url=url,
+            final_url=response.final_url,
+            status_code=response.status_code,
+        )
+    try:
+        request.validate_format(response)
+    except (ValueError, UnicodeError, csv.Error) as exc:
+        return ProviderResult.failed("ResponseFormat", str(exc))
+    return response
+
+
+def recording_events(response: HttpResponse, url: str) -> list[dict[str, Any]]:
+    """The trace event that labels an exchange a packaged recording served."""
+
+    if response.from_recording is None:
+        return []
+    return [
+        {
+            "kind": "packaged_recording",
+            "url": url,
+            "note": "served from a recording shipped in this distribution; no origin was contacted",
+        }
+    ]
 
 
 def _query(value: object) -> list[tuple[str, list[str], str]]:
@@ -237,7 +275,7 @@ def _refuse_parameter_collisions(url: str, query: list[tuple[str, list[str], str
             )
 
 
-class _Request:
+class FetchRequest:
     """The validated run input."""
 
     __slots__ = ("expected_format", "headers", "logical_source", "max_bytes", "query", "url")
@@ -260,7 +298,14 @@ class _Request:
         self.logical_source = logical_source
 
     @classmethod
-    def parse(cls, context: ProviderRunContext) -> _Request:
+    def parse(cls, context: ProviderRunContext, *, paged: bool = False) -> FetchRequest:
+        """The validated request. ``paged`` leaves ``url`` unbuilt.
+
+        ``web.fetch.pages`` reads the same request and builds one URL per page
+        itself, so it takes the base ``url`` and the parsed ``query`` from here
+        and bounds each page's URL by its own ``max_url_chars``.
+        """
+
         payload = context.input
         logical_source = payload.get("logical_source", "web.response")
         if not isinstance(logical_source, str) or not re.fullmatch(
@@ -281,15 +326,17 @@ class _Request:
             )
         query = _query(payload["query"]) if "query" in payload else []
         _refuse_parameter_collisions(url, query)
-        url = with_query(url, query)
-        # The bound is on the request this adapter sends, so it holds for a url
-        # that arrived long as much as for one a query made long.
-        if len(url) > MAX_URL_LENGTH:
-            raise decline(
-                PROVIDER_DECLINED,
-                f"the request URL is longer than {MAX_URL_LENGTH} characters; split the "
-                "values across fetches",
-            )
+        if not paged:
+            url = with_query(url, query)
+            # The bound is on the request this adapter sends, so it holds for a
+            # url that arrived long as much as for one a query made long.
+            if len(url) > MAX_URL_LENGTH:
+                raise decline(
+                    PROVIDER_DECLINED,
+                    f"the request URL is longer than {MAX_URL_LENGTH} characters; "
+                    "web.fetch.pages splits one parameter's values across as few "
+                    "requests as fit",
+                )
         max_bytes = payload.get("max_bytes", DEFAULT_MAX_BYTES)
         if (
             not isinstance(max_bytes, int)
@@ -351,19 +398,19 @@ class _Request:
             if media.startswith("text/")
             else "bytes"
         )
-        if self.expected_format == "auto":
-            self.expected_format = actual
-        elif self.expected_format != "bytes" and self.expected_format != actual:
-            raise ValueError(
-                f"expected {self.expected_format}, received {media or 'unknown content type'}"
-            )
-        if self.expected_format == "json":
+        # Resolved per response, never stored: web.fetch.pages validates every
+        # page under the same request, and one page's media type is not the
+        # next one's expectation.
+        expected = actual if self.expected_format == "auto" else self.expected_format
+        if expected != "bytes" and expected != actual:
+            raise ValueError(f"expected {expected}, received {media or 'unknown content type'}")
+        if expected == "json":
 
             def invalid_constant(value: str) -> None:
                 raise ValueError(f"non-canonical JSON number: {value}")
 
             json.loads(response.body, parse_constant=invalid_constant)
-        elif self.expected_format == "csv":
+        elif expected == "csv":
             text = response.body.decode("utf-8-sig")
             rows = csv.reader(io.StringIO(text), strict=True)
             width = None

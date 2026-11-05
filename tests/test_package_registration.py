@@ -336,7 +336,7 @@ for case in json.load(sys.stdin):
     )
     parsed = parse_provider(render_provider(provider), path=provider_path(provider.identity.name))
     assert provider_digest(parsed) == provider_digest(provider)
-assert count == 16, count
+assert count == 17, count
 assert not any(name.startswith("cruxible_provider_") for name in sys.modules)
 """
     result = subprocess.run(
@@ -350,7 +350,7 @@ def test_the_web_contracts_are_core_canonical_and_pin_every_operation() -> None:
 
     The files are what ``scripts/render_web_contracts.py`` writes; each parses
     as an accepted Contract at its tree path (canonical bytes, every nested pin
-    digested and resolving to a shipped body); and Core pins all four operations,
+    digested and resolving to a shipped body); and Core pins all five operations,
     their inputs, outputs and every declared refusal, to the shipped digests.
     """
 
@@ -382,7 +382,7 @@ pinned = read_package_registration(root).pinned_operations(
     lambda ref: digests.get((ref.name, ref.version)))
 refs = [ref for operation in pinned for ref in (
     operation.in_, operation.out, *(item.contract for item in operation.refusals.values()))]
-assert len(pinned) == 4 and len(refs) == 21, (len(pinned), len(refs))
+assert len(pinned) == 5 and len(refs) == 28, (len(pinned), len(refs))
 assert all(ref.digest == digests[(ref.name, ref.version)] for ref in refs)
 """
     result = subprocess.run([core_python, "-c", code, str(web)], capture_output=True)

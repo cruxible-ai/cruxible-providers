@@ -128,6 +128,7 @@ def test_undeclared_operation_refuses(
     assert exc.value.refusal.detail["declared"] == [
         "search.web",
         "web.fetch",
+        "web.fetch.pages",
         "web.render",
         "web.render.dom",
     ]

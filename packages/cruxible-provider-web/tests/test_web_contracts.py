@@ -6,10 +6,11 @@ held here, in the default lane and without Core:
 
 * the set: every Contract the registration names is shipped, every nested pin
   resolves to a shipped file by its exact digest, and nothing else is shipped;
-* the outputs: what ``web.fetch``, ``search.web``, ``web.render`` and
-  ``web.render.dom`` actually return, on the packaged recordings, is exactly
-  their result Contract (a ``capture<K>`` input is checked in the digest form
-  the Contract types; the operation receives the Capture wire Core builds);
+* the outputs: what ``web.fetch``, ``web.fetch.pages``, ``search.web``,
+  ``web.render`` and ``web.render.dom`` actually return, on the packaged
+  recordings, is exactly their result Contract (a ``capture<K>`` input, or a
+  ``list<capture<K>>`` member, is checked in the digest form the Contract types;
+  the Capture wire itself travels outside it);
 * the refusals: every refusal each operation declares, produced by driving the
   adapter into it, carries a detail that is exactly its detail Contract.
 
@@ -50,6 +51,7 @@ from cruxible_provider_web.operations import (
     UNDECLARED_INSTANCE,
     UNSUPPORTED_REDIRECT_SCHEME,
 )
+from cruxible_provider_web.pages import WebFetchPages
 from cruxible_provider_web.render import WebRender
 from cruxible_provider_web.search import SearxngSearch
 
@@ -224,7 +226,7 @@ def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None
         for operation in registration.operations
         for ref in operation.contract_refs()
     }
-    assert len(named) == 21
+    assert len(named) == 28
     pins = [
         ref
         for document in CONTRACTS.values()
@@ -286,6 +288,61 @@ def test_fetch_outputs_are_exactly_the_result_contract(payload: dict[str, Any]) 
     assert result.status == "ok", result
     assert "source_effective_time" not in result.output
     _conforms(result.output, _operation("web.fetch").out.spelling)
+
+
+PAGES_QUERY = [
+    {"name": "station", "values": ["newlyn"]},
+    {"name": "cve", "values": [f"CVE-2024-{index:05d}" for index in range(40)], "join": "comma"},
+]
+
+
+def _pages_typed(output: Mapping[str, Any]) -> dict[str, Any]:
+    """A pages result as its Contract types it: each Capture member is its digest."""
+
+    return {**output, "captures": [member["bytes_digest"] for member in output["captures"]]}
+
+
+@pytest.mark.parametrize("max_url_chars", [None, 160], ids=["one-page", "pages"])
+def test_pages_outputs_are_exactly_the_result_contract(max_url_chars: int | None) -> None:
+    payload: dict[str, Any] = {"url": MEASUREMENTS_URL, "query": PAGES_QUERY, "page_param": "cve"}
+    if max_url_chars is not None:
+        payload["max_url_chars"] = max_url_chars
+    _conforms(payload, _operation("web.fetch.pages").in_.spelling)
+    result = WebFetchPages()(_context("web.fetch.pages", input=payload))
+    assert result.status == "ok", result
+    assert len(result.output["captures"]) == (1 if max_url_chars is None else 7)
+    _conforms(_pages_typed(result.output), _operation("web.fetch.pages").out.spelling)
+
+
+def test_a_failed_page_is_exactly_the_failure_contract() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        failing = "CVE-2024-00039" in str(request.url)
+        return httpx.Response(
+            status_code=503 if failing else 200,
+            headers={"content-type": "application/json"},
+            content=b'{"data": []}',
+            request=request,
+        )
+
+    def factory(recorder: Any, *, url: str, timeout_seconds: float) -> RecordingClient:
+        del url
+        return RecordingClient(
+            recorder, timeout_seconds=timeout_seconds, transport=httpx.MockTransport(handle)
+        )
+
+    payload = {
+        "url": "https://api.example/epss",
+        "query": PAGES_QUERY,
+        "page_param": "cve",
+        "max_url_chars": 160,
+    }
+    result = WebFetchPages(client_factory=factory)(_context("web.fetch.pages", input=payload))
+    assert result.status == "ok", result
+    (failed,) = result.output["failed_pages"]
+    # The last value is on the last page.
+    assert failed["page_index"] == failed["page_count"] - 1 == len(result.output["captures"])
+    assert failed["status_code"] == 503 and failed["outcome"] == "failed"
+    _conforms(_pages_typed(result.output), _operation("web.fetch.pages").out.spelling)
 
 
 def _fetched_wire(url: str) -> dict[str, Any]:
@@ -367,6 +424,18 @@ def test_the_request_contracts_refuse_what_the_adapters_decline() -> None:
         {"url": ARTICLE_URL, "query": [{"name": "cve", "value": "x"}]},
     ):
         assert _problems(payload, fetch_in), payload
+    pages_in = CONTRACTS[_spelling(_operation("web.fetch.pages").in_.spelling)]
+    paged = {"url": ARTICLE_URL, "query": PAGES_QUERY, "page_param": "cve"}
+    assert _problems(paged, pages_in) == []
+    for payload in (
+        {"url": ARTICLE_URL, "query": PAGES_QUERY},
+        {**paged, "page_param": ""},
+        {**paged, "max_url_chars": 0},
+        {**paged, "max_url_chars": 8193},
+        {**paged, "max_url_chars": True},
+        {**paged, "pages": 3},
+    ):
+        assert _problems(payload, pages_in), payload
     for payload in (
         {},
         {"query": "   "},
@@ -409,7 +478,13 @@ def _declared(operation: str, code: str) -> str:
 def test_every_declared_refusal_has_a_case_below() -> None:
     declared = {
         (operation, code)
-        for operation in ("web.fetch", "search.web", "web.render", "web.render.dom")
+        for operation in (
+            "web.fetch",
+            "web.fetch.pages",
+            "search.web",
+            "web.render",
+            "web.render.dom",
+        )
         for code in _operation(operation).refusals
     }
     assert set(REFUSAL_CASES) == declared
@@ -471,6 +546,33 @@ def _fetch_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
             {"url": ARTICLE_URL, "credential_ref": "api", "credential_header": "bad header"},
             secrets={"api": "token"},
         ),
+    ]
+
+
+def _pages(payload: dict[str, Any], *, secrets: Any = None, client_factory: Any = None) -> Any:
+    adapter = (
+        WebFetchPages() if client_factory is None else WebFetchPages(client_factory=client_factory)
+    )
+    paged = {"query": [{"name": "cve", "values": ["CVE-2021-44228"]}], "page_param": "cve"}
+    return _called(
+        adapter, _context("web.fetch.pages", input={**paged, **payload}, secrets=secrets or {})
+    )
+
+
+def _pages_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """web.fetch's input declines, the paging declines, and a single page's weight decline."""
+
+    return [
+        _pages({}),
+        _pages({"url": "ftp://fixture.invalid/x"}),
+        _pages({"url": ARTICLE_URL, "max_bytes": 0}),
+        _pages({"url": ARTICLE_URL, "page_param": "station"}),
+        _pages({"url": ARTICLE_URL, "page_param": 7}),
+        _pages({"url": ARTICLE_URL, "max_url_chars": 0}),
+        _pages({"url": ARTICLE_URL, "max_url_chars": 40}),
+        _pages({"url": ARTICLE_URL + "?cve=CVE-old"}),
+        _pages({"url": ARTICLE_URL, "query": [{"name": "cve", "values": ["A", "A"]}]}),
+        _pages({"url": ARTICLE_URL, "max_bytes": 16}),
     ]
 
 
@@ -561,6 +663,29 @@ REFUSAL_CASES: dict[tuple[str, str], Any] = {
     ],
     ("web.fetch", UNSUPPORTED_REDIRECT_SCHEME): lambda monkeypatch: [
         _fetch(
+            {"url": "https://a.example/doc"},
+            client_factory=_routed({"a.example": _redirect("ftp://a.example/doc")}),
+        )
+    ],
+    ("web.fetch.pages", PROVIDER_DECLINED): _pages_declined,
+    ("web.fetch.pages", CREDENTIAL_UNAVAILABLE): lambda monkeypatch: [
+        _pages({"url": ARTICLE_URL, "credential_ref": "web.token"})
+    ],
+    ("web.fetch.pages", CROSS_ORIGIN_CREDENTIALED_REDIRECT): lambda monkeypatch: [
+        _pages(
+            {"url": "https://a.example/doc", "credential_ref": "api"},
+            secrets={"api": "token"},
+            client_factory=_routed({"a.example": _redirect("https://b.example/")}),
+        )
+    ],
+    ("web.fetch.pages", REDIRECT_LIMIT): lambda monkeypatch: [
+        _pages(
+            {"url": "https://a.example/doc"},
+            client_factory=_routed({"a.example": _redirect("https://a.example/doc")}),
+        )
+    ],
+    ("web.fetch.pages", UNSUPPORTED_REDIRECT_SCHEME): lambda monkeypatch: [
+        _pages(
             {"url": "https://a.example/doc"},
             client_factory=_routed({"a.example": _redirect("ftp://a.example/doc")}),
         )

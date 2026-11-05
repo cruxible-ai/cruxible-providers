@@ -2,7 +2,7 @@
   "schema_version": 2,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:95e4a2439ed825c0313e35d4c661c29ba6dbf4a631a2428b4144a1e25ec8fe4c"
+    "digest": "sha256:b600c1acf53504b37e0673615faa3d9841cb1729f7f193a8392d11235c66fe77"
   },
   "operations": [
     {
@@ -62,6 +62,35 @@
         }
       },
       "entrypoint": "cruxible_provider_web.fetch:WebFetch"
+    },
+    {
+      "name": "web.fetch.pages",
+      "in": "web.fetch.pages.request@1",
+      "out": "web.fetch.pages.result@1",
+      "effect": "external_read",
+      "refusals": {
+        "credential_unavailable": {
+          "contract": "web.fetch.pages.refusal.credential_unavailable@1",
+          "absorbable": false
+        },
+        "cross_origin_credentialed_redirect": {
+          "contract": "web.fetch.pages.refusal.cross_origin_credentialed_redirect@1",
+          "absorbable": false
+        },
+        "provider_declined": {
+          "contract": "web.fetch.pages.refusal.provider_declined@1",
+          "absorbable": true
+        },
+        "redirect_limit": {
+          "contract": "web.fetch.pages.refusal.redirect_limit@1",
+          "absorbable": false
+        },
+        "unsupported_redirect_scheme": {
+          "contract": "web.fetch.pages.refusal.unsupported_redirect_scheme@1",
+          "absorbable": false
+        }
+      },
+      "entrypoint": "cruxible_provider_web.pages:WebFetchPages"
     },
     {
       "name": "web.render",

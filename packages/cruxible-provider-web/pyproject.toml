@@ -46,6 +46,7 @@ browser = ["playwright>=1.44"]
 
 [project.entry-points."cruxible.providers"]
 "web.fetch" = "cruxible_provider_web.fetch:WebFetch"
+"web.fetch.pages" = "cruxible_provider_web.pages:WebFetchPages"
 "search.web" = "cruxible_provider_web.search:SearxngSearch"
 "web.render" = "cruxible_provider_web.render:WebRender"
 "web.render.dom" = "cruxible_provider_web.dom:WebRenderDom"

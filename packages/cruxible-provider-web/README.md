@@ -5,6 +5,7 @@ Cruxible provider adapters for the web plane. Apache-2.0.
 | Operation | Entrypoint | Engine | Extra |
 |---|---|---|---|
 | `web.fetch` | `cruxible_provider_web.fetch:WebFetch` | none — one HTTP GET | — |
+| `web.fetch.pages` | `cruxible_provider_web.pages:WebFetchPages` | none — one HTTP GET per page | — |
 | `search.web` | `cruxible_provider_web.search:SearxngSearch` | none — an HTTP client to somebody else's instance | — |
 | `web.render` | `cruxible_provider_web.render:WebRender` | trafilatura (base) — a pure derive | — |
 | `web.render.dom` | `cruxible_provider_web.dom:WebRenderDom` | Playwright (extra) — a browser | `browser` |
@@ -24,7 +25,7 @@ A **browser** is the one heavy engine here, and it lives behind the `browser`
 extra. The `web.render.dom` manifest row declares that extra in
 `requires_extras`, which is what makes the resolver materialize an environment
 containing it — and what makes that environment different from the base one
-`web.fetch`, `search.web` and `web.render` bind. One lock, two environments, two pins in the accepted artifact
+`web.fetch`, `web.fetch.pages`, `search.web` and `web.render` bind. One lock, two environments, two pins in the accepted artifact
 (`linux-cp311-engines` and `linux-cp311-engines+browser`).
 
 Trafilatura is base rather than an extra on purpose. The split exists to keep a
@@ -63,6 +64,9 @@ the document itself, in whatever format it is — never a bundle around it:
 - **`web.fetch`** — the body the origin sent, exactly. JSON, CSV, gzip, HTML or
   binary, it is committed as received; core reads it only through a declared
   `extract` under the CaptureKind's decoding, and never parses it at admission.
+- **`web.fetch.pages`** — `web.fetch`'s request, sent as pages: one Capture per
+  page (`captures: list<capture<*>>`, D-R37 a), each the body that page's origin
+  sent, exactly. See *Paging* below.
 - **`search.web`** — the instance's response body, exactly. No ranking or
   recency filter is derived here; the instance's own `time_range` parameter is
   part of the request.
@@ -88,9 +92,10 @@ kept freshness `headers` (`etag`, `last_modified`, `content_length`), and
 `renderer` (the engine) and `derived_from` (the content digest of the Capture it
 was made from) and otherwise carries the cited document's coordinate; a
 browser-assembled page adds `renderer` (the browser) to its main frame's
-coordinate. `pages`
-is declared for an operation that assembles the pages of one listing into one
-document; nothing in this plane pages today.
+coordinate. `pages` is declared for an operation that assembles the pages of
+one listing into one document; nothing in this plane assembles one.
+`web.fetch.pages` does the opposite, one Capture per page, and marks each
+member's coordinate with `page_index` and `page_count` instead.
 
 `web.fetch.request@1` carries ordinary fields. `query` is a typed list of
 parameters, `{name, values, join?}` (`web.fetch.query_param@1`), so a Procedure
@@ -110,6 +115,32 @@ CaptureKind. `expected_format` accepts `auto`, `html`, `json`, `csv`, `text`, or
 the adapter before they are returned (the provider checks its own payload; core
 does not). `max_bytes` is bounded at 32 MiB, including for structured APIs.
 
+### Paging: `web.fetch.pages`
+
+A watched set grows, and the URL its values build eventually outgrows what an
+origin accepts; `web.fetch` declines it and names this operation.
+`web.fetch.pages.request@1` is `web.fetch.request@1` plus `page_param`, the name
+of the one `query` parameter whose values are split, and `max_url_chars`
+(default and maximum 8192). The values are taken in the order given and packed
+greedily: a page takes the next value while its built URL fits, and every other
+parameter is repeated on each page. That is the fewest pages any in-order split
+can make, and it is a function of the request alone, so the same request always
+sends the same pages and every value is sent exactly once. A value that does not
+fit a page on its own, a value named twice in the paged parameter, and a split
+needing more than 64 pages decline.
+
+The result, `web.fetch.pages.result@1`, is `captures`: one Capture per page, in
+page order, each the exact body that page's origin sent. Each member's
+coordinate is `web.fetch`'s for that exchange (`url` is the page's built URL,
+`request_digest` covers it) plus `page_index` (0-based) and `page_count`. A page
+that is refused or fails is left out of `captures` and listed in `failed_pages`
+(`web.fetch.pages.failure@1`: index, count, URL, request digest, `refused` or
+`failed`, the code or error kind, the message, the status when the origin
+answered outside 2xx). The result is then incomplete: core marks the extract
+incomplete and absence never retires on it (D-R37 a4). When no page succeeds
+there is nothing to commit: one page returns exactly what `web.fetch` would, and
+several are one `AllPagesFailed` error listing each.
+
 The operation's effect is `external_read`: it reads the world and mutates nothing.
 This still contacts external systems and records egress. `credential_header`
 selects a header for an admitted `credential_ref`.
@@ -124,7 +155,8 @@ embedded in the package's endpoint declaration.
 
 ## Egress
 
-`web.fetch` declares the **experimental** `dynamic:target-from-run-input` form.
+`web.fetch` (and `web.fetch.pages`, page by page) declares the **experimental**
+`dynamic:target-from-run-input` form.
 Its target *is* the run input, so an endpoint list fixed at acceptance time could
 only ever be wrong; what governs instead is the recording. Every request the
 client issues — redirect hops included — reaches the run's egress recorder
@@ -188,7 +220,7 @@ it.
 
 ## Operations and their refusals
 
-`registration.json` declares all four operations (runtime protocol 2.0). Each names
+`registration.json` declares all five operations (runtime protocol 2.0). Each names
 its input and output Contracts by `name@N` — the install pins them to the
 versions accepted at its base — and declares the typed refusals it may return,
 each with a detail Contract:
@@ -197,13 +229,15 @@ each with a detail Contract:
 |---|---|---|---|---|
 | `search.web` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
 | `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable` |
+| `web.fetch.pages` | `web.fetch.pages.request@1` | `web.fetch.pages.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable` |
 | `web.render` | `web.render.request@1` | `web.render.result@1` | `pure` | `provider_declined` (absorbable) |
 | `web.render.dom` | `web.render.dom.request@1` | `web.render.dom.result@1` | `external_read` | `provider_declined` (absorbable), `engine_unavailable` |
 
-This package ships the bodies of all twenty-one, and of the six nested Contracts
-they pin (`web.capture.coordinate@1` with `web.capture.headers@1` and
+This package ships the bodies of all twenty-eight, and of the seven nested
+Contracts they pin (`web.capture.coordinate@1` with `web.capture.headers@1` and
 `web.capture.page@1`, the zero-field `web.capture.selector@1`,
-`web.capture.source_effective_time@1`, and `web.fetch.query_param@1`), under
+`web.capture.source_effective_time@1`, `web.fetch.query_param@1`, and
+`web.fetch.pages.failure@1`), under
 `src/cruxible_provider_web/contracts/<name>/v1.json`. Each file is the exact
 member Core accepts at `contracts/<name>/v1.json`; accept
 `cruxible_provider_web.contract_members()` before installing the package.

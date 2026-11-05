@@ -29,8 +29,16 @@ document was obtained is metadata, and it travels here, in the typed coordinate
     the Capture it was made from (M5).
 ``pages``
     For an operation that assembles the pages of one listing into one document
-    (each page's url, status and body digest). No operation in this plane pages
-    today; the field is declared so the HTTP coordinate has one shape.
+    (each page's url, status and body digest). No operation in this plane
+    assembles pages; the field is declared so the HTTP coordinate has one shape.
+``page_index`` / ``page_count``
+    Only on a member of ``web.fetch.pages``'s ``captures`` list: which of the
+    run's page requests this one is (0-based) and how many there were. Each page
+    is its own request, so its ``url`` is that page's built URL and its
+    ``request_digest`` covers it. A list member's coordinate is not typed by an
+    operation Contract (the member is ``capture<*>``); the CaptureKind the kit
+    binds governs it, so these two keys extend the shape of
+    ``web.capture.coordinate@1`` without moving that Contract's digest.
 """
 
 from __future__ import annotations
@@ -77,6 +85,8 @@ def http_coordinate(
     from_recording: bool,
     renderer: str | None = None,
     derived_from: str | None = None,
+    page_index: int | None = None,
+    page_count: int | None = None,
 ) -> dict[str, Any]:
     """The coordinate of one exchange; optional fields are absent keys, never ``null``."""
 
@@ -99,4 +109,9 @@ def http_coordinate(
         coordinate["renderer"] = renderer
     if derived_from is not None:
         coordinate["derived_from"] = derived_from
+    if (page_index is None) != (page_count is None):
+        raise ValueError("a page coordinate names both its index and the page count")
+    if page_index is not None and page_count is not None:
+        coordinate["page_index"] = page_index
+        coordinate["page_count"] = page_count
     return coordinate

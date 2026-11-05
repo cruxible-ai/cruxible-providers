@@ -97,6 +97,9 @@ def test_the_manifest_declares_what_each_implementation_actually_needs(
     assert manifest.implementation("cruxible_provider_web.fetch:WebFetch").declared_endpoints == (
         DYNAMIC_TARGET_FROM_RUN_INPUT,
     )
+    assert manifest.implementation(
+        "cruxible_provider_web.pages:WebFetchPages"
+    ).declared_endpoints == (DYNAMIC_TARGET_FROM_RUN_INPUT,)
     # A derive contacts nothing; a browser contacts what the page it is sent to pulls.
     assert (
         manifest.implementation("cruxible_provider_web.render:WebRender").declared_endpoints == ()
@@ -169,6 +172,46 @@ def test_fetch_records_its_target_under_a_dynamic_declaration(
         local_backend=local_backend,
         container_backend=container_backend,
     )
+    comparison = observed_vs_declared(binding, outcome.envelope)
+    assert comparison.observed == ("https://fixture.invalid",)
+    assert comparison.dynamic_forms == (DYNAMIC_TARGET_FROM_RUN_INPUT,)
+    assert comparison.conformant
+
+
+@pytest.mark.parametrize("backend_kind", BACKENDS)
+def test_pages_record_every_page_target_under_a_dynamic_declaration(
+    backend_kind: BackendKind,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    binding = _bind(
+        "web.fetch.pages",
+        backend_kind,
+        registry,
+        manifest_path,
+        lock_path,
+        local_backend,
+        container_backend,
+    )
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={
+            "url": ARTICLE_URL,
+            "query": [{"name": "id", "values": [f"v{index}" for index in range(8)]}],
+            "page_param": "id",
+            "max_url_chars": len(ARTICLE_URL) + 12,
+        },
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "ok", outcome.envelope.error
+    assert outcome.envelope.output is not None
+    assert len(outcome.envelope.output["captures"]) > 1
     comparison = observed_vs_declared(binding, outcome.envelope)
     assert comparison.observed == ("https://fixture.invalid",)
     assert comparison.dynamic_forms == (DYNAMIC_TARGET_FROM_RUN_INPUT,)

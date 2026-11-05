@@ -36,6 +36,21 @@ implementations:
     # operation's effect (external_read), declared in registration.json.
     deterministic: false
 
+  # Serves web.fetch.pages: web.fetch's request, one parameter's values split
+  # across as few requests as fit, one Capture per page.
+  - entrypoint: "cruxible_provider_web.pages:WebFetchPages"
+    backends: [local_env, container]
+    # The same instrumented client as web.fetch, one GET per page; no engine,
+    # so the base environment.
+    requires_extras: []
+    # The target is the run input, as for web.fetch: every page request, and
+    # every redirect hop, lands in the run's egress recorder.
+    declared_endpoints:
+      - "dynamic:target-from-run-input"
+    # Live fetches are not deterministic. The split itself is: the same request
+    # always builds the same pages.
+    deterministic: false
+
   # Serves web.render: a derive.
   - entrypoint: "cruxible_provider_web.render:WebRender"
     backends: [local_env, container]
@@ -54,7 +69,7 @@ implementations:
     # A browser is a heavy engine, so it lives behind the `browser` extra rather
     # than in the base install. Declaring it here is what makes the resolver
     # materialize an environment that has it -- and what makes this environment
-    # differ from the base one the other three share.
+    # differ from the base one the others share.
     requires_extras: [browser]
     # The page is named by the run, and the subresources it pulls by the page,
     # so neither can be enumerated. Every origin the browser contacts lands in

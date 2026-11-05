@@ -40,6 +40,7 @@ from cruxible_provider_runtime.testing import (
 from cruxible_provider_web import PACKAGE_ROOT, contract_members
 from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.fetch import WebFetch
+from cruxible_provider_web.pages import WebFetchPages
 from cruxible_provider_web.recordings import Recording, load_recordings
 from cruxible_provider_web.render import WebRender, document_json
 from cruxible_provider_web.search import SearxngSearch
@@ -99,6 +100,37 @@ def _fetch_case(recording: Recording) -> None:
     assert coordinate["content_type"] == recording.response.headers.get("content-type", "")
     assert coordinate["source"] == "packaged-recording"
     assert "derived_from" not in coordinate and "renderer" not in coordinate
+
+
+def _pages_case(recording: Recording) -> None:
+    """Several pages of one request: each member is the body its page's origin sent."""
+
+    values = [f"station-{index:02d}" for index in range(12)]
+    result = WebFetchPages()(
+        _context(
+            "web.fetch.pages",
+            input={
+                "url": recording.request_url,
+                "query": [{"name": "station", "values": values, "join": "comma"}],
+                "page_param": "station",
+                "max_url_chars": len(recording.request_url) + 40,
+            },
+            declared_endpoints=("dynamic:target-from-run-input",),
+        )
+    )
+    members = _members("web.fetch.pages", result)
+    assert len(members) > 1
+    origin = _digest(recording.response.body.encode("utf-8"))
+    for index, member in enumerate(members):
+        assert _digest(member.stored) == origin
+        coordinate = member.coordinate
+        assert coordinate["page_index"] == index
+        assert coordinate["page_count"] == len(members)
+        assert coordinate["url"].startswith(recording.request_url + "?station=")
+        assert coordinate["source"] == "packaged-recording"
+        assert "derived_from" not in coordinate and "renderer" not in coordinate
+    # One request per member: identified by its request digest, never its index.
+    assert len({member.coordinate["request_digest"] for member in members}) == len(members)
 
 
 def _search_case(recording: Recording) -> None:
@@ -171,6 +203,7 @@ def _cases() -> dict[str, list[tuple[str, Callable[[], None]]]]:
     ]
     cases: dict[str, list[tuple[str, Callable[[], None]]]] = {
         "web.fetch": [(item.id, lambda item=item: _fetch_case(item)) for item in fetchable],
+        "web.fetch.pages": [(item.id, lambda item=item: _pages_case(item)) for item in fetchable],
         "search.web": [("searxng-answer", lambda: _search_case(recordings["searxng-answer"]))],
         "web.render.dom": [(item.id, lambda item=item: _dom_case(item)) for item in rendered],
         "web.render": [],
