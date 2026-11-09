@@ -1,6 +1,6 @@
 {
   "artifact_format": "cruxible-contract-v1",
-  "description": "web.fetch's request, sent as pages: the values of the query parameter page_param are split, in order, across as few requests as keep each built URL within max_url_chars (default 8192), and every other parameter is repeated on each page. The split is a function of the request alone; every value is sent on exactly one page.",
+  "description": "web.fetch's request, sent as pages: the values of the query parameter page_param are split, in order, across as few requests as keep each built URL within max_url_chars (default 8192), and every other parameter is repeated on each page. The split is a function of the request alone; every value is sent on exactly one page. The page_param parameter may have no values: then no request is sent and captures is empty.",
   "fields": {
     "credential_header": {
       "optional": true,

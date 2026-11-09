@@ -249,7 +249,8 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "page_param are split, in order, across as few requests as keep each built "
             f"URL within max_url_chars (default {MAX_URL_LENGTH}), and every other "
             "parameter is repeated on each page. The split is a function of the request "
-            "alone; every value is sent on exactly one page."
+            "alone; every value is sent on exactly one page. The page_param parameter may "
+            "have no values: then no request is sent and captures is empty."
         ),
         "fields": {
             **FETCH_REQUEST_FIELDS,
@@ -264,7 +265,8 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "(url is the page's built URL, request_digest covers it) plus page_index "
             "(0-based) and page_count. A page without a Capture is listed in "
             "failed_pages, and the result is then incomplete (D-R37 a4): absence never "
-            "retires on it."
+            "retires on it. A request with no values to page over has no pages: captures "
+            "is empty and the result is complete."
         ),
         "fields": {
             "captures": f"list<capture<*>>{{max_items: {MAX_PAGES}}}",

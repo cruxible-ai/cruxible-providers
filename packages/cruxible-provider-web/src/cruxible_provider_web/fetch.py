@@ -218,8 +218,12 @@ def recording_events(response: HttpResponse, url: str) -> list[dict[str, Any]]:
     ]
 
 
-def _query(value: object) -> list[tuple[str, list[str], str]]:
-    """The validated ``query``: one parameter per name, each with at least one value."""
+def _query(value: object, *, page_param: str | None = None) -> list[tuple[str, list[str], str]]:
+    """The validated ``query``: one parameter per name, each with at least one value.
+
+    ``page_param``, the parameter ``web.fetch.pages`` pages over, may have none:
+    no values is no pages, and nothing is sent.
+    """
 
     if not isinstance(value, list) or len(value) > MAX_QUERY_PARAMETERS:
         raise decline(
@@ -236,16 +240,20 @@ def _query(value: object) -> list[tuple[str, list[str], str]]:
         if name in names:
             raise decline(PROVIDER_DECLINED, f"query parameter {name!r} is named twice")
         names.add(name)
+        least = 0 if name == page_param else 1
         if (
             not isinstance(values, list)
-            or not 0 < len(values) <= MAX_QUERY_VALUES
+            or not least <= len(values) <= MAX_QUERY_VALUES
             or not all(isinstance(entry, str) for entry in values)
         ):
             # No values is refused rather than sent as nothing: an empty filter
             # usually means "everything", which is not what an empty list asked.
+            # The paged parameter is the exception: its values are split into
+            # requests, and no values is no requests at all.
             raise decline(
                 PROVIDER_DECLINED,
-                f"query parameter {name!r} needs between 1 and {MAX_QUERY_VALUES} string values",
+                f"query parameter {name!r} needs between {least} and {MAX_QUERY_VALUES} "
+                "string values",
             )
         if join not in {"comma", "repeat"}:
             raise decline(PROVIDER_DECLINED, "a query parameter's join is comma or repeat")
@@ -298,12 +306,13 @@ class FetchRequest:
         self.logical_source = logical_source
 
     @classmethod
-    def parse(cls, context: ProviderRunContext, *, paged: bool = False) -> FetchRequest:
-        """The validated request. ``paged`` leaves ``url`` unbuilt.
+    def parse(cls, context: ProviderRunContext, *, page_param: str | None = None) -> FetchRequest:
+        """The validated request. A ``page_param`` leaves ``url`` unbuilt.
 
         ``web.fetch.pages`` reads the same request and builds one URL per page
         itself, so it takes the base ``url`` and the parsed ``query`` from here
-        and bounds each page's URL by its own ``max_url_chars``.
+        and bounds each page's URL by its own ``max_url_chars``. The parameter it
+        pages over may have no values.
         """
 
         payload = context.input
@@ -324,9 +333,9 @@ class FetchRequest:
                 "web.fetch needs an http or https url",
                 **({"url": url} if isinstance(url, str) else {}),
             )
-        query = _query(payload["query"]) if "query" in payload else []
+        query = _query(payload["query"], page_param=page_param) if "query" in payload else []
         _refuse_parameter_collisions(url, query)
-        if not paged:
+        if page_param is None:
             url = with_query(url, query)
             # The bound is on the request this adapter sends, so it holds for a
             # url that arrived long as much as for one a query made long.

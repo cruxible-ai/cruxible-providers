@@ -35,6 +35,7 @@ from cruxible_provider_web.http import RecordingClient
 from cruxible_provider_web.operations import PROVIDER_DECLINED
 from cruxible_provider_web.pages import MAX_PAGES, WebFetchPages, split_pages
 
+from .test_web_contracts import _conforms, _operation
 from .test_web_secrets import _context
 
 EPSS = "https://api.first.org/data/v1/epss"
@@ -318,6 +319,36 @@ def test_when_every_page_fails_there_is_no_capture() -> None:
     assert single.error == fetched.error
 
 
+@pytest.mark.parametrize("join", ["comma", "repeat"])
+def test_an_empty_value_list_asks_nothing_and_returns_no_captures(join: str) -> None:
+    """Nothing asked, nothing fetched: a complete, successful result with no Captures."""
+
+    assert split_pages(EPSS, _parsed(_query([], join=join)), "cve", max_url_chars=2048) == []
+    request = {"url": EPSS, "page_param": "cve", "query": _query([], join=join)}
+    _conforms(request, _operation("web.fetch.pages").in_.spelling)
+    opened: list[str] = []
+
+    def factory(recorder: Any, *, url: str, timeout_seconds: float) -> Any:
+        opened.append(url)
+        raise AssertionError("an empty value list sends nothing")
+
+    recorder = EgressRecorder()
+    result = WebFetchPages(client_factory=factory)(
+        _context("web.fetch.pages", input=request, egress=recorder)
+    )
+    assert result.status == "ok", result
+    assert result.refusal is None and result.error is None
+    assert result.output == {"captures": []}
+    _conforms(result.output, _operation("web.fetch.pages").out.spelling)
+    # Complete: no member is missing, so nothing is named incomplete.
+    assert result.incomplete_captures == []
+    assert result.metrics == {"byte_count": 0.0, "page_count": 0.0, "failed_page_count": 0.0}
+    assert result.events == []
+    # No client was opened and no request reached the recorder.
+    assert opened == []
+    assert recorder.observed() == []
+
+
 def test_the_result_is_bounded_by_its_contract() -> None:
     assert OUT["fields"]["captures"]["type"]["max_items"] == MAX_PAGES
     assert OUT["fields"]["failed_pages"]["type"]["max_items"] == MAX_PAGES
@@ -345,6 +376,9 @@ def test_a_member_s_bytes_carry_no_wrapper() -> None:
         {"max_url_chars": 60},
         {"query": _query(["CVE-1", "CVE-2", "CVE-1"])},
         {"url": f"{EPSS}?cve=CVE-old"},
+        # Only the paged parameter may be empty; any other still needs a value.
+        {"query": [{"name": "scope", "values": []}, *_query(WATCHED)[1:]]},
+        {"query": _query([]), "page_param": "scope"},
         # Exactly one value fits a page, and there is one value too many.
         {
             "query": _query([f"CVE-{index:04d}" for index in range(MAX_PAGES + 1)]),
@@ -361,6 +395,8 @@ def test_a_member_s_bytes_carry_no_wrapper() -> None:
         "value-alone-too-long",
         "value-twice",
         "name-in-url",
+        "empty-other-param",
+        "empty-unpaged-param",
         "too-many-pages",
     ],
 )

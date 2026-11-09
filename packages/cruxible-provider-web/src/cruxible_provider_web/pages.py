@@ -14,7 +14,9 @@ contiguous split in order this is the fewest pages, and it is a function of the
 request alone: the same request always builds the same pages. Every value lands
 on exactly one page. A value that does not fit on a page by itself declines, as
 does a split needing more than :data:`MAX_PAGES` pages, and a value named twice
-in the paged parameter (two pages could then be one request).
+in the paged parameter (two pages could then be one request). The paged
+parameter may have no values: then there are no pages, no request is sent, and
+the result is a complete one with no Captures -- nothing asked, nothing fetched.
 
 **The result** is ``captures: list<capture<*>>`` (D-R37 a): one Capture per page,
 each the body that page's origin sent, verbatim, in page order. Each member's
@@ -83,7 +85,7 @@ def split_pages(
     greedy over the values in order, which gives the fewest pages any in-order
     contiguous split can. A page's length grows by an exact amount per added
     value, so each candidate is measured without rebuilding the URL; each built
-    page is still checked against the bound.
+    page is still checked against the bound. No values is no pages.
     """
 
     positions = [index for index, (name, _, _) in enumerate(query) if name == page_param]
@@ -99,6 +101,8 @@ def split_pages(
             PROVIDER_DECLINED,
             f"a value of the paged parameter {name!r} is named twice; each value is fetched once",
         )
+    if not values:
+        return []
 
     def build(chunk: list[str]) -> str:
         pages_query = list(query)
@@ -190,13 +194,19 @@ class WebFetchPages:
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
-            request = FetchRequest.parse(context, paged=True)
             page_param, max_url_chars = _paging(context.input)
+            request = FetchRequest.parse(context, page_param=page_param)
             pages = split_pages(request.url, request.query, page_param, max_url_chars=max_url_chars)
         except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 
         count = len(pages)
+        if not count:
+            # Nothing asked, nothing fetched: a complete answer with no Captures.
+            return ProviderResult.ok(
+                {"captures": []},
+                metrics={"byte_count": 0.0, "page_count": 0.0, "failed_page_count": 0.0},
+            )
         # One budget for the whole call, shared by its pages.
         timeout_seconds = max(1.0, context.budgets.wall_clock_seconds * 0.8 / count)
         captures: list[dict[str, Any]] = []

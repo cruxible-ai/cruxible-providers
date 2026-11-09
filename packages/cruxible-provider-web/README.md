@@ -127,7 +127,9 @@ parameter is repeated on each page. That is the fewest pages any in-order split
 can make, and it is a function of the request alone, so the same request always
 sends the same pages and every value is sent exactly once. A value that does not
 fit a page on its own, a value named twice in the paged parameter, and a split
-needing more than 64 pages decline.
+needing more than 64 pages decline. The paged parameter may have no values:
+then there are no pages, no request is sent, and the result is a complete one
+with an empty `captures` (every other parameter still needs at least one value).
 
 The result, `web.fetch.pages.result@1`, is `captures`: one Capture per page, in
 page order, each the exact body that page's origin sent. Each member's
