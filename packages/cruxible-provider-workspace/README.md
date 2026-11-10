@@ -1,5 +1,29 @@
 # cruxible-provider-workspace
 
+## In plain terms
+
+This package turns the contents of a file into a structured record Cruxible
+can cite line by line. It is a **provider** (an add-on package that does one
+kind of work for Cruxible) with one **operation** (a named task). Core
+already has this operation built in, so a normal instance never needs the
+package; it is kept so the built-in copy can be tested against it.
+
+| Operation | What it does | Network | Needs |
+|---|---|---|---|
+| `workspace.file` | Cruxible reads a file from the attached workspace and hands over its bytes, with their length and SHA-256 hash. The operation checks both, then returns the content: for text, the text itself, its lines, and its line-ending style; for anything else, the bytes in base64. It opens no file itself. | no | nothing extra |
+
+What gets installed: `cruxible-provider-runtime` and nothing else; no extras.
+The package names the **Contracts** its operation uses (a Contract is the
+declared shape of an input or output) but does not ship them: Cruxible core
+sets them up on every new instance, together with its built-in copy of the
+operation. When a check fails, the operation returns a **refusal**: a typed
+"no" with a code saying why, such as a length that does not match.
+
+You do not need this package unless you are testing core's built-in
+`workspace.file` or want a separately installed build of it.
+
+## Reference
+
 The `workspace.file` Source adapter. Apache-2.0.
 
 Core reads the file. This package structures the bytes it was handed into a

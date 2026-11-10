@@ -1,7 +1,39 @@
 # cruxible-providers
 
-Provider packages for Cruxible. Apache-2.0, one package per plane, each with its
-own committed lock.
+This repository holds the optional add-on packages that let Cruxible do work
+outside its own core: fetch web pages, convert documents, run statistics, and
+so on. Each add-on is called a **provider**: a Python package that does one
+kind of computation and reports the result back to Cruxible. A provider offers
+one or more **operations**, each a named task with a fixed input and output
+(for example `web.fetch`: give it a URL, get back the page). The packages are
+Apache-2.0. Each one has its own committed lock file, so its dependencies are
+pinned to exact versions.
+
+Supported platforms: Linux on x86-64 and macOS on Apple silicon, with Python
+3.11 or newer. Windows works through WSL2 only.
+
+| Package | What it is for | Operations |
+|---|---|---|
+| `cruxible-provider-web` | Fetching web pages and searching the web, then turning a fetched page into readable text | `web.fetch`, `web.fetch.pages`, `search.web`, `web.render`, `web.render.dom` |
+| `cruxible-provider-docs` | Turning documents (PDF, text, CSV) into Markdown, and reading text out of page images (OCR) | `doc.to_markdown`, `ocr.extract` |
+| `cruxible-provider-quant` | Standard numeric methods: totals and averages, forecasts, anomaly checks, statistical tests, ranking, record matching, checking how well past predictions held up | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
+| `cruxible-provider-workspace` | Turning a file's bytes into a structured text or binary body. Core already has this built in; the package is kept for testing | `workspace.file` |
+| `cruxible-provider-noop` | A test package that does nothing useful on purpose; it checks that the provider rules hold | `noop.echo`, `noop.captures` |
+| `cruxible-provider-runtime` | The shared library every provider package depends on. You install it directly only if you write a provider | none |
+| `cruxible-providers` | A convenience package with no code that pulls in the others, for development | none |
+
+To install a provider into a running Cruxible daemon, an operator with `admin`
+permission runs, for example:
+
+```sh
+cruxible provider install cruxible-provider-web
+```
+
+The section *What a provider is, and how core admits one* below says what that
+command checks, and *Installing from a checkout* says how to install a version
+that is not on the package index.
+
+## How the pieces fit
 
 This repository is the third layer of a three-layer split. Nothing heavy ever
 enters the core install:
@@ -16,6 +48,12 @@ The packages speak provider runtime protocol 2.0: one operation of one build
 per run. `docs/core-integration-seam.md` describes what each side owns.
 
 ## What a provider is, and how core admits one
+
+A few Cruxible terms are used from here on. A **Contract** is the declared shape
+of an input or output. A **Procedure** is a stored, step-by-step method that
+calls operations through named slots. A **Line** fixes which installed provider
+build fills each slot. A **refusal** is a typed "no" an operation returns
+instead of a result, with a code saying why.
 
 A provider is pure computation behind shared Contracts. Its package declares
 typed operations in `registration.json`: a name, an input and an output
@@ -68,6 +106,9 @@ against a remote one. Add `--extra browser` (or another engine
 extra) when the operation you need declares it.
 
 ## Layout
+
+Where things are. A *plane* is one family of related operations (web,
+documents, numbers), shipped as one package.
 
 ```
 packages/cruxible-provider-runtime/   the support library every provider uses

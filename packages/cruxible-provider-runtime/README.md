@@ -1,5 +1,31 @@
 # cruxible-provider-runtime
 
+## In plain terms
+
+This is the shared library every Cruxible provider package depends on. A
+**provider** is an add-on package that does one kind of work for Cruxible
+(fetching web pages, converting documents, running statistics), and each task
+it offers is an **operation**. This library is the plumbing between Cruxible
+and those packages. It reads a package's description of its operations, sets
+up an isolated Python environment for it, runs one operation per process,
+passes in credentials safely, enforces time and output-size limits, and
+records which network addresses the run contacted.
+
+It has no operations of its own. You do not install it directly: it arrives as
+a dependency of whichever provider package you install. You work with it
+directly only if you write a provider, and then mostly through
+`cruxible_provider_runtime.provider_api` (shown below).
+
+What gets installed: `pydantic`, `packaging` and `pyyaml`. There are no
+optional extras.
+
+Terms used below: a **Contract** is the declared shape of an input or output; a
+**refusal** is a typed "no" an operation returns instead of a result, with a
+code saying why; a **Line** fixes which installed provider build Cruxible uses
+for a given step.
+
+## Reference
+
 The support library every Cruxible provider package uses. Apache-2.0.
 
 Providers do not import most of this. It is the *executor's* half of the

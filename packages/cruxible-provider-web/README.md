@@ -1,6 +1,33 @@
 # cruxible-provider-web
 
-Cruxible provider adapters for the web plane. Apache-2.0.
+## In plain terms
+
+This package lets Cruxible read the web: download a page, search, and turn a
+downloaded page into clean text. It is a **provider**, an add-on package that
+does one kind of work for Cruxible, and each task it offers is an
+**operation**. What an operation returns is a **Capture**: the exact bytes it
+got, plus a record of where and how it got them.
+
+| Operation | What it does | Network | Needs |
+|---|---|---|---|
+| `web.fetch` | You give it a URL (optionally with query parameters and a credential). It downloads that one URL and returns the response body exactly as sent, as one Capture. | yes | nothing extra |
+| `web.fetch.pages` | Like `web.fetch`, for a query too long for one URL: you give it a list of values, it splits them across as few requests as fit, and returns one Capture per page. | yes | nothing extra |
+| `search.web` | You give it a search query. It asks a SearXNG search service and returns that service's answer exactly as sent. | yes | a SearXNG instance the operator runs or chooses, named in the run's configuration |
+| `web.render` | You give it a page this run already fetched. It returns the page's main text as Markdown, or as JSON with the title, text and links. It works only from those bytes. | no | nothing extra |
+| `web.render.dom` | You give it a URL. It opens the page in a real browser, lets the page's scripts run, and returns the finished page. Use it for pages that show nothing until scripts build them. | yes | the `browser` extra (Playwright) and a Chromium browser matching that Playwright version |
+
+What gets installed: the base package needs `httpx` (to make requests) and
+`trafilatura` (to pull main text out of HTML). The one optional extra,
+`browser`, adds Playwright; it is only for `web.render.dom`, and the Chromium
+browser itself is a separate download. The package also ships the 35
+**Contract** files its operations use; a Contract is the declared shape of an
+input or output, and Cruxible must accept these before the package installs.
+
+You do not need this package if nothing you run reads from the web.
+
+## Reference
+
+Cruxible provider adapters for the web plane (the web family of operations). Apache-2.0.
 
 | Operation | Entrypoint | Engine | Extra |
 |---|---|---|---|
@@ -68,7 +95,7 @@ the document itself, in whatever format it is — never a bundle around it:
   binary, it is committed as received; core reads it only through a declared
   `extract` under the CaptureKind's decoding, and never parses it at admission.
 - **`web.fetch.pages`** — `web.fetch`'s request, sent as pages: one Capture per
-  page (`captures: list<capture<*>>`, D-R37 a), each the body that page's origin
+  page (`captures: list<capture<*>>`, a list of Captures), each the body that page's origin
   sent, exactly. See *Paging* below.
 - **`search.web`** — the instance's response body, exactly. No ranking or
   recency filter is derived here; the instance's own `time_range` parameter is
@@ -76,7 +103,7 @@ the document itself, in whatever format it is — never a bundle around it:
 - **`web.render.dom`** — a fetch through a browser: it navigates to the URL the
   run names, runs the page's scripts, pulls its subresources, and the serialized
   DOM is the Capture. Use it for pages that carry nothing until assembled.
-- **`web.render`** — a **derive** (D-R37): pure computation over the exact bytes
+- **`web.render`** — a **derive** (an operation that only computes from a Capture already taken): pure computation over the exact bytes
   of a Capture this run fetched (`source: capture<*>`; core hands the operation
   that Capture's wire, and `cruxible_provider_runtime.acquisition.capture_input`
   reads it). `text` is the main content as Markdown; `json` is canonical JSON
@@ -102,7 +129,7 @@ member's coordinate with `page_index` and `page_count` instead.
 
 `web.fetch.request@1` carries ordinary fields. `query` is a typed list of
 parameters, `{name, values, join?}` (`web.fetch.query_param@1`), so a Procedure
-can pass values it read from state rather than spelling them into a URL (D-R34):
+can pass values it read from state rather than spelling them into a URL:
 they are percent-encoded onto `url` in the order given, each value as its own
 `name=value` (`join: repeat`, the default) or comma-joined into one
 (`join: comma`, as an API taking `cve=A,B` wants). A parameter needs at least one
@@ -143,7 +170,7 @@ that is refused or fails is left out of `captures` and listed in `failed_pages`
 `failed`, the code or error kind, the message, the status when the origin
 answered outside 2xx). The result's envelope then names `captures` in its
 generic `incomplete_captures`: core marks the extract incomplete and absence
-never retires on it (D-R37 a4). When no page succeeds there is nothing to
+never retires on it (a missing page is never read as "this item is gone"). When no page succeeds there is nothing to
 commit: one page returns exactly what `web.fetch` would, and
 several are one `AllPagesFailed` error listing each.
 

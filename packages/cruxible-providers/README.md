@@ -1,6 +1,33 @@
 # cruxible-providers
 
-The umbrella meta-package for the Cruxible provider planes. Apache-2.0.
+## In plain terms
+
+This package contains no code. It is a shortcut for developers: installing it
+with an extra pulls in one or more of the Cruxible provider packages. A
+**provider** is an add-on package that does one kind of work for Cruxible, and
+each task it offers is an **operation**; this package adds no operations of its
+own.
+
+| Extra | Installs | Operations it brings |
+|---|---|---|
+| `web` | `cruxible-provider-web` | `web.fetch`, `web.fetch.pages`, `search.web`, `web.render`, `web.render.dom` |
+| `docs` | `cruxible-provider-docs` | `doc.to_markdown`, `ocr.extract` |
+| `quant` | `cruxible-provider-quant` | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
+| `workspace` | `cruxible-provider-workspace` | `workspace.file` |
+| `all` | all four of the above | all of the above |
+
+Each extra installs the package without its own heavy optional engines (for
+example the browser for `web.render.dom`); add those on the package itself,
+as *Extras and engines* below shows.
+
+You do not need this package to add a provider to a running Cruxible daemon.
+Operators use `cruxible provider install <package>` instead, as *Who this is
+for* below explains.
+
+## Reference
+
+The umbrella meta-package for the Cruxible provider planes (the families of
+operations, one package each). Apache-2.0.
 
 **Zero code.** This distribution is a dependency shell with one extra per plane,
 and it exists for install ergonomics during development:

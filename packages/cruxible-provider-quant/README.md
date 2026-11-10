@@ -1,6 +1,43 @@
 # cruxible-provider-quant
 
-Cruxible provider adapters for the quantitative plane. Apache-2.0.
+## In plain terms
+
+This package does standard number work for Cruxible: totals and averages,
+forecasts, spotting unusual values, statistical tests, ranking, matching
+records that may describe the same thing, and checking how well past
+predictions turned out. It is a **provider**, an add-on package that does one
+kind of work for Cruxible, and each task it offers is an **operation**. Every
+operation computes only from the data in the request: none of them uses the
+network, a clock or a random number, and the same input always gives the same
+answer.
+
+| Operation | What it does | Network | Needs |
+|---|---|---|---|
+| `calc.reduce` | You give it a table of rows. It returns sums, means, minimums, maximums, counts, medians or standard deviations, for the whole table, per group, or over moving windows. | no | nothing extra |
+| `ts.forecast` | You give it a time series, a model (ARIMA or ETS) and how many steps ahead. It returns the forecast with low and high bounds at the levels you ask for (for example 80% and 95%), and names the exact model it fitted. | no | nothing extra |
+| `ts.anomaly` | You give it a time series and a method. It returns either the points that stand out from the series' usual pattern, with a score for each, or the positions where the series changes level, for a number of changes you set. | no | nothing extra |
+| `stat.test` | You name a test (for example Student's t, Mann-Whitney U, Pearson correlation, Shapiro-Wilk) and give it the samples. It runs exactly that test and returns the statistic, the p-value, whether the result clears the threshold you set, and whether the test's assumptions look met. | no | nothing extra |
+| `score.rank` | You give it candidates and either fixed weights for their scores or a saved scikit-learn model with its SHA-256 hash. It returns the candidates in order, with their scores and how ties were broken. | no | nothing extra; a saved model must be a file the operator trusts |
+| `match.record` | You give it a list of records, how to compare their fields, and how likely each comparison outcome is for a true match and for a non-match. It returns pairs of records that may describe the same real thing, each with a match score. It never merges records; every result is marked for review. | no | nothing extra |
+| `calc.calibrate` | You give it past predictions together with what actually happened. It returns how well the predicted probabilities matched the outcomes (Brier score and its parts, a per-bin breakdown, expected calibration error). | no | nothing extra |
+
+What gets installed: the base package carries every engine, with no optional
+extras: NumPy, pandas, Polars, ruptures, scikit-learn, SciPy, splink,
+statsforecast and statsmodels. None of them needs a GPU.
+
+The package names the **Contracts** its operations use (a Contract is the
+declared shape of an input or output) but does not ship them; they must already
+be accepted in Cruxible, for example from a kit, before the package installs.
+When an operation cannot answer, it returns a **refusal**: a typed "no" with a
+code saying why, such as a series too short for the model.
+
+You do not need this package if nothing you run computes statistics,
+forecasts, rankings or record matches.
+
+## Reference
+
+Cruxible provider adapters for the quantitative plane (the numeric family of
+operations). Apache-2.0.
 
 Seven classical baselines, one operation each. These are the signatures on
 which narrow-ML implementations will later compete, so what matters here is not

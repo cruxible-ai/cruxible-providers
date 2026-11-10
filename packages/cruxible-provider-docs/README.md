@@ -1,6 +1,36 @@
 # cruxible-provider-docs
 
-Cruxible provider adapters for the document plane. Apache-2.0.
+## In plain terms
+
+This package turns documents you already have into text Cruxible can work
+with. It is a **provider**, an add-on package that does one kind of work for
+Cruxible, and each task it offers is an **operation**. It downloads nothing:
+the document comes in with the request.
+
+| Operation | What it does | Network | Needs |
+|---|---|---|---|
+| `doc.to_markdown` | You give it a document (for example a PDF, or plain text, Markdown or CSV). It returns the document's content as Markdown, with a note of what was converted (file name, type, size, hash). | no | the `docling` extra |
+| `ocr.extract` | You give it page images. It returns the text read off each page, with the OCR engine's own per-page confidence where the engine reports one. | no | the `paddleocr` extra, and the engine's model weights, which the operator downloads |
+
+What gets installed: the base package depends only on
+`cruxible-provider-runtime` and carries no conversion engine. The extras add
+the engines: `docling` adds Docling (document conversion) and `paddleocr` adds
+PaddleOCR with PaddlePaddle (text recognition). Both are large. Plain text,
+Markdown and CSV are converted without running Docling, but `doc.to_markdown`
+still installs with the `docling` extra, because one operation gets one
+environment.
+
+The package names the **Contracts** its operations use (a Contract is the
+declared shape of an input or output) but does not ship them; they must already
+be accepted in Cruxible, for example from a kit, before the package installs.
+
+You do not need this package if your documents are already text you can pass
+on as they are.
+
+## Reference
+
+Cruxible provider adapters for the document plane (the document family of
+operations). Apache-2.0.
 
 | Operation | Entrypoint | Engine | Extra |
 |---|---|---|---|

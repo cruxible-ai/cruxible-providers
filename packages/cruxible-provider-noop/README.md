@@ -1,5 +1,25 @@
 # cruxible-provider-noop
 
+## In plain terms
+
+This is a test package. It is a **provider** (an add-on package that does one
+kind of work for Cruxible) whose two **operations** (named tasks) do nothing
+useful. They exist so the test suite can check every rule a provider must
+follow, including how credentials, failures and limits are handled.
+
+| Operation | What it does | Network | Needs |
+|---|---|---|---|
+| `noop.echo` | You give it some text and a `mode` (see *The modes* below). In `echo` mode it returns the text; every other mode misbehaves on purpose in the way its name says, so a test can check how Cruxible reacts. | no (the `connect` mode opens a socket on purpose, to check that the network guard catches it) | nothing extra |
+| `noop.captures` | You name up to 16 of the sample files shipped in the package. It returns each one unchanged as its own **Capture** (the exact bytes, plus a record of where they came from). | no | nothing extra |
+
+What gets installed: `cruxible-provider-runtime` and nothing else; no extras.
+The package ships the 7 **Contract** files its operations use (a Contract is
+the declared shape of an input or output).
+
+You do not need this package unless you are testing Cruxible or a provider.
+
+## Reference
+
 The reference no-op Cruxible provider. Apache-2.0.
 
 It serves two operations, `noop.echo` and `noop.captures`, and does nothing
