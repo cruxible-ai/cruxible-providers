@@ -9,12 +9,63 @@ enters the core install:
 | Layer | What it is | Where it lives |
 |---|---|---|
 | **Core** (`cruxible`) | Machinery only — Contracts, Procedure slots, Lines binding each slot to an exact `{build, operation}`, executor, provider protocol. Zero heavy dependencies. | the core repository |
-| **Rails** | Accepted artifacts in forkable reference repositories: generic assemblies plus domain packs. Imported via change-set proposals, never baked into the install. | reference repositories |
+| **Kits** | Exported definitions (vocabulary, Procedures, the Contracts they pin) plus the provider packages those Procedures need. Installed with `cruxible kit add`, never baked into the install. | kit releases |
 | **Providers** | Separate uv-locked packages, installed into isolated environments by an explicit, governed operator install. **This repository.** | here |
 
-The program that governs this work is `rails-providers-program-v1.md`; §7 is the
-RP-0 contract these packages implement; provider runtime protocol 2.0 (one
-operation of one build per run) is the protocol they speak.
+The packages speak provider runtime protocol 2.0: one operation of one build
+per run. `docs/core-integration-seam.md` describes what each side owns.
+
+## What a provider is, and how core admits one
+
+A provider is pure computation behind shared Contracts. Its package declares
+typed operations in `registration.json`: a name, an input and an output
+Contract (`name@N`), an effect (`pure`, `external_read` or
+`external_mutation`), the refusal codes it may return, and the entrypoint that
+serves it. A Procedure never names a provider; it names a slot by signature, and
+any installed build whose operation has exactly that signature fits the slot. A
+Line binds each slot to one exact `{build, operation}` when it is accepted.
+
+Core never fetches a provider when a Procedure binds. An operator installs one
+explicitly, with `admin` permission:
+
+```sh
+cruxible provider install cruxible-provider-web          # or NAME==VERSION
+```
+
+(MCP: `cruxible_provider_install`.) By name, the wheel comes from the daemon's
+configured provider repository, or else from the provider index (PyPI unless
+the operator configures `provider_index_urls`). The wheel must match the hash the
+index publishes, and the environment is built from the `uv.lock` the wheel
+embeds. The install then proposes the Provider build as an ordinary change: it
+lands at once when the approval policy requires no approval, and otherwise waits
+for approval. It refuses an operation whose Contracts are not already accepted
+on the instance; a kit that needs a provider accepts those Contracts first.
+Installing grants no permission to run anything.
+
+Every new instance already has `workspace.file` built in; it needs no install
+(see `packages/cruxible-provider-workspace/README.md`).
+
+### Installing from a checkout
+
+An install by name works only for a version published on the index. The
+packages on this branch require `cruxible-provider-runtime` at the version its
+`pyproject.toml` states. Until those versions are published, build the wheels
+and transfer them to the daemon:
+
+```sh
+uv build --wheel --out-dir dist packages/cruxible-provider-runtime
+uv build --wheel --out-dir dist packages/cruxible-provider-web
+cruxible provider install dist/cruxible_provider_web-*.whl \
+    --lock packages/cruxible-provider-web/uv.lock \
+    --dependency dist/cruxible_provider_runtime-*.whl
+```
+
+`--lock` is required with a local wheel. `--dependency` supplies the wheels the
+lock names by path (here the runtime); registry dependencies resolve by hash
+from the configured indexes. Like every `provider` command it talks to a running
+Cruxible daemon; the CLI reads the files and transfers them, so this also works
+against a remote one. Add `--extra browser` (or another engine
+extra) when the operation you need declares it.
 
 ## Layout
 
@@ -27,9 +78,8 @@ packages/cruxible-provider-docs/       the document plane: doc.to_markdown, ocr.
 packages/cruxible-providers/          the umbrella meta-package: zero code, plane extras
 packages/cruxible-provider-quant/     the quantitative plane: classical
                                       baselines on the seven quant operations
-packages/cruxible-provider-workspace/ the workspace built-in: workspace.file,
-                                      the pure Source adapter core seeds by
-                                      proposal (B4)
+packages/cruxible-provider-workspace/ workspace.file, the pure Source adapter
+                                      core's built-in was ported from
 packages/_template/                   copy this to start a new plane package
 ci/marker-environments.json           the environments every digest is computed for
 scripts/                              digest computation, the packaging checks, and
@@ -134,8 +184,9 @@ Things this repository does **not** claim:
 - `UvSyncBuilder`, the production local builder, needs a `uv` on the path, and a
   test that has one drives it end to end against a PEP 503 index under `file://`
   built from wheels the test itself produces — no network. What it cannot cover
-  is the runtime living in the sealed environment, because the runtime is
-  unpublished: the sealed interpreter there resolves and calls the pinned
+  is the runtime living in the sealed environment, because an offline index
+  cannot serve the runtime's own third-party dependencies: the sealed
+  interpreter there resolves and calls the pinned
   entrypoint the way the child harness does rather than through it, and the
   harness is covered end to end by the reference provider's suite.
 
@@ -163,3 +214,19 @@ Copy `packages/_template/`, strip the `.template` suffixes, replace the
 placeholders, and run `uv lock` **inside the new directory**. The full checklist
 is in the template's README, and the obligations your conformance suite must
 discharge are enumerated in its `tests/test_conformance.py`.
+
+The template expects to sit under `packages/`, beside the runtime: its
+`[tool.uv.sources]` names `../cruxible-provider-runtime`. The repository tests
+(`tests/test_repo_layout.py`) then also require the new package to be wired in:
+
+- add it to the root `pyproject.toml` (`dependencies`, `[tool.uv.sources]` and
+  `testpaths`) so `uv run pytest` at the root reaches it;
+- add it to the `typecheck` matrix in `.github/workflows/ci.yml`;
+- give it a `container/Dockerfile` whose `ENTRYPOINT` is the secret shim (the
+  template has none; copy the noop package's `container/` and adjust);
+- add its name to the package list in `test_there_are_real_packages`.
+
+A plane meant for the umbrella also needs an extra in
+`packages/cruxible-providers/pyproject.toml`, in its `all` extra, and in the
+umbrella test's expected set. A manual publish run needs the name in
+`.github/workflows/publish.yml`'s package choices; a tag push does not.

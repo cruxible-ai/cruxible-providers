@@ -24,9 +24,12 @@ The umbrella `cruxible-providers[PLANE]` remains a development convenience.
     input and output Contracts as `name@N`, its effect (`pure`,
     `external_read` or `external_mutation`), each refusal code it may return
     with that refusal's detail Contract, and the entrypoint that serves it.
-    Refresh the manifest's digest there. The Contracts themselves are accepted
-    at the install base (a kit ships them); the package only names them.
-    Declare any non-Python runtime resources.
+    Refresh the manifest's digest there: `sha256:` followed by the hex sha256
+    of `manifest.yaml`'s bytes. The Contracts themselves must be accepted on
+    the instance before install (a kit ships them, or the package ships their
+    bodies under `src/cruxible_provider_PLANE/contracts/`, as the web and noop
+    packages do); the registration only names them. Declare any non-Python
+    runtime resources under `runtime_requirements`.
 5.  Implement the callable in `provider.py`.
 6.  Write the conformance suite (see `tests/test_conformance.py`). The test
     directory carries **no `__init__.py`** -- two packages both exporting a

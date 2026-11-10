@@ -15,9 +15,9 @@ across the whole fleet on each publish.
 The umbrella meta-package `cruxible-providers` — a pure dependency shell with one
 extra per plane — exists for install ergonomics now that the first plane packages
 do. It ships no code, so it enters no implementation digest. Operators install
-providers into a daemon explicitly and through governance (`cruxible playbill
-provider install`); nothing is fetched implicitly when a Procedure binds. The
-umbrella serves developers.
+providers into a daemon explicitly and through governance (`cruxible provider
+install`); nothing is fetched implicitly when a Procedure binds. The umbrella
+serves developers.
 
 Because its entire content is other packages, the umbrella declares itself exempt
 from the one-package-one-digest-change gate (`[tool.cruxible] digest_scope =
@@ -131,8 +131,8 @@ old pins, so nothing needed re-issuance. The marker environments do not enter th
 backend-invariant implementation preimage, and this slice changes no entrypoint
 or released distribution pin; implementation digests do not move.
 
-Windows development uses WSL2 now. Native Windows is demand-gated and, if
-needed, arrives later as an **additive** marker environment. It will create new
+Windows development uses WSL2 now. Native Windows has no marker environment;
+one would arrive later as an **additive** marker environment. It will create new
 materialization digests for that environment without re-keying any existing
 Linux or macOS pin.
 
@@ -304,12 +304,14 @@ hash would be impossible to produce.
 
 Each provider wheel embeds its package's committed `uv.lock` at
 `<dist-info>/extra_metadata/uv.lock` (hatch `extra-metadata`). An operator
-install by name (`cruxible playbill provider install cruxible-provider-web`)
+install by name (`cruxible provider install cruxible-provider-web`)
 fetches the wheel from the index, checks it against the index's sha256, and
 materializes the environment from that embedded lock, so it resolves exactly
 what the package was released with and needs no checkout. The lock names the
 runtime as a path source; the installer takes it from the same index at its
-locked version.
+locked version. That is why the runtime must be published first: until the
+locked runtime version is on the index, install from a checkout instead (built
+wheels, `--lock` and `--dependency`; see the repository README).
 
 `.github/workflows/publish.yml` publishes one package per run, wheels only,
 through PyPI trusted publishing with attestations. A tag

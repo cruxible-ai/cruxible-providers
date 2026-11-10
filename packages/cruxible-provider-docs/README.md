@@ -15,7 +15,9 @@ Contract `<operation>.refusal.<code>@1`. The Contracts are named,
 not shipped; an install pins each to the version accepted at its base.
 
 Operators install it into a daemon by name, through a governed install:
-`cruxible playbill provider install cruxible-provider-docs`. The umbrella
+`cruxible provider install cruxible-provider-docs` (add `--extra docling` or
+`--extra paddleocr` for the engine the operation needs). An unpublished version
+installs from a checkout instead; see the repository README. The umbrella
 `cruxible-providers[docs]` exists for developers.
 
 ## Nothing here is observed

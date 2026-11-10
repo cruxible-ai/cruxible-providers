@@ -10,11 +10,15 @@ pip install "cruxible-providers[web]"
 pip install "cruxible-providers[web,docs]"
 ```
 
+These resolve from the index, so they need the umbrella and the plane versions
+it names to be published. In a checkout, `uv sync` at the repository root
+installs every plane at its base install instead.
+
 ## Who this is for
 
 Developers. **Operators never install a provider through this.** They install a
-plane by name into a daemon through a governed install (`cruxible playbill
-provider install cruxible-provider-web`), which materializes an isolated
+plane by name into a daemon through a governed install (`cruxible provider
+install cruxible-provider-web`), which materializes an isolated
 environment from the lock the plane's wheel embeds. Nothing in this package is ever part of an implementation
 digest, a materialization pin, or a track record.
 
@@ -57,7 +61,7 @@ lands, never anticipated: naming a distribution that does not exist yet would
 produce an umbrella that cannot resolve, and an `all` extra that means "all but
 one" is worse than no `all` at all.
 
-`workspace` is the built-in Source adapter core seeds by proposal. It is in the
-umbrella for the same reason the others are -- a developer installing the planes
-gets the built-in too -- and for no other: end users never install it, and core
-pins its digests rather than its distribution.
+`workspace` is the package core's built-in `workspace.file` was ported from. It
+is in the umbrella for the same reason the others are -- a developer installing
+the planes gets it too -- and for no other: core does not need it, because every
+new instance already runs its own in-process copy.
