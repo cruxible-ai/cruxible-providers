@@ -10,6 +10,7 @@ query string, where it would end up in the instance's access log.
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -258,3 +259,12 @@ def test_the_user_agent_names_the_installed_version() -> None:
 
     expected = f"cruxible-provider-web/{version('cruxible-provider-web')} (+https://cruxible.ai)"
     assert expected == USER_AGENT
+
+
+def test_the_browser_sends_the_same_user_agent() -> None:
+    """``web.render.dom``'s browser names the same installed version, not a literal."""
+
+    from cruxible_provider_web import browser, http
+
+    assert browser.USER_AGENT is http.USER_AGENT
+    assert "cruxible-provider-web/0.5 " not in Path(browser.__file__).read_text(encoding="utf-8")

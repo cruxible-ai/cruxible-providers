@@ -43,6 +43,7 @@ from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import decline
 
 from .addresses import AddressGuard, literal_address
+from .http import USER_AGENT
 from .operations import ENGINE_UNAVAILABLE, PROVIDER_DECLINED
 
 __all__ = [
@@ -277,7 +278,7 @@ class PlaywrightRenderer:
                 # drive_page, which the default lane executes over a double. This
                 # method's whole job is to hand it a real page.
                 return drive_page(
-                    browser.new_page(user_agent=_USER_AGENT),
+                    browser.new_page(user_agent=USER_AGENT),
                     url,
                     timeout_seconds=timeout_seconds,
                     recorder=recorder,
@@ -286,6 +287,3 @@ class PlaywrightRenderer:
                 )
             finally:
                 browser.close()
-
-
-_USER_AGENT = "cruxible-provider-web/0.5 (+https://cruxible.ai)"
