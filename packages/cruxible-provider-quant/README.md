@@ -177,4 +177,3 @@ inputs and outputs contain no binary JSON floats. Integers stay integers. The
 `numeric` helpers encode and decode this representation; the adapter encodes its
 output before returning. This does not increase the numerical precision of the
 underlying engines. Noncanonical decimals and values outside engine range refuse.
-Contracts and their predecessors are bundled, with exact version and digest pins.

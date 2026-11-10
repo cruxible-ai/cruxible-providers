@@ -17,7 +17,7 @@ contract, plus the small provider-facing surface in
 | `canonical` | Canonical JSON and domain-tagged digests |
 | `digests` | `implementation_digest` and `materialization_digest` |
 | `resolution` | Lock resolution for an explicit marker environment |
-| `index` | Fetch-on-bind from pinned indexes |
+| `index` | Artifact fetches from pinned indexes: no redirects, hash-checked, cache-only when air-gapped. Core's installer uses it at install; the stub registry's local backend uses it at bind |
 | `cache` | The sealed, permission-checked, atomically-renamed materialization cache |
 | `secrets` | Credential delivery over an inherited descriptor, and redaction |
 | `budget` | Out-of-process wall-clock and output-size enforcement |
@@ -52,8 +52,13 @@ one this run executes, and the harness refuses (`undeclared_operation`) a run
 for an operation the entrypoint does not declare. A refusal code is the
 operation's own — declared under `refusals` in `registration.json`, each with a
 detail Contract — never one of the runtime's `RefusalCode` values, which are
-reserved for the runtime's machinery. `decline(code, message, **detail)` raises
-the same refusal from deep inside a call.
+reserved for the runtime's machinery. `raise decline(code, message, **detail)`
+gives the same refusal from deep inside a call.
+
+`ProviderResult.ok(output, incomplete_captures=[...])` names out-Contract
+`list<capture<...>>` fields the output is missing members of (a page that
+failed to fetch, say). It travels in the result envelope's generic field of the
+same name, and only on an `ok` result.
 
 Runtime codes come from runtime machinery only. A `RefusalError` raised by
 provider code — while its module is imported, its object constructed, its

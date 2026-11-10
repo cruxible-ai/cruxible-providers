@@ -1,13 +1,20 @@
 # cruxible-provider-workspace
 
-The `workspace.file` built-in Source adapter. Apache-2.0.
+The `workspace.file` Source adapter. Apache-2.0.
 
 Core reads the file. This package structures the bytes it was handed into a
 capture body, and does nothing else.
 
+Core does not need this package. Every new instance starts with core's own
+in-process port of this adapter, the `cruxible-builtin` Provider, which serves
+the same `workspace.file` signature and refusal Contracts; a parity golden in
+core holds the two to the same result envelope. Installing this package
+registers a separate build beside the built-in, and a Line binds whichever build
+it names.
+
 ## Where the boundary is
 
-The G5 law puts everything with authority on core's side of the process boundary:
+Everything with authority stays on core's side of the process boundary:
 the attached workspace is the binding, the allowed roots widen it (daemon-local,
 never in governed state), the path grammar is workspace-relative normalized POSIX
 with no absolute paths and no `..`, the symlink walk refuses any escaping link,
@@ -21,7 +28,7 @@ What crosses into this adapter is the **outcome** of that read:
 | Field | Meaning |
 |---|---|
 | `logical_source` | the logical source id the read was resolved for; opaque here |
-| `commitment_digest` | the G4 derived-request commitment the read was bound to before spawn; echoed |
+| `commitment_digest` | the derived-request commitment the read was bound to before spawn; echoed |
 | `content_encoding` | always `base64` (RFC 4648 §4, padded, no line breaks) |
 | `bytes` | the payload |
 | `byte_length` | the declared length of the decoded payload; **checked** |
@@ -40,7 +47,7 @@ refuses (`invalid_parameter`); a payload over one mebibyte refuses
 as the source digest, so a reader of the Capture gets the digest core's receipt
 names, re-verified by the process that structured the bytes.
 
-## Pure (RAT-9)
+## Pure
 
 The adapter opens no file, contacts no endpoint, reads no clock, and consults no
 secret. Its output is a function of its input alone, which is what lets the same
@@ -130,5 +137,6 @@ Three levels, as everywhere in this repository. The implementation digest covers
 the entrypoint `cruxible_provider_workspace.file:WorkspaceFile` and the built
 wheel's sha256;
 the materialization digests cover the committed lock resolved for each marker
-environment in `ci/marker-environments.json`. `scripts/seed_pins.py` prints the
-table core's seed bundle pins.
+environment in `ci/marker-environments.json`. `scripts/seed_pins.py` prints
+these pins for a built wheel. Core's built-in does not use them: its identity is
+derived from a core-owned revision constant, not from this package's wheel.

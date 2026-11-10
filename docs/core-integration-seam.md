@@ -58,6 +58,15 @@ The child refuses `undeclared_operation` for an operation the entrypoint does
 not declare, and a protocol violation for an entrypoint that declares none or an
 `--entrypoint` argument that disagrees with the context.
 
+The result envelope carries `status` (`ok`, `refused` or `error`) and exactly
+one of `output`, `refusal` or `error`, plus the trace. An `ok` envelope may also
+name `incomplete_captures`: out-Contract `list<capture<...>>` fields its output
+is missing members of (a page that failed to fetch, say). The field is generic,
+so core reads no operation-specific field to learn it: it treats the call as
+incomplete, and absence over it never retires. It is omitted when empty, and no
+other status may carry it. A provider sets it through
+`ProviderResult.ok(..., incomplete_captures=[...])`.
+
 A refused envelope's `refusal.code` is one of two disjoint vocabularies: the
 runtime's own closed `RefusalCode` (reserved; no operation may declare one), or a
 code the bound operation declares. Runtime codes are produced by runtime

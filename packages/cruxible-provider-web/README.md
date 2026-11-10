@@ -11,8 +11,10 @@ Cruxible provider adapters for the web plane. Apache-2.0.
 | `web.render.dom` | `cruxible_provider_web.dom:WebRenderDom` | Playwright (extra) — a browser | `browser` |
 
 Operators install it into a daemon by name, through a governed install:
-`cruxible playbill provider install cruxible-provider-web`. The umbrella
-`cruxible-providers[web]` exists for developers.
+`cruxible provider install cruxible-provider-web` (add `--extra browser` for
+`web.render.dom`). An unpublished version installs from a checkout instead; see
+the repository README. The umbrella `cruxible-providers[web]` exists for
+developers.
 
 ## The base install is light
 
@@ -25,8 +27,9 @@ A **browser** is the one heavy engine here, and it lives behind the `browser`
 extra. The `web.render.dom` manifest row declares that extra in
 `requires_extras`, which is what makes the resolver materialize an environment
 containing it — and what makes that environment different from the base one
-`web.fetch`, `web.fetch.pages`, `search.web` and `web.render` bind. One lock, two environments, two pins in the accepted artifact
-(`linux-cp311-engines` and `linux-cp311-engines+browser`).
+`web.fetch`, `web.fetch.pages`, `search.web` and `web.render` bind. One lock, two environments, two pins per marker
+environment in the accepted artifact (for example `linux-cp311` and
+`linux-cp311+browser`).
 
 Trafilatura is base rather than an extra on purpose. The split exists to keep a
 browser, a tensor stack, and an OCR runtime out of the base install; a
@@ -197,18 +200,11 @@ host is not an origin change for this purpose: the credential has already crosse
 the wire in clear. An unauthenticated chain is followed to its end, and every hop
 of it is recorded.
 
-`search.web` declares a concrete origin, because its target is configuration
-rather than input. The instance is named per run by an `instance_url` coordinate
-and refused (`undeclared_instance`) unless the accepted declaration carries it.
-
-**As shipped, the declared instance is the reserved conformance host, so this
-package is not deployable against a real instance as-is.** Under
-manifest-verbatim transcription, *which* instance a deployment queries is part of
-what the accepted artifact says, so pointing this adapter at a real instance means
-publishing a distribution whose manifest declares that instance — which also makes
-the instance part of the implementation's identity and of its track record.
-Whether that is the intended cost is an open question for the artifact
-vocabulary, recorded with the batch rather than decided here.
+`search.web`'s target is configuration rather than input. The instance is named
+per run by an `instance_url` coordinate; a run without one declines. The shipped
+manifest declares `dynamic:target-from-configuration`, so any configured
+instance is admitted and its egress recorded. A manifest that lists concrete
+origins instead refuses an instance outside them (`undeclared_instance`).
 
 ## The reserved fixture host
 
