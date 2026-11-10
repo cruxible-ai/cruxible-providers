@@ -19,6 +19,7 @@ pinning tests observe the connection through an httpcore network backend double.
 from __future__ import annotations
 
 import functools
+import ssl
 from collections.abc import Iterable, Mapping, Sequence
 from ipaddress import ip_address
 from typing import Any
@@ -505,6 +506,7 @@ class _Wire(httpcore.MockStream):
         self, ssl_context: Any, server_hostname: str | None = None, timeout: float | None = None
     ) -> httpcore.NetworkStream:
         self._backend.server_hostnames.append(server_hostname)
+        self._backend.ssl_contexts.append(ssl_context)
         return self
 
     def close(self) -> None:
@@ -519,6 +521,7 @@ class _Backend(httpcore.NetworkBackend):
         self._answers = list(answers)
         self.connected: list[tuple[str, int]] = []
         self.server_hostnames: list[str | None] = []
+        self.ssl_contexts: list[Any] = []
         self.written: list[bytes] = []
         self.closed = 0
 
@@ -585,6 +588,43 @@ def test_the_connection_goes_to_the_address_that_was_checked() -> None:
     assert backend.connected == [(PUBLIC_V4, 443)]
     assert backend.server_hostnames == ["rebind.example"]
     assert b"Host: rebind.example" in b"".join(backend.written)
+    # TLS runs on a verified context: the name is checked against the certificate.
+    (context,) = backend.ssl_contexts
+    assert context.check_hostname is True
+    assert context.verify_mode is ssl.CERT_REQUIRED
+
+
+def test_a_pinned_transport_loads_the_trust_store_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One verified context per transport, not one built and thrown away.
+
+    Every page of a paged fetch builds its own client, so a discarded trust-store
+    load would be paid up to 64 times per run.
+    """
+
+    loads: list[object] = []
+    original = ssl.SSLContext.load_verify_locations
+
+    def counting(self: ssl.SSLContext, *args: Any, **kwargs: Any) -> None:
+        loads.append(self)
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ssl.SSLContext, "load_verify_locations", counting)
+
+    transport = PinnedTransport(AddressGuard(_resolver()))
+    try:
+        assert len(loads) == 1
+        # The pool that opens the connections uses that one context.
+        assert transport._pool._ssl_context is loads[0]
+    finally:
+        transport.close()
+    loads.clear()
+    client = guarded_client_factory(
+        EgressRecorder(), url="https://news.example/article", timeout_seconds=1.0
+    )
+    try:
+        assert len(loads) == 1
+    finally:
+        client.close()
 
 
 def test_a_rebinding_answer_on_a_later_hop_is_refused() -> None:

@@ -324,14 +324,19 @@ class PinnedTransport(httpx.HTTPTransport):
     an ``httpx.Client`` given an explicit transport reads no proxy from the
     environment). ``network_backend`` is injectable so a test can observe which
     address a connection was opened to without opening one.
+
+    The trust store is loaded once per transport: the verified context built
+    here is handed to the base constructor, which then uses it as given rather
+    than building its own, and the pinned pool is built on that same context.
     """
 
     def __init__(
         self, guard: AddressGuard, *, network_backend: httpcore.NetworkBackend | None = None
     ) -> None:
-        super().__init__()
+        ssl_context = httpx.create_ssl_context()
+        super().__init__(verify=ssl_context)
         self._pool = httpcore.ConnectionPool(
-            ssl_context=httpx.create_ssl_context(),
+            ssl_context=ssl_context,
             network_backend=_PinnedBackend(guard, network_backend or httpcore.SyncBackend()),
         )
 
