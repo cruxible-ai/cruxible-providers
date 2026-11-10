@@ -28,12 +28,14 @@ import httpx
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import Declined
+from cruxible_provider_web import addresses
 from cruxible_provider_web.addresses import (
     ADDRESS_CLASSES,
     PRIVATE_ADDRESS_MESSAGE,
     AddressGuard,
     Resolver,
     address_class,
+    system_resolver,
 )
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.http import (
@@ -250,6 +252,34 @@ def test_an_answer_mixing_public_and_private_addresses_refuses() -> None:
         guard.vet("https://split.example/")
 
     assert _refused(exc)["address"] == "10.0.0.1"
+
+
+@pytest.mark.parametrize("size", [8, 4096])
+def test_the_system_resolver_keeps_first_seen_order_and_drops_duplicates(
+    size: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order is the resolver's; a repeat (also one differing only by its zone) is dropped.
+
+    Each distinct address is recorded once against a set, so a large answer costs
+    one pass rather than a scan of everything seen before it per entry.
+    """
+
+    distinct = [f"2606:4700::{index:x}" for index in range(size)]
+    # Every address twice, the repeat later in the answer and half of them
+    # carrying a zone; and the answer's own order is not sorted.
+    answer = list(reversed(distinct)) + [
+        f"{address}%en0" if index % 2 else address for index, address in enumerate(distinct)
+    ]
+    calls: list[tuple[str, int]] = []
+
+    def getaddrinfo(host: str, port: int, *args: Any, **kwargs: Any) -> list[Any]:
+        calls.append((host, port))
+        return [(10, 1, 6, "", (address, port, 0, 0)) for address in answer]
+
+    monkeypatch.setattr(addresses.socket, "getaddrinfo", getaddrinfo)
+
+    assert system_resolver("many.example", 443) == list(reversed(distinct))
+    assert calls == [("many.example", 443)]
 
 
 def test_a_public_answer_is_pinned_in_full() -> None:

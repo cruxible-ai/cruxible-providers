@@ -141,14 +141,16 @@ ADDRESS_CLASSES: Final = (
 
 
 def system_resolver(host: str, port: int) -> list[str]:
-    """Every address the system resolver gives for ``host``, in its order."""
+    """Every address the system resolver gives for ``host``, once each, in its order."""
 
     addresses: list[str] = []
+    seen: set[str] = set()
     for *_, sockaddr in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM):
         # A scoped IPv6 answer carries its zone ("fe80::1%en0"); the address is
         # what gets judged, and a zone only ever accompanies link-local anyway.
         address = str(sockaddr[0]).split("%", 1)[0]
-        if address not in addresses:
+        if address not in seen:
+            seen.add(address)
             addresses.append(address)
     return addresses
 
