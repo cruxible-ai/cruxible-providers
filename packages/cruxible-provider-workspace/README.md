@@ -24,10 +24,11 @@ You do not need this package unless you are testing core's built-in
 
 ## Reference
 
-The `workspace.file` Source adapter. Apache-2.0.
+The `workspace.file` source adapter for [Cruxible](https://github.com/cruxible-ai/cruxible).
+Apache-2.0.
 
-Core reads the file. This package structures the bytes it was handed into a
-capture body, and does nothing else.
+Cruxible core reads a file from an attached workspace. This package turns the
+bytes it was handed into a structured capture body, and does nothing else.
 
 Core does not need this package. Every new instance starts with core's own
 in-process port of this adapter, the `cruxible-builtin` Provider, which serves
@@ -38,25 +39,23 @@ it names.
 
 ## Where the boundary is
 
-Everything with authority stays on core's side of the process boundary:
-the attached workspace is the binding, the allowed roots widen it (daemon-local,
-never in governed state), the path grammar is workspace-relative normalized POSIX
-with no absolute paths and no `..`, the symlink walk refuses any escaping link,
-the final open is `O_NOFOLLOW`, containment is re-checked on the resolved path,
-the size cap is policy-carried and resolved at admission, and a
-`source-read-receipt` attests that the read was authorized. Host paths never
-enter the ledger.
+Everything with authority stays on core's side of the process boundary: the
+workspace binding and its allowed roots, the path grammar (workspace-relative,
+normalized POSIX, no absolute paths, no `..`), the symlink walk that refuses any
+escaping link, the `O_NOFOLLOW` open, the containment re-check on the resolved
+path, the size cap resolved at admission, and the read receipt that attests the
+read was authorized. Host paths never enter the ledger.
 
 What crosses into this adapter is the **outcome** of that read:
 
 | Field | Meaning |
 |---|---|
-| `logical_source` | the logical source id the read was resolved for; opaque here |
-| `commitment_digest` | the derived-request commitment the read was bound to before spawn; echoed |
-| `content_encoding` | always `base64` (RFC 4648 §4, padded, no line breaks) |
-| `bytes` | the payload |
-| `byte_length` | the declared length of the decoded payload; **checked** |
-| `bytes_digest` | the declared `sha256:` of the decoded payload; **checked, then echoed** |
+| `logical_source` | The logical source the read was resolved for; opaque here |
+| `commitment_digest` | The digest of the request commitment core bound the read to before the adapter started; echoed |
+| `content_encoding` | Always `base64` (RFC 4648 §4, padded, no line breaks) |
+| `bytes` | The payload |
+| `byte_length` | The declared length of the decoded payload; **checked** |
+| `bytes_digest` | The declared `sha256:` of the decoded payload; **checked, then echoed** |
 
 It serves one operation, `workspace.file`: `workspace.file.request@1` in,
 `workspace.file.result@1` out, effect `pure`, with three declared refusals —
@@ -151,9 +150,9 @@ contract's result vectors — and that its protocol-1.x vector is refused.
 
 Every loop test runs on both `local_env` and `container`, with no Docker: the
 container path runs at protocol level against the runtime's fake driver, and
-`container/` is the buildable spelling of the same contract. On the Cloud
-profile the *read* refuses typed under the no-mounts law; that refusal is core's,
-upstream of this adapter, and a bundled-workspace upload is a follow-on.
+`container/` is the buildable spelling of the same contract. In a hosted
+deployment, workspace reads themselves are refused by core, upstream of this
+adapter.
 
 ## Identity
 
@@ -164,3 +163,12 @@ the materialization digests cover the committed lock resolved for each marker
 environment in `ci/marker-environments.json`. `scripts/seed_pins.py` prints
 these pins for a built wheel. Core's built-in does not use them: its identity is
 derived from a core-owned revision constant, not from this package's wheel.
+
+## Development
+
+From a checkout of
+[cruxible-providers](https://github.com/cruxible-ai/cruxible-providers):
+
+```sh
+uv run pytest packages/cruxible-provider-workspace -q
+```

@@ -1,4 +1,12 @@
-"""Fetch-on-bind artifact retrieval from pinned indexes.
+"""Artifact retrieval from pinned indexes, for materializing an environment.
+
+Providers are installed explicitly, through governance. In Cruxible, the
+operator's install resolves the package's lock and materializes its environment,
+and that is when the exact wheels the lock names are fetched — through this
+module; later binds verify and reuse what the install materialized. (The
+runtime's own :func:`~cruxible_provider_runtime.binding.bind`, which the
+conformance harness drives, materializes on a cache miss through the same
+fetcher and the same rules.)
 
 Rules the contract fixes:
 

@@ -1,9 +1,9 @@
 """A stub provider registry.
 
 **This is a stub.** The real Provider build artifact, its operations and the
-Contracts they pin live in core. This repository ships schemas and a conformance
-harness against this stub; the seam is documented in
-``docs/core-integration-seam.md``.
+Contracts they pin live in core. This package ships schemas and a conformance
+harness against this stub and never touches core state; the seam is documented
+in ``docs/core-integration-seam.md`` in the source repository.
 
 The stub is faithful about the *rules* core enforces, because those rules are
 what the conformance suite tests:

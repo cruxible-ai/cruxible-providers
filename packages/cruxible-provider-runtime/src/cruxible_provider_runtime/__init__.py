@@ -4,8 +4,9 @@ A provider is one Python package with its own committed lock, a package-side
 manifest, a registration declaring its typed operations, and one or more
 entrypoints serving them. This library is what makes such a package bindable: it
 owns the manifest, registration and protocol schemas (protocol 2.0: a run names
-one operation of one build), both identity digests, the fetch-on-bind resolver,
-the materialization cache, secret delivery, budget enforcement, egress
+one operation of one build), both identity digests, lock resolution, the
+pinned-index artifact fetcher an explicit install materializes environments
+with, the materialization cache, secret delivery, budget enforcement, egress
 instrumentation, and the runtime's own closed refusal codes that keep every path
 fail-closed.
 

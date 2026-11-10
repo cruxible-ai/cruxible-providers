@@ -27,7 +27,8 @@ You do not need this package if nothing you run reads from the web.
 
 ## Reference
 
-Cruxible provider adapters for the web plane (the web family of operations). Apache-2.0.
+[Cruxible](https://github.com/cruxible-ai/cruxible) provider adapters for the web
+plane (the web family of operations). Apache-2.0.
 
 | Operation | Entrypoint | Engine | Extra |
 |---|---|---|---|

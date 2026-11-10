@@ -6,8 +6,8 @@ manifest. Registration is an ordinary change-set proposal; at bind and invoke th
 runtime recomputes the package manifest digest and refuses on any divergence.
 
 This module owns only the *payload* schema and its digest. Acceptance,
-proposals, and storage are core's business — RP-0 ships schemas and a
-conformance harness against a stub registry and never touches the core repo.
+proposals, and storage are core's business — this package ships schemas and a
+conformance harness against a stub registry and never touches core state.
 """
 
 from __future__ import annotations

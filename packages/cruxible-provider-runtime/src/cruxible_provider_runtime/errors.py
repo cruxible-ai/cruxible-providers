@@ -7,7 +7,7 @@ bare exception and never a silent fallback.
 Refusals are distinct from provider *errors*. A refusal means the runtime (or
 the provider, deliberately) declined to produce an answer under a named rule; an
 error means an attempted answer failed. Budget breaches are refusals, not
-errors, per the RP-0 contract.
+errors, per the provider contract.
 
 There are two refusal vocabularies and they never overlap. The runtime's own is
 :class:`RefusalCode`, closed, raised as :class:`RefusalError`. An operation's is

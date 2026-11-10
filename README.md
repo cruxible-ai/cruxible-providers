@@ -1,7 +1,7 @@
 # cruxible-providers
 
-This repository holds the optional add-on packages that let Cruxible do work
-outside its own core: fetch web pages, convert documents, run statistics, and
+This repository holds the optional add-on packages that let
+[Cruxible](https://github.com/cruxible-ai/cruxible) do work outside its own core: fetch web pages, convert documents, run statistics, and
 so on. Each add-on is called a **provider**: a Python package that does one
 kind of computation and reports the result back to Cruxible. A provider offers
 one or more **operations**, each a named task with a fixed input and output

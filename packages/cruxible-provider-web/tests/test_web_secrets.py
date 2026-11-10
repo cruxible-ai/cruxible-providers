@@ -223,3 +223,14 @@ def test_a_missing_browser_is_the_operations_declared_refusal() -> None:
         )
     assert exc.value.code == ENGINE_UNAVAILABLE
     assert exc.value.refusal.detail["required_extra"] == "browser"
+
+
+def test_the_user_agent_names_the_installed_version() -> None:
+    """Derived from the distribution, so a release never ships a stale claim."""
+
+    from importlib.metadata import version
+
+    from cruxible_provider_web.http import USER_AGENT
+
+    expected = f"cruxible-provider-web/{version('cruxible-provider-web')} (+https://cruxible.ai)"
+    assert expected == USER_AGENT

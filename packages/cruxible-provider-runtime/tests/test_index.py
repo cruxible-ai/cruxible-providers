@@ -1,4 +1,4 @@
-"""Fetch-on-bind: pinned indexes, redirects, hashes, air-gapped mode.
+"""Pinned-index retrieval: pinned indexes, redirects, hashes, air-gapped mode.
 
 No test here touches the network. The index is a fake whose whole job is to
 misbehave in the four ways the contract names.
