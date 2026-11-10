@@ -13,8 +13,11 @@ own.
 | `web` | `cruxible-provider-web` | `web.fetch`, `web.fetch.pages`, `search.web`, `web.render`, `web.render.dom` |
 | `docs` | `cruxible-provider-docs` | `doc.to_markdown`, `ocr.extract` |
 | `quant` | `cruxible-provider-quant` | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
-| `workspace` | `cruxible-provider-workspace` | `workspace.file` |
-| `all` | all four of the above | all of the above |
+| `all` | all three of the above | all of the above |
+
+`cruxible-provider-workspace` is not offered here: core has `workspace.file`
+built in, and that package stays in the repository only to test the built-in
+against.
 
 Each extra installs the package without its own heavy optional engines (for
 example the browser for `web.render.dom`); add those on the package itself,
@@ -83,13 +86,14 @@ registered as a Provider artifact.
 
 ## The planes
 
-`web`, `docs`, `quant`, and `workspace` -- one extra per plane distribution
-that exists, and `all` is exactly their union. A plane is wired the moment it
-lands, never anticipated: naming a distribution that does not exist yet would
-produce an umbrella that cannot resolve, and an `all` extra that means "all but
-one" is worse than no `all` at all.
+`web`, `docs` and `quant` -- one extra per plane distribution that exists, and
+`all` is exactly their union. A plane is wired the moment it lands, never
+anticipated: naming a distribution that does not exist yet would produce an
+umbrella that cannot resolve, and an `all` extra that means "all but one" is
+worse than no `all` at all.
 
-`workspace` is the package core's built-in `workspace.file` was ported from. It
-is in the umbrella for the same reason the others are -- a developer installing
-the planes gets it too -- and for no other: core does not need it, because every
-new instance already runs its own in-process copy.
+`cruxible-provider-workspace` is deliberately left out. It is the package
+core's built-in `workspace.file` was ported from; core does not need it,
+because every new instance already runs its own in-process copy, so it is not
+published and nothing installed through the umbrella pulls it in. Its source and
+tests stay in this repository.

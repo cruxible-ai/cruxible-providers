@@ -40,18 +40,20 @@ dependencies = []
 # Each plane is floored at its provider-runtime protocol 2.0 release (0.3.0):
 # an umbrella that could resolve a protocol-1.x plane would install a provider
 # no current runtime can run.
+#
+# cruxible-provider-workspace is deliberately not here. It is the package core's
+# built-in workspace.file was ported from; it stays in this repository for its
+# tests, it is not published, and nothing installed through the umbrella pulls
+# it in.
 web = ["cruxible-provider-web>=0.3.0"]
 docs = ["cruxible-provider-docs>=0.3.0"]
 quant = ["cruxible-provider-quant>=0.3.0"]
-workspace = ["cruxible-provider-workspace>=0.3.0"]
-# `all` is the union of every plane, and only ever the full union — wired the
-# moment the last plane landed, never earlier: an `all` that means "all but
-# one" is worse than no `all` at all.
+# `all` is the union of every plane extra above, and only ever the full union:
+# an `all` that means "all but one" is worse than no `all` at all.
 all = [
   "cruxible-provider-web>=0.3.0",
   "cruxible-provider-docs>=0.3.0",
   "cruxible-provider-quant>=0.3.0",
-  "cruxible-provider-workspace>=0.3.0",
 ]
 
 [dependency-groups]
@@ -71,7 +73,6 @@ dev = [
 cruxible-provider-web = { path = "../cruxible-provider-web", editable = true }
 cruxible-provider-docs = { path = "../cruxible-provider-docs", editable = true }
 cruxible-provider-quant = { path = "../cruxible-provider-quant", editable = true }
-cruxible-provider-workspace = { path = "../cruxible-provider-workspace", editable = true }
 
 [tool.cruxible]
 # Exempt from the one-package-one-digest-change gate, and it has to be: this

@@ -20,7 +20,7 @@ Supported platforms: Linux on x86-64 and macOS on Apple silicon, with Python
 | `cruxible-provider-workspace` | Turning a file's bytes into a structured text or binary body. Core already has this built in; the package is kept for testing | `workspace.file` |
 | `cruxible-provider-noop` | A test package that does nothing useful on purpose; it checks that the provider rules hold | `noop.echo`, `noop.captures` |
 | `cruxible-provider-runtime` | The shared library every provider package depends on. You install it directly only if you write a provider | none |
-| `cruxible-providers` | A convenience package with no code that pulls in the others, for development | none |
+| `cruxible-providers` | A convenience package with no code that pulls in the web, docs and quant packages, for development | none |
 
 To install a provider into a running Cruxible daemon, an operator with `admin`
 permission runs, for example:
