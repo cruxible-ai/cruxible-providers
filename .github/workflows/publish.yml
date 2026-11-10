@@ -6,6 +6,11 @@ name: publish
 #
 # Publish `cruxible-provider-runtime` first: every provider depends on it.
 #
+# Only the packages in PUBLISHABLE below can be published, by tag or by hand.
+# The others are held back: docs and quant do not ship their Contracts yet,
+# workspace is built into Cruxible, noop is a test package, and the umbrella
+# waits for the packages it names. Add a name to both lists to release it.
+#
 # Wheels only. An install by name materializes the exact wheel and the lock it
 # embeds; an sdist would only invite a build nobody pinned.
 #
@@ -24,15 +29,11 @@ on:
         type: choice
         options:
           - cruxible-provider-runtime
-          - cruxible-provider-noop
           - cruxible-provider-web
-          - cruxible-provider-docs
-          - cruxible-provider-quant
-          - cruxible-provider-workspace
-          - cruxible-providers
 
 env:
   UV_VERSION: "0.8.13"
+  PUBLISHABLE: "cruxible-provider-runtime cruxible-provider-web"
 
 jobs:
   build:
@@ -53,6 +54,10 @@ jobs:
         run: |
           if [ -n "$TAG" ]; then package="${TAG%-v*}"; else package="$INPUT"; fi
           test -f "packages/$package/pyproject.toml" || { echo "no package $package"; exit 1; }
+          case " $PUBLISHABLE " in
+            *" $package "*) ;;
+            *) echo "$package is not on the publishable list"; exit 1 ;;
+          esac
           echo "package=$package" >> "$GITHUB_OUTPUT"
       - run: uv sync
       - name: Run the package's conformance suite
