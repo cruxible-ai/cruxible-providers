@@ -123,6 +123,52 @@ def test_every_blocked_class_is_classified(address: str, expected: str) -> None:
     assert expected in ADDRESS_CLASSES
 
 
+#: IETF-reserved IPv6 space outside every explicit table. Python reports each of
+#: these as ``is_global`` *and* ``is_reserved`` (3.11 to 3.13), so a backstop on
+#: ``is_global`` alone would admit them.
+RESERVED_OUTSIDE_THE_TABLES = [
+    "200::1",
+    "400::1",
+    "800::1",
+    "1000::1",
+    "4000::1",
+    "6000::1",
+    "8000::1",
+    "a000::1",
+    "c000::1",
+    "e000::1",
+    "f000::1",
+    "f800::1",
+    "fe00::1",
+]
+
+
+@pytest.mark.parametrize("address", RESERVED_OUTSIDE_THE_TABLES)
+def test_reserved_ipv6_outside_the_tables_is_refused(address: str) -> None:
+    parsed = ip_address(address)
+    assert parsed.is_reserved
+    assert address_class(parsed) == "reserved"
+
+    def no_dns(host: str, port: int) -> Sequence[str]:
+        raise AssertionError("a literal address was handed to the resolver")
+
+    with pytest.raises(Declined) as exc:
+        AddressGuard(no_dns).vet(f"https://[{address}]/")
+    assert _refused(exc)["address_class"] == "reserved"
+    with pytest.raises(Declined):
+        AddressGuard(_resolver({"reserved.example": (address,)})).vet("https://reserved.example/")
+
+
+def test_a_public_ipv4_host_in_a_translated_form_still_passes() -> None:
+    """The backstop does not catch translations: NAT64 (``64:ff9b::/96``) sits in
+    reserved IPv6 space, and the IPv4 host it carries is the whole verdict."""
+
+    nat64 = ip_address("64:ff9b::101:101")
+    assert nat64.is_reserved
+    assert address_class(nat64) is None
+    assert address_class(ip_address("::ffff:1.1.1.1")) is None
+
+
 @pytest.mark.parametrize("address", PUBLIC)
 def test_public_addresses_pass(address: str) -> None:
     assert address_class(ip_address(address)) is None

@@ -194,8 +194,12 @@ def address_class(address: IPAddress) -> str | None:
                 return name
     # The explicit tables above are the policy; this is the backstop for any
     # special-purpose range they do not name, so that a registry addition is
-    # refused by default rather than admitted by omission.
-    if not address.is_global or address.is_multicast:
+    # refused by default rather than admitted by omission. ``is_global`` alone
+    # is not enough: Python reports IETF-reserved IPv6 space outside 2000::/3
+    # (4000::/3, 8000::/3, fe00::/9, ...) as global and reserved at once, and
+    # reserved space is not a public destination. Translations returned above,
+    # so a mapped or NAT64 form of a public IPv4 host is not caught here.
+    if not address.is_global or address.is_multicast or address.is_reserved:
         return "reserved"
     return None
 
