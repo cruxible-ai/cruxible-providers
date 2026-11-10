@@ -382,7 +382,7 @@ pinned = read_package_registration(root).pinned_operations(
     lambda ref: digests.get((ref.name, ref.version)))
 refs = [ref for operation in pinned for ref in (
     operation.in_, operation.out, *(item.contract for item in operation.refusals.values()))]
-assert len(pinned) == 5 and len(refs) == 28, (len(pinned), len(refs))
+assert len(pinned) == 5 and len(refs) == 31, (len(pinned), len(refs))
 assert all(ref.digest == digests[(ref.name, ref.version)] for ref in refs)
 """
     result = subprocess.run([core_python, "-c", code, str(web)], capture_output=True)

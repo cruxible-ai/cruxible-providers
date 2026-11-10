@@ -27,7 +27,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
+from cruxible_provider_runtime.errors import Declined
+from cruxible_provider_web.addresses import AddressGuard, IPAddress
 from cruxible_provider_web.browser import PlaywrightRenderer
+from cruxible_provider_web.operations import PRIVATE_OR_INTERNAL_ADDRESS
 
 pytestmark = pytest.mark.engine
 
@@ -90,8 +93,20 @@ def page_url() -> Iterator[str]:
         server.server_close()
 
 
+class _LoopbackServed(AddressGuard):
+    """The production guard, except for the loopback server this lane serves from.
+
+    Everything else it judges exactly as the production guard does, including
+    the address the browser reports for the main-frame response.
+    """
+
+    def judge(self, url: str, host: str, address: IPAddress) -> None:
+        if not address.is_loopback:
+            super().judge(url, host, address)
+
+
 def _render(url: str, recorder: EgressRecorder | None = None):  # type: ignore[no-untyped-def]
-    return PlaywrightRenderer().render(
+    return PlaywrightRenderer(guard=_LoopbackServed()).render(
         url, timeout_seconds=30.0, recorder=recorder or EgressRecorder()
     )
 
@@ -188,3 +203,29 @@ def test_a_websocket_a_real_page_opens_reaches_the_recorder(page_url: str) -> No
     _render(f"{origin}/stream", recorder)
 
     assert set(recorder.observed()) == {origin, origin.replace("http://", "ws://", 1)}
+
+
+@pytest.mark.usefixtures("browser_available")
+def test_the_production_renderer_refuses_a_loopback_page(page_url: str) -> None:
+    """With the production guard, the same loopback page is never navigated to."""
+
+    recorder = EgressRecorder()
+    with pytest.raises(Declined) as refused:
+        PlaywrightRenderer().render(page_url, timeout_seconds=30.0, recorder=recorder)
+
+    assert refused.value.code == PRIVATE_OR_INTERNAL_ADDRESS
+    assert refused.value.refusal.detail["address_class"] == "loopback"
+    assert recorder.observed() == []
+
+
+@pytest.mark.usefixtures("browser_available")
+def test_a_real_browser_reports_the_address_that_served_the_main_frame(page_url: str) -> None:
+    """The post-navigation check reads ``Response.server_addr``; a real page has one.
+
+    If a Playwright release stopped reporting it, every production render would
+    be declined; this is where that would show.
+    """
+
+    rendered = _render(page_url)
+
+    assert rendered.status_code == 200

@@ -19,6 +19,14 @@ request, response and websocket events instead, and every endpoint the page
 contacts -- the main frame, a CDN, the API a script queries, a ws/wss stream it
 opens -- reaches the run's egress recorder.
 
+**Private targets.** The URL the run names is vetted before the browser goes
+there, and the address the browser reports for the main-frame response is
+judged before the page is captured; either one on a private, loopback,
+link-local or otherwise non-public address refuses the run
+(``private_or_internal_address``). What the browser contacts in between --
+redirect hops, subresources, script fetches, WebSockets -- is recorded but not
+vetted: see :mod:`.browser`.
+
 A URL on the reserved ``fixture.invalid`` host is answered from a packaged
 recording's post-assembly DOM rather than a browser; the coordinate says
 ``source: packaged-recording`` and the renderer ``recorded:<id>``.

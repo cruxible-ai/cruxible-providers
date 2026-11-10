@@ -109,6 +109,52 @@ def _redirect_refusals(operation: str) -> dict[str, dict[str, Any]]:
     }
 
 
+#: ``addresses.ADDRESS_CLASSES``: every class a private-address refusal names.
+_IPV4_ADDRESS_CLASSES = (
+    "unspecified",
+    "loopback",
+    "link_local",
+    "private",
+    "carrier_grade_nat",
+    "multicast",
+    "reserved",
+)
+ADDRESS_CLASS = (
+    "enum["
+    + ", ".join(
+        sorted(
+            [
+                *_IPV4_ADDRESS_CLASSES,
+                "local_name",
+                *(f"ipv4_embedded_{name}" for name in _IPV4_ADDRESS_CLASSES),
+            ]
+        )
+    )
+    + "]"
+)
+
+
+def _private_address_refusal(operation: str) -> dict[str, dict[str, Any]]:
+    """``addresses.AddressGuard``: fetch, fetch.pages and render.dom refuse private targets."""
+
+    return {
+        f"{operation}.refusal.private_or_internal_address": {
+            "description": (
+                "Detail of a private_or_internal_address refusal: the origin of the refused "
+                "target (never its path or query), its host, the blocked address when one "
+                "was judged (absent for a name refused as local-only), and the class of "
+                "address it fell in."
+            ),
+            "fields": {
+                "url": "string",
+                "host": "string{min_len: 1}",
+                "address": "string?",
+                "address_class": ADDRESS_CLASS,
+            },
+        },
+    }
+
+
 #: ``fetch``/``render`` ``page_weight_class``.
 WEIGHT = "enum[heavy, light, medium]"
 
@@ -225,6 +271,7 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
         "fields": _FETCH_DECLINED_FIELDS,
     },
     **_redirect_refusals("web.fetch"),
+    **_private_address_refusal("web.fetch"),
     "web.fetch.pages.failure": {
         "description": (
             "One page of a web.fetch.pages call that has no Capture: its 0-based index "
@@ -288,6 +335,7 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
         "fields": _FETCH_DECLINED_FIELDS,
     },
     **_redirect_refusals("web.fetch.pages"),
+    **_private_address_refusal("web.fetch.pages"),
     "web.render.request": {
         "description": (
             "A derive over one Capture this run fetched (an HTML document): text is its "
@@ -359,6 +407,7 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "engine": "string?",
         },
     },
+    **_private_address_refusal("web.render.dom"),
     "search.web.request": {
         "description": (
             "One query to the configured search instance. The instance is run "

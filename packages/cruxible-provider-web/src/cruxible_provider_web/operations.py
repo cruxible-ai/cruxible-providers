@@ -17,6 +17,7 @@ __all__ = [
     "ENGINE_UNAVAILABLE",
     "FETCH_OPERATION",
     "FETCH_PAGES_OPERATION",
+    "PRIVATE_OR_INTERNAL_ADDRESS",
     "PROVIDER_DECLINED",
     "REDIRECT_LIMIT",
     "RENDER_DOM_OPERATION",
@@ -51,3 +52,10 @@ CREDENTIAL_UNAVAILABLE = "credential_unavailable"
 
 UNDECLARED_INSTANCE = "undeclared_instance"
 """search.web: the run names a search instance the declaration does not cover."""
+
+PRIVATE_OR_INTERNAL_ADDRESS = "private_or_internal_address"
+"""web.fetch, web.fetch.pages and web.render.dom: the target is not a public address.
+
+Raised by :mod:`.addresses` only. ``search.web`` does not declare it: its
+instance is operator configuration, often a local service, and is not guarded.
+"""

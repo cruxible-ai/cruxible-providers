@@ -1,0 +1,47 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of a private_or_internal_address refusal: the origin of the refused target (never its path or query), its host, the blocked address when one was judged (absent for a name refused as local-only), and the class of address it fell in.",
+  "fields": {
+    "address": {
+      "optional": true,
+      "type": {
+        "kind": "string"
+      }
+    },
+    "address_class": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "carrier_grade_nat",
+          "ipv4_embedded_carrier_grade_nat",
+          "ipv4_embedded_link_local",
+          "ipv4_embedded_loopback",
+          "ipv4_embedded_multicast",
+          "ipv4_embedded_private",
+          "ipv4_embedded_reserved",
+          "ipv4_embedded_unspecified",
+          "link_local",
+          "local_name",
+          "loopback",
+          "multicast",
+          "private",
+          "reserved",
+          "unspecified"
+        ]
+      }
+    },
+    "host": {
+      "type": {
+        "kind": "string",
+        "min_len": 1
+      }
+    },
+    "url": {
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "web.render.dom.refusal.private_or_internal_address",
+  "version": 1
+}

@@ -24,12 +24,31 @@ from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
+from cruxible_provider_web.addresses import AddressGuard
 from cruxible_provider_web.browser import PAGE_CONTACT_EVENTS, RenderedPage, drive_page
 from cruxible_provider_web.dom import WebRenderDom
-from cruxible_provider_web.operations import ENGINE_UNAVAILABLE, PROVIDER_DECLINED
+from cruxible_provider_web.operations import (
+    ENGINE_UNAVAILABLE,
+    PRIVATE_OR_INTERNAL_ADDRESS,
+    PROVIDER_DECLINED,
+)
 from cruxible_provider_web.recordings import load_recordings
 
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=1_000_000)
+
+PUBLIC_V4 = "93.184.216.34"
+
+
+def _public(host: str, port: int) -> Sequence[str]:
+    """A resolver stub: every name is public. No test here touches real DNS."""
+
+    del host, port
+    return (PUBLIC_V4,)
+
+
+def _guard() -> AddressGuard:
+    return AddressGuard(_public)
+
 
 REQUESTED = "https://first.example/report"
 SETTLED = "https://second.example/report"
@@ -84,9 +103,16 @@ class _FakeResponse:
     url: str
     status: int
     headers: dict[str, str] = field(default_factory=dict)
+    server_address: str | None = PUBLIC_V4
+    """What the browser reports it connected to; ``None`` when it does not say."""
 
     def all_headers(self) -> dict[str, str]:
         return dict(self.headers)
+
+    def server_addr(self) -> dict[str, Any] | None:
+        if self.server_address is None:
+            return None
+        return {"ipAddress": self.server_address, "port": 443}
 
 
 class _FakePage:
@@ -136,12 +162,18 @@ class _PageRenderer:
 
     name = "playwright"
 
-    def __init__(self, page: _FakePage) -> None:
+    def __init__(self, page: _FakePage, guard: AddressGuard | None = None) -> None:
         self._page = page
+        self._guard = guard or _guard()
 
     def render(self, url: str, *, timeout_seconds: float, recorder: EgressRecorder) -> RenderedPage:
         return drive_page(
-            self._page, url, timeout_seconds=timeout_seconds, recorder=recorder, engine=self.name
+            self._page,
+            url,
+            timeout_seconds=timeout_seconds,
+            recorder=recorder,
+            engine=self.name,
+            guard=self._guard,
         )
 
 
@@ -256,7 +288,14 @@ def test_without_the_websocket_hook_the_endpoint_is_missing(
     monkeypatch.setattr(browser, "PAGE_CONTACT_EVENTS", ("request", "response"))
     recorder = EgressRecorder()
     page = _page(contacts=[("websocket", "wss://stream.third.example/live")])
-    drive_page(page, REQUESTED, timeout_seconds=1.0, recorder=recorder, engine="playwright")
+    drive_page(
+        page,
+        REQUESTED,
+        timeout_seconds=1.0,
+        recorder=recorder,
+        engine="playwright",
+        guard=_guard(),
+    )
     assert recorder.observed() == ["https://first.example"]
 
 
@@ -308,10 +347,142 @@ def test_a_navigation_without_a_response_assembled_nothing_to_capture() -> None:
             timeout_seconds=1.0,
             recorder=EgressRecorder(),
             engine="playwright",
+            guard=_guard(),
         )
     assert refused.value.code == PROVIDER_DECLINED
     result, _ = _run(_FakePage())
     assert result.status == "refused" and result.output is None
+
+
+# -- the private-address guard ----------------------------------------------
+#
+# A browser opens its own sockets, so the guard is applied where this adapter
+# can apply it: to the URL the run names, before the browser goes there, and to
+# the address the browser reports for the main-frame response it returns. What
+# the browser contacts in between is recorded and not vetted; these tests pin
+# down both halves of that statement.
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://169.254.169.254/latest/meta-data/iam/",
+        "http://127.0.0.1:8080/admin",
+        "http://[::1]/",
+        "http://[fd12:3456:789a::1]/",
+        "http://[fe80::1%25en0]/",
+        "http://[::ffff:10.0.0.1]/",
+        "http://2130706433/",
+        "http://localhost:9200/",
+        "http://metadata.google.internal/computeMetadata/v1/",
+    ],
+)
+def test_a_private_run_target_is_refused_before_the_browser_navigates(url: str) -> None:
+    page = _page()
+    recorder = EgressRecorder()
+    result = WebRenderDom(renderer=_PageRenderer(page))(
+        _context(input={"url": url}, egress=recorder)
+    )
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PRIVATE_OR_INTERNAL_ADDRESS
+    # Nothing was attached and nothing was navigated: the browser never went.
+    assert page.order == []
+    assert recorder.observed() == []
+    assert "/" not in result.refusal.detail["url"].removeprefix("http://")
+
+
+def test_a_run_target_resolving_privately_is_refused_before_navigation() -> None:
+    def private(host: str, port: int) -> Sequence[str]:
+        del port
+        return ("10.20.30.40",) if host == "first.example" else (PUBLIC_V4,)
+
+    page = _page()
+    result = WebRenderDom(renderer=_PageRenderer(page, AddressGuard(private)))(_context())
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PRIVATE_OR_INTERNAL_ADDRESS
+    assert result.refusal.detail == {
+        "url": "https://first.example",
+        "host": "first.example",
+        "address": "10.20.30.40",
+        "address_class": "private",
+    }
+    assert page.order == []
+
+
+@pytest.mark.parametrize(
+    ("served", "expected"),
+    [
+        ("169.254.169.254", "link_local"),
+        ("127.0.0.1", "loopback"),
+        ("10.0.0.5", "private"),
+        ("::1", "loopback"),
+        ("[::1]", "loopback"),
+        ("::ffff:169.254.169.254", "ipv4_embedded_link_local"),
+        ("fc00::5", "private"),
+    ],
+)
+def test_a_main_frame_served_from_a_private_address_is_not_captured(
+    served: str, expected: str
+) -> None:
+    """A public run target the browser ends up loading from a private address.
+
+    That is a redirect onto a private host, or a name re-pointed between the
+    guard's lookup and the browser's: either way the address the browser reports
+    for the response is the one judged, and the assembled page is not returned.
+    """
+
+    page = _page(
+        response=_FakeResponse(
+            url="http://metadata.example/latest/meta-data/",
+            status=200,
+            server_address=served,
+        )
+    )
+    served_html: list[str] = []
+    original = page.content
+
+    def content() -> str:
+        served_html.append("read")
+        return original()
+
+    page.content = content  # type: ignore[method-assign]
+    result = WebRenderDom(renderer=_PageRenderer(page))(_context())
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PRIVATE_OR_INTERNAL_ADDRESS
+    assert result.refusal.detail["address_class"] == expected
+    assert result.refusal.detail["url"] == "http://metadata.example"
+    assert result.output is None
+    # The page's content was never read, so nothing it holds can leave.
+    assert served_html == []
+
+
+@pytest.mark.parametrize("served", [None, "", "not-an-address"])
+def test_a_main_frame_without_a_readable_server_address_is_declined(served: str | None) -> None:
+    page = _page(response=_FakeResponse(url=SETTLED, status=200, server_address=served))
+    result = WebRenderDom(renderer=_PageRenderer(page))(_context())
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PROVIDER_DECLINED
+    assert result.refusal.detail == {"url": REQUESTED, "engine": "playwright"}
+
+
+def test_what_the_browser_contacts_in_between_is_recorded_not_vetted() -> None:
+    """The stated limit of the browser path, held so a reader cannot over-read it.
+
+    A subresource on a private address is not refused: the browser sends it
+    itself. It is recorded, and the page served from a public address is
+    captured.
+    """
+
+    page = _page(contacts=[("request", "http://10.0.0.7/internal.js")])
+    result, recorder = _run(page)
+    assert result.status == "ok", result
+    assert "http://10.0.0.7" in recorder.observed()
+
+
+def test_the_production_renderer_carries_a_guard() -> None:
+    from cruxible_provider_web.browser import PlaywrightRenderer
+
+    assert isinstance(PlaywrightRenderer()._guard, AddressGuard)
 
 
 def test_a_recorded_render_replays_the_recorded_dom_labelled() -> None:

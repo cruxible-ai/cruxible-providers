@@ -39,6 +39,7 @@ from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_runtime.provider_api import ProviderResult
 from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_web import CONTRACTS_DIR, PACKAGE_ROOT, contract_members
+from cruxible_provider_web.addresses import ADDRESS_CLASSES, AddressGuard
 from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.fetch import MAX_RESPONSE_BYTES, WebFetch
 from cruxible_provider_web.http import RecordingClient
@@ -46,6 +47,7 @@ from cruxible_provider_web.operations import (
     CREDENTIAL_UNAVAILABLE,
     CROSS_ORIGIN_CREDENTIALED_REDIRECT,
     ENGINE_UNAVAILABLE,
+    PRIVATE_OR_INTERNAL_ADDRESS,
     PROVIDER_DECLINED,
     REDIRECT_LIMIT,
     UNDECLARED_INSTANCE,
@@ -55,6 +57,7 @@ from cruxible_provider_web.pages import WebFetchPages
 from cruxible_provider_web.render import WebRender
 from cruxible_provider_web.search import SearxngSearch
 
+from .test_web_render_dom import _FakeResponse, _page, _PageRenderer
 from .test_web_secrets import _context
 
 CONTRACT_DIGEST_DOMAIN = "cruxible-contract-v1"
@@ -191,8 +194,13 @@ def _refusal_detail(result: Any, code: str) -> dict[str, Any]:
     return dict(result.refusal.detail)
 
 
-def _routed(routes: Mapping[str, httpx.Response]) -> Any:
-    """A client factory whose RecordingClient answers from ``routes`` by host."""
+def _routed(routes: Mapping[str, httpx.Response], *, guarded: bool = False) -> Any:
+    """A client factory whose RecordingClient answers from ``routes`` by host.
+
+    ``guarded`` gives the client the private-address guard, with a resolver
+    stub under which every name is public (literal addresses are judged as
+    written).
+    """
 
     def handle(request: httpx.Request) -> httpx.Response:
         answer = routes[request.url.host]
@@ -206,7 +214,10 @@ def _routed(routes: Mapping[str, httpx.Response]) -> Any:
     def factory(recorder: Any, *, url: str, timeout_seconds: float) -> RecordingClient:
         del url
         return RecordingClient(
-            recorder, timeout_seconds=timeout_seconds, transport=httpx.MockTransport(handle)
+            recorder,
+            timeout_seconds=timeout_seconds,
+            transport=httpx.MockTransport(handle),
+            guard=AddressGuard(lambda host, port: ("93.184.216.34",)) if guarded else None,
         )
 
     return factory
@@ -226,7 +237,7 @@ def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None
         for operation in registration.operations
         for ref in operation.contract_refs()
     }
-    assert len(named) == 28
+    assert len(named) == 31
     pins = [
         ref
         for document in CONTRACTS.values()
@@ -239,6 +250,15 @@ def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None
     # Every nested pin is the exact digest of the shipped body it names.
     for ref in pins:
         assert ref["digest"] == _digest(CONTRACTS[(ref["name"], ref["version"])])
+
+
+@pytest.mark.parametrize("operation", ["web.fetch", "web.fetch.pages", "web.render.dom"])
+def test_the_private_address_detail_names_every_class_the_guard_can_return(
+    operation: str,
+) -> None:
+    detail = CONTRACTS[(f"{operation}.refusal.private_or_internal_address", 1)]
+    members = detail["fields"]["address_class"]["type"]["members"]
+    assert set(members) == set(ADDRESS_CLASSES)
 
 
 def test_every_shipped_file_is_canonical_and_lives_at_its_tree_path() -> None:
@@ -546,6 +566,25 @@ def _fetch_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
             {"url": ARTICLE_URL, "credential_ref": "api", "credential_header": "bad header"},
             secrets={"api": "token"},
         ),
+        # The guard's own decline: a URL with no host has no address to judge.
+        _fetch({"url": "http:///no-host"}),
+    ]
+
+
+def _fetch_private(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """A literal address, a local-only name, and a redirect onto metadata."""
+
+    return [
+        _fetch({"url": "http://127.0.0.1:8080/admin?token=abc"}),
+        _fetch({"url": "http://localhost/"}),
+        _fetch({"url": "http://[::ffff:10.0.0.1]/"}),
+        _fetch(
+            {"url": "https://a.example/doc"},
+            client_factory=_routed(
+                {"a.example": _redirect("http://169.254.169.254/latest/meta-data/")},
+                guarded=True,
+            ),
+        ),
     ]
 
 
@@ -621,6 +660,47 @@ def _dom_declined(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         _dom({"url": DASHBOARD_URL, "logical_source": "Not A Name"}),
         _dom({"url": DASHBOARD_URL, "max_bytes": 16}),
         _dom({"url": ARTICLE_URL}),
+        # A main-frame response whose serving address the browser did not report.
+        _called(
+            WebRenderDom(
+                renderer=_PageRenderer(
+                    _page(
+                        response=_FakeResponse(
+                            url="https://second.example/report", status=200, server_address=None
+                        )
+                    )
+                )
+            ),
+            _context("web.render.dom", input={"url": "https://first.example/report"}),
+        ),
+    ]
+
+
+def _dom_private(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Refused before navigation (an address, a local-only name) and after it."""
+
+    def page_renderer(served: str | None = "93.184.216.34") -> Any:
+        return _PageRenderer(
+            _page(
+                response=_FakeResponse(
+                    url="http://second.example/report", status=200, server_address=served
+                )
+            )
+        )
+
+    return [
+        _called(
+            WebRenderDom(renderer=page_renderer()),
+            _context("web.render.dom", input={"url": "http://169.254.169.254/latest/"}),
+        ),
+        _called(
+            WebRenderDom(renderer=page_renderer()),
+            _context("web.render.dom", input={"url": "http://printer.local/"}),
+        ),
+        _called(
+            WebRenderDom(renderer=page_renderer("10.1.2.3")),
+            _context("web.render.dom", input={"url": "https://first.example/report"}),
+        ),
     ]
 
 
@@ -667,6 +747,13 @@ REFUSAL_CASES: dict[tuple[str, str], Any] = {
             client_factory=_routed({"a.example": _redirect("ftp://a.example/doc")}),
         )
     ],
+    ("web.fetch", PRIVATE_OR_INTERNAL_ADDRESS): _fetch_private,
+    ("web.fetch.pages", PRIVATE_OR_INTERNAL_ADDRESS): lambda monkeypatch: [
+        # One page: that page's refusal is the call's.
+        _pages({"url": "http://169.254.169.254/latest/meta-data/"}),
+        _pages({"url": "http://router.home.arpa/"}),
+    ],
+    ("web.render.dom", PRIVATE_OR_INTERNAL_ADDRESS): _dom_private,
     ("web.fetch.pages", PROVIDER_DECLINED): _pages_declined,
     ("web.fetch.pages", CREDENTIAL_UNAVAILABLE): lambda monkeypatch: [
         _pages({"url": ARTICLE_URL, "credential_ref": "web.token"})

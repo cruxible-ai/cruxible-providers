@@ -48,6 +48,10 @@
           "contract": "web.fetch.refusal.cross_origin_credentialed_redirect@1",
           "absorbable": false
         },
+        "private_or_internal_address": {
+          "contract": "web.fetch.refusal.private_or_internal_address@1",
+          "absorbable": false
+        },
         "provider_declined": {
           "contract": "web.fetch.refusal.provider_declined@1",
           "absorbable": true
@@ -75,6 +79,10 @@
         },
         "cross_origin_credentialed_redirect": {
           "contract": "web.fetch.pages.refusal.cross_origin_credentialed_redirect@1",
+          "absorbable": false
+        },
+        "private_or_internal_address": {
+          "contract": "web.fetch.pages.refusal.private_or_internal_address@1",
           "absorbable": false
         },
         "provider_declined": {
@@ -113,6 +121,10 @@
       "refusals": {
         "engine_unavailable": {
           "contract": "web.render.dom.refusal.engine_unavailable@1",
+          "absorbable": false
+        },
+        "private_or_internal_address": {
+          "contract": "web.render.dom.refusal.private_or_internal_address@1",
           "absorbable": false
         },
         "provider_declined": {

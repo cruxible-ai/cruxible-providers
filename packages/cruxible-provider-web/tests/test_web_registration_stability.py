@@ -38,11 +38,25 @@ EFFECTS = {
 }
 
 # Every module whose code path an operation's run can reach, per operation.
+# ``addresses.py`` is reached by the three operations that build a guard;
+# search.web's client carries none, so its run never reaches the guard's refusal.
 REACHED_MODULES = {
-    operations.FETCH_OPERATION: ("fetch.py", "http.py", "coordinate.py"),
-    operations.FETCH_PAGES_OPERATION: ("pages.py", "fetch.py", "http.py", "coordinate.py"),
+    operations.FETCH_OPERATION: ("fetch.py", "http.py", "addresses.py", "coordinate.py"),
+    operations.FETCH_PAGES_OPERATION: (
+        "pages.py",
+        "fetch.py",
+        "http.py",
+        "addresses.py",
+        "coordinate.py",
+    ),
     operations.RENDER_OPERATION: ("render.py", "engines.py", "coordinate.py"),
-    operations.RENDER_DOM_OPERATION: ("dom.py", "browser.py", "coordinate.py", "recordings.py"),
+    operations.RENDER_DOM_OPERATION: (
+        "dom.py",
+        "browser.py",
+        "addresses.py",
+        "coordinate.py",
+        "recordings.py",
+    ),
     operations.SEARCH_OPERATION: ("search.py", "http.py", "coordinate.py"),
 }
 

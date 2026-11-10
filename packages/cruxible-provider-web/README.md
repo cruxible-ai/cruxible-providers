@@ -16,10 +16,15 @@ got, plus a record of where and how it got them.
 | `web.render` | You give it a page this run already fetched. It returns the page's main text as Markdown, or as JSON with the title, text and links. It works only from those bytes. | no | nothing extra |
 | `web.render.dom` | You give it a URL. It opens the page in a real browser, lets the page's scripts run, and returns the finished page. Use it for pages that show nothing until scripts build them. | yes | the `browser` extra (Playwright) and a Chromium browser matching that Playwright version |
 
-What gets installed: the base package needs `httpx` (to make requests) and
-`trafilatura` (to pull main text out of HTML). The one optional extra,
-`browser`, adds Playwright; it is only for `web.render.dom`, and the Chromium
-browser itself is a separate download. The package also ships the 35
+`web.fetch`, `web.fetch.pages` and `web.render.dom` take their target from the
+run, so they refuse addresses on private or internal networks (this machine,
+the local network, cloud metadata services); *Private addresses* below says
+exactly what each one checks.
+
+What gets installed: the base package needs `httpx` and `httpcore` (to make
+requests) and `trafilatura` (to pull main text out of HTML). The one optional
+extra, `browser`, adds Playwright; it is only for `web.render.dom`, and the
+Chromium browser itself is a separate download. The package also ships the 38
 **Contract** files its operations use; a Contract is the declared shape of an
 input or output, and Cruxible must accept these before the package installs.
 
@@ -234,6 +239,60 @@ manifest declares `dynamic:target-from-configuration`, so any configured
 instance is admitted and its egress recorded. A manifest that lists concrete
 origins instead refuses an instance outside them (`undeclared_instance`).
 
+## Private addresses
+
+`web.fetch`, `web.fetch.pages` and `web.render.dom` reach whatever URL a run
+names, so they refuse — with `private_or_internal_address`, a declared refusal
+of each of the three — any target that reaches:
+
+- loopback (`127.0.0.0/8`, `::1`), private networks (`10/8`, `172.16/12`,
+  `192.168/16`, IPv6 `fc00::/7` and site-local `fec0::/10`) or link-local
+  addresses (`169.254/16`, where cloud metadata services live, and `fe80::/10`);
+- unspecified, multicast, carrier-grade NAT (`100.64/10`), reserved or
+  documentation ranges, or anything else that is not globally routable;
+- any of those written as an IPv4-mapped, IPv4-compatible, NAT64, 6to4 or Teredo
+  IPv6 address;
+- a `localhost`-style name, or a name under a local-only suffix (`.localhost`,
+  `.local`, `.internal`, `.home.arpa`), whatever it resolves to.
+
+A literal IP host is judged as written, including shorthand spellings such as
+`127.1` or `2130706433`. A name is resolved, and if **any** address in the
+answer is blocked, the target is refused. A name that does not resolve is a
+connection failure, as it always was, not a refusal.
+
+The refusal says why and where to go instead. Its detail is the origin only (the
+path and query of the refused URL never enter it), the host, the blocked address
+(absent when a name was refused as local-only), and the class it fell in
+(`loopback`, `private`, `link_local`, `unspecified`, `multicast`,
+`carrier_grade_nat`, `reserved`, `local_name`, or `ipv4_embedded_<class>` for an
+IPv6 form carrying a blocked IPv4 address):
+
+```json
+{
+  "code": "private_or_internal_address",
+  "message": "the target is a private or internal address, which web retrieval does not reach; an internal source needs a provider whose manifest declares that endpoint, so the operator accepts it through governance rather than a run naming it",
+  "detail": {
+    "url": "https://wiki.corp.example",
+    "host": "wiki.corp.example",
+    "address": "10.0.0.9",
+    "address_class": "private"
+  }
+}
+```
+
+What each operation checks:
+
+| Operation | What is vetted before anything is sent | Pinned |
+|---|---|---|
+| `web.fetch` | The URL, and every redirect hop before it is followed. | Yes. The connection opens only to an address that was checked, while `Host`, TLS SNI and certificate verification keep the name, so a name re-pointed after the check (DNS rebinding) is never consulted for that hop. The client also ignores `HTTP_PROXY` / `HTTPS_PROXY`: a proxy would resolve the name itself. |
+| `web.fetch.pages` | Each page's URL, and each of its redirect hops. A refused page is that page's refusal in `failed_pages`; when there is one page, it is the call's refusal. | Yes, as `web.fetch`, one client per page. |
+| `web.render.dom` | The URL the run names, before the browser navigates. After navigation, the address the browser reports for the main-frame response is judged before the page is captured; a page served from a private address (after a redirect, or a re-pointed name) is refused, and one whose address the browser does not report is declined (`provider_declined`). | No. A browser opens its own sockets and resolves names itself. Redirect hops before the final response, the subresources, fetches and WebSockets a page opens, and a navigation a script starts after the page has loaded are sent by the browser unchecked; they are recorded, not vetted. Containing them takes the network the browser runs in. |
+
+The guard always applies; there is no opt-out. `search.web` is deliberately
+**not** guarded: its SearXNG instance is an endpoint the operator configured,
+and it is often a local one. A packaged recording (`fixture.invalid`) needs no
+guard because it opens no socket.
+
 ## The reserved fixture host
 
 Every recorded exchange targets `fixture.invalid`. `.invalid` is reserved by
@@ -255,12 +314,12 @@ each with a detail Contract:
 | Operation | In | Out | Effect | Refusals |
 |---|---|---|---|---|
 | `search.web` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
-| `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable` |
-| `web.fetch.pages` | `web.fetch.pages.request@1` | `web.fetch.pages.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable` |
+| `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `private_or_internal_address` |
+| `web.fetch.pages` | `web.fetch.pages.request@1` | `web.fetch.pages.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `private_or_internal_address` |
 | `web.render` | `web.render.request@1` | `web.render.result@1` | `pure` | `provider_declined` (absorbable) |
-| `web.render.dom` | `web.render.dom.request@1` | `web.render.dom.result@1` | `external_read` | `provider_declined` (absorbable), `engine_unavailable` |
+| `web.render.dom` | `web.render.dom.request@1` | `web.render.dom.result@1` | `external_read` | `provider_declined` (absorbable), `engine_unavailable`, `private_or_internal_address` |
 
-This package ships the bodies of all twenty-eight, and of the seven nested
+This package ships the bodies of all thirty-one, and of the seven nested
 Contracts they pin (`web.capture.coordinate@1` with `web.capture.headers@1` and
 `web.capture.page@1`, the zero-field `web.capture.selector@1`,
 `web.capture.source_effective_time@1`, `web.fetch.query_param@1`, and
@@ -274,8 +333,9 @@ never `null`: the shared result omits `source_effective_time` when the adapter
 states no validity window, and a refusal detail omits what it cannot name.
 
 A credential the run names but did not deliver (`credential_unavailable`), an
-instance outside the declaration (`undeclared_instance`) and a missing browser
-(`engine_unavailable`) are the operations' own declared refusals. Runtime codes
+instance outside the declaration (`undeclared_instance`), a missing browser
+(`engine_unavailable`) and a private target (`private_or_internal_address`, not
+absorbable) are the operations' own declared refusals. Runtime codes
 come from the runtime's machinery only; provider code never raises one.
 
 Weight is declared by the caller and *checked* rather than trusted: a response
@@ -298,6 +358,8 @@ uv run pytest packages/cruxible-provider-web/tests -q     # default: no engines
 uv run pytest -m engine packages/cruxible-provider-web    # needs the browser extra
 ```
 
-The engine lane drives a real browser over a page served from a loopback server. It is opt-in, it is not
+The engine lane drives a real browser over a page served from a loopback server
+(through a guard that allows that loopback server and nothing else, plus one
+test that the production guard refuses it). It is opt-in, it is not
 in the default CI lane, and every test in it skips with a reason when the engine
 is absent, so collecting it on a machine with no engines still works.

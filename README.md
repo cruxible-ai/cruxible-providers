@@ -222,6 +222,14 @@ Things this repository does **not** claim:
   observed, in both the executor process and the provider child. It does not
   demonstrate **containment**; that exists in the cloud backend's default-deny
   network policy alone.
+- `web.fetch` and `web.fetch.pages` retrieve URLs a run names, so they refuse
+  loopback, private-network, link-local and other non-public targets on every
+  hop and pin each connection to the address they checked. `web.render.dom`
+  checks the URL the run names and the address that served the page it returns,
+  but a browser opens its own connections: the redirects, subresources and
+  scripts a page pulls in between are recorded, not vetted. `search.web` is not
+  guarded; its instance is operator configuration. See the
+  [web package](packages/cruxible-provider-web#private-addresses).
 - `UvSyncBuilder`, the production local builder, needs a `uv` on the path, and a
   test that has one drives it end to end against a PEP 503 index under `file://`
   built from wheels the test itself produces — no network. What it cannot cover

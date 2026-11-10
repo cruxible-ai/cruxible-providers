@@ -10,9 +10,26 @@ environment that genuinely lacks the extra refuses rather than crashing on the
 import.
 
 **Why the browser wiring is not inside the browser.** A browser is an engine;
-getting every host it touched into the run's recorder is not. That decision
-lives in :func:`drive_page`, over the :class:`BrowserPage` protocol, so that the
-default lane can execute it against a double.
+getting every host it touched into the run's recorder, and refusing a page that
+is not on the public web, is not. Those decisions live in :func:`drive_page`,
+over the :class:`BrowserPage` protocol, so that the default lane can execute
+them against a double.
+
+**What the private-address guard covers here, and what it does not.** A browser
+opens its own sockets and resolves names itself, so the address-pinned HTTP
+client ``web.fetch`` uses cannot stand between it and the network.
+:func:`drive_page` applies the guard at the two points this adapter controls:
+the URL the run names is vetted before the browser navigates (a private,
+loopback, link-local or local-only target is refused and the browser is never
+sent there), and the address the browser reports for the main-frame response is
+judged before the assembled page is returned (a page served from a private
+address -- after a redirect, or a name re-pointed between the check and the
+browser's own lookup -- is refused rather than captured). It does **not** stop
+the browser from sending requests to private addresses along the way: redirect
+hops before the final one, the subresources, fetches and WebSockets a page
+opens, and a navigation a script starts after the page loaded are sent by the
+browser unchecked. Containment of those comes only from the network the browser
+runs in.
 """
 
 from __future__ import annotations
@@ -25,6 +42,7 @@ from urllib.parse import urlsplit
 from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import decline
 
+from .addresses import AddressGuard, literal_address
 from .operations import ENGINE_UNAVAILABLE, PROVIDER_DECLINED
 
 __all__ = [
@@ -63,6 +81,11 @@ class MainFrameResponse(Protocol):
     status: int
 
     def all_headers(self) -> dict[str, str]: ...
+
+    def server_addr(self) -> Mapping[str, Any] | None:
+        """The address the browser connected to for this response (Playwright's
+        ``{"ipAddress", "port"}``), or ``None`` when it does not say."""
+        ...
 
 
 class BrowserPage(Protocol):
@@ -142,6 +165,7 @@ def drive_page(
     timeout_seconds: float,
     recorder: EgressRecorder,
     engine: str,
+    guard: AddressGuard,
 ) -> RenderedPage:
     """Assemble the page at ``url`` in ``page``, recording every origin it contacts.
 
@@ -154,7 +178,14 @@ def drive_page(
     exactly the degree the page was interesting. The main frame is a contact like
     any other. Each event hands its handler an object with the contacted ``url``
     (a Playwright ``Request``, ``Response`` or ``WebSocket``).
+
+    ``guard`` is applied twice (see the module docstring for what that does and
+    does not cover): ``url`` is vetted before anything is attached or navigated,
+    and the main-frame response's server address is judged before the page's
+    content is read.
     """
+
+    guard.vet(url)
 
     def contacted(event: Any) -> None:
         _record_contact(recorder, event.url)
@@ -171,6 +202,7 @@ def drive_page(
             url=url,
             engine=engine,
         )
+    _judge_served(guard, response, url=url, engine=engine)
     html = page.content()
     return RenderedPage(
         engine=engine,
@@ -179,6 +211,33 @@ def drive_page(
         status_code=response.status,
         headers={key.lower(): value for key, value in response.all_headers().items()},
     )
+
+
+def _judge_served(
+    guard: AddressGuard, response: MainFrameResponse, *, url: str, engine: str
+) -> None:
+    """Refuse a main-frame response the browser got from a non-public address.
+
+    The address is the one the browser reports it connected to, so a redirect
+    onto a private host, or a name that resolved publicly when :meth:`vet` asked
+    and privately when the browser did, is judged on where the bytes actually
+    came from. A response whose address the browser does not report, or reports
+    unreadably, is declined rather than trusted.
+    """
+
+    served = response.server_addr()
+    reported = served.get("ipAddress") if served else None
+    address = literal_address(reported) if isinstance(reported, str) else None
+    host = urlsplit(response.url).hostname
+    if address is None or not host:
+        raise decline(
+            PROVIDER_DECLINED,
+            "the browser did not report which address served the page, so it could not "
+            "be checked against the private-address guard",
+            url=url,
+            engine=engine,
+        )
+    guard.judge(response.url, host.lower(), address)
 
 
 class PlaywrightRenderer:
@@ -193,6 +252,11 @@ class PlaywrightRenderer:
     """
 
     name = "playwright"
+
+    def __init__(self, *, guard: AddressGuard | None = None) -> None:
+        # The production guard resolves through the system resolver. The seam
+        # lets the engine lane serve its page from a loopback server.
+        self._guard = guard or AddressGuard()
 
     def render(self, url: str, *, timeout_seconds: float, recorder: EgressRecorder) -> RenderedPage:
         try:
@@ -218,6 +282,7 @@ class PlaywrightRenderer:
                     timeout_seconds=timeout_seconds,
                     recorder=recorder,
                     engine=self.name,
+                    guard=self._guard,
                 )
             finally:
                 browser.close()

@@ -36,7 +36,11 @@ page's outcome is returned as ``web.fetch`` would return it, and several
 failed pages are one failed result naming each.
 
 Egress is ``web.fetch``'s: every page goes through the instrumented client, so
-every request -- redirect hops included -- reaches the run's recorder.
+every request -- redirect hops included -- reaches the run's recorder. So is
+the private-address guard: each page's first request and each of its redirect
+hops is vetted before it is sent and connects only to the address it checked,
+and a page refused there (``private_or_internal_address``) is that page's
+refusal, listed in ``failed_pages`` like any other.
 """
 
 from __future__ import annotations
@@ -60,7 +64,7 @@ from .fetch import (
     recording_events,
     with_query,
 )
-from .http import ClientFactory, HttpResponse, default_client_factory
+from .http import ClientFactory, HttpResponse, guarded_client_factory
 from .operations import FETCH_PAGES_OPERATION, PROVIDER_DECLINED
 
 __all__ = ["MAX_PAGES", "Page", "WebFetchPages", "split_pages"]
@@ -189,8 +193,9 @@ class WebFetchPages:
     operations = (FETCH_PAGES_OPERATION,)
 
     def __init__(self, *, client_factory: ClientFactory | None = None) -> None:
-        # The production client, as for web.fetch; the seam holds a transport still.
-        self._client_factory = client_factory or default_client_factory
+        # The production client, as for web.fetch: guarded and address-pinned,
+        # one client (and one guard) per page. The seam holds a transport still.
+        self._client_factory = client_factory or guarded_client_factory
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
