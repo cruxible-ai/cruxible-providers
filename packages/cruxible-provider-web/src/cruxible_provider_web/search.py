@@ -67,8 +67,10 @@ class SearxngSearch:
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
-            instance = self._instance(context)
+            # The input first: what this adapter declines for the input alone is
+            # declined whatever instance a deployment configures.
             query, language, time_range = _parse_input(context)
+            instance = self._instance(context)
         except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 

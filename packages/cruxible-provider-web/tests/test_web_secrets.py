@@ -18,7 +18,11 @@ from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderRunContext
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.http import HttpResponse, RecordingClient
-from cruxible_provider_web.operations import CREDENTIAL_UNAVAILABLE, UNDECLARED_INSTANCE
+from cruxible_provider_web.operations import (
+    CREDENTIAL_UNAVAILABLE,
+    PROVIDER_DECLINED,
+    UNDECLARED_INSTANCE,
+)
 from cruxible_provider_web.search import CREDENTIAL_REF, SearxngSearch
 
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=1_000_000)
@@ -145,6 +149,26 @@ def test_explicit_static_declaration_still_refuses_a_different_service() -> None
     assert result.refusal is not None
     assert result.refusal.code == UNDECLARED_INSTANCE
     assert not client.urls
+
+
+@pytest.mark.parametrize(
+    "coordinates",
+    [{}, {"instance_url": "https://other.example"}],
+    ids=["no-instance", "undeclared-instance"],
+)
+def test_an_unserved_input_is_declined_before_the_instance_is_looked_at(
+    coordinates: dict[str, Any],
+) -> None:
+    """What the adapter declines for the input alone it declines whatever the deployment
+    configures: the input's own decline is the answer, with or without an instance."""
+
+    result = SearxngSearch()(
+        _context("search.web", input={"query": "x", "time_range": "week"}, coordinates=coordinates)
+    )
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.code == PROVIDER_DECLINED
+    assert result.refusal.message == "time_range must be day, month or year"
 
 
 def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
