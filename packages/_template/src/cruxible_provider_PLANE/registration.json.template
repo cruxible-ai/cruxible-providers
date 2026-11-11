@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "manifest": {
+    "path": "manifest.yaml",
+    "digest": "sha256:REPLACE_WITH_THE_SHA256_OF_MANIFEST_YAML"
+  },
+  "operations": [
+    {
+      "name": "PLANE.operation",
+      "in": "PLANE.operation.request@1",
+      "out": "PLANE.operation.result@1",
+      "effect": "pure",
+      "refusals": {
+        "provider_declined": {
+          "contract": "PLANE.operation.refusal.provider_declined@1",
+          "absorbable": true
+        }
+      },
+      "entrypoint": "cruxible_provider_PLANE.provider:Implementation"
+    }
+  ],
+  "runtime_requirements": []
+}

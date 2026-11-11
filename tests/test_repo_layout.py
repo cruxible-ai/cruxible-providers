@@ -98,7 +98,7 @@ def test_the_exemption_allowlist_holds() -> None:
 def test_an_exempt_package_ships_no_code(package: Path) -> None:
     """The property the exemption rests on, checked per exempt package.
 
-    A package skips the digest-scope gate because it *is* nothing but
+    A package skips the closure-version check because it *is* nothing but
     dependencies: its closure moves whenever any package it names does, and it
     pins no environment, carries no implementation digest, and appears on no
     track record. That argument holds only for a distribution with no code in it
@@ -112,7 +112,7 @@ def test_an_exempt_package_ships_no_code(package: Path) -> None:
     """
 
     assert _is_umbrella(package), (
-        f"{package.name} is exempt from the digest-scope gate without declaring the role "
+        f"{package.name} is exempt from the closure-version check without declaring the role "
         "that justifies it"
     )
     assert not (package / "src").exists(), f"{package.name} is exempt and ships a src/ tree"
@@ -132,15 +132,20 @@ def test_the_umbrella_offers_one_extra_per_plane_plus_all() -> None:
 
     One extra per plane, plus `all` -- which must be exactly the full union of
     the plane extras: an `all` that means "all but one" is worse than no `all`.
+    The workspace package is not a plane of the umbrella: it stays in the
+    repository for its tests, is not published, and no extra pulls it in.
     """
 
     document = tomllib.loads(
         (PACKAGES / "cruxible-providers" / "pyproject.toml").read_text(encoding="utf-8")
     )
     extras = document["project"]["optional-dependencies"]
-    assert set(extras) == {"web", "docs", "quant", "workspace", "all"}
+    assert set(extras) == {"web", "docs", "quant", "all"}
     plane_union = {dep for name, deps in extras.items() if name != "all" for dep in deps}
     assert set(extras["all"]) == plane_union
+    named = {dep for deps in extras.values() for dep in deps}
+    assert not any(dep.startswith("cruxible-provider-workspace") for dep in named)
+    assert "cruxible-provider-workspace" not in document["tool"]["uv"]["sources"]
 
 
 def test_ci_typechecks_every_real_package() -> None:
@@ -318,17 +323,55 @@ def test_the_release_check_refuses_a_wheel_without_its_lock(tmp_path: Path) -> N
     from check_release_wheel import check
 
     package = PACKAGES / "cruxible-provider-noop"
-    dist_info = "cruxible_provider_noop-0.2.0.dist-info/"
-    wheel = tmp_path / "cruxible_provider_noop-0.2.0-py3-none-any.whl"
+    dist_info = "cruxible_provider_noop-0.4.0.dist-info/"
+    wheel = tmp_path / "cruxible_provider_noop-0.4.0-py3-none-any.whl"
     with ZipFile(wheel, "w") as archive:
         archive.writestr(dist_info + "METADATA", "")
         archive.writestr("cruxible_provider_noop/registration.json", "{}")
-    assert check(package, wheel, "cruxible-provider-noop-v0.2.0") == [
+    assert check(package, wheel, "cruxible-provider-noop-v0.4.0") == [
         f"{wheel.name} does not embed its package lock"
     ]
     with ZipFile(wheel, "a") as archive:
         archive.writestr(dist_info + "extra_metadata/uv.lock", b"stale")
     assert check(package, wheel, "cruxible-provider-noop-v0.1.0") == [
-        "tag 'cruxible-provider-noop-v0.1.0' does not name cruxible-provider-noop 0.2.0",
+        "tag 'cruxible-provider-noop-v0.1.0' does not name cruxible-provider-noop 0.4.0",
         f"{wheel.name} embeds a lock that differs from the committed one",
     ]
+
+
+def _runtime_requirement(pyproject: Path) -> str | None:
+    from packaging.requirements import Requirement
+
+    document = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    for item in document["project"].get("dependencies", []):
+        requirement = Requirement(item)
+        if requirement.name == "cruxible-provider-runtime":
+            return str(requirement.specifier)
+    return None
+
+
+PROVIDER_PYPROJECTS = [
+    *(
+        package / "pyproject.toml"
+        for package in REAL_PACKAGES
+        if any((package / "src").glob("*/registration.json"))
+    ),
+    PACKAGES / "_template" / "pyproject.toml.template",
+]
+
+
+@pytest.mark.parametrize("pyproject", PROVIDER_PYPROJECTS, ids=lambda path: path.parent.name)
+def test_every_provider_requires_the_protocol_2_runtime(pyproject: Path) -> None:
+    """A provider that admits an older runtime admits one that cannot run it.
+
+    The floor is the runtime's own minor line: a schema-2 registration and a
+    protocol-2.0 operation need exactly the runtime that reads them. The
+    template is held to the same floor, because a package copied from it
+    inherits the requirement.
+    """
+
+    runtime = tomllib.loads(
+        (PACKAGES / "cruxible-provider-runtime" / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
+    major, minor, _patch = runtime.split(".")
+    assert _runtime_requirement(pyproject) == f">={major}.{minor}.0"

@@ -1,78 +1,153 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:4b63710ca61d6593b11e3d482947ffa844ecc922d64ff3386de7a455c23f0a34"
+    "digest": "sha256:b600c1acf53504b37e0673615faa3d9841cb1729f7f193a8392d11235c66fe77"
   },
-  "interfaces": [
+  "operations": [
     {
-      "interface_id": "web.fetch",
-      "interface_digest": "sha256:f09e1553b05d72a9e58ed3a260417c41992ccd34b2f2541958c5733723ac2121",
-      "definition": {
-        "path": "contracts/web.fetch.json",
-        "digest": "sha256:149854808b63a69f2dd5687e3a59de3a64cb5e137d9f5409eee3ba4e21aeb124"
-      },
-      "vocabulary": {
-        "path": "vocab/web.fetch.yaml",
-        "digest": "sha256:111eb609750ec1fe4a2256338859b22a3ac3a2cd317b0366839cdbcc0fa2c226"
-      },
-      "classifier": {
-        "identity": "web.fetch.input",
-        "version": 1,
-        "entrypoint": "cruxible_provider_web.interfaces:classify_web_fetch",
-        "source": {
-          "path": "interfaces.py",
-          "digest": "sha256:c10a55759078c4e385e5a03900944ae53c2259f9767a8427faa616722f936abc"
+      "name": "search.web",
+      "in": "search.web.request@1",
+      "out": "search.web.result@1",
+      "effect": "external_read",
+      "refusals": {
+        "cross_origin_credentialed_redirect": {
+          "contract": "search.web.refusal.cross_origin_credentialed_redirect@1",
+          "absorbable": false
+        },
+        "provider_declined": {
+          "contract": "search.web.refusal.provider_declined@1",
+          "absorbable": true
+        },
+        "redirect_limit": {
+          "contract": "search.web.refusal.redirect_limit@1",
+          "absorbable": false
+        },
+        "undeclared_instance": {
+          "contract": "search.web.refusal.undeclared_instance@1",
+          "absorbable": false
+        },
+        "unsupported_redirect_scheme": {
+          "contract": "search.web.refusal.unsupported_redirect_scheme@1",
+          "absorbable": false
         }
       },
-      "fixtures": {
-        "path": "registration-fixtures/web.fetch.json",
-        "digest": "sha256:5401b565fb96be6789f4e1535f642b34b184968d007fc8a37da3ed7077fb2f5f"
-      },
-      "predecessors": [
-        {
-          "definition": {
-            "path": "contracts/history/web.fetch.v2.json",
-            "digest": "sha256:4a2b3cc05db31139a240104e073666a0f2568db4557ee8b617d593ff3c3a493d"
-          },
-          "interface_digest": "sha256:9769f47abc5ac2dae6d6c623a9f9abf01afde699de48768a755f40a0334a1ade"
-        }
-      ]
+      "entrypoint": "cruxible_provider_web.search:SearxngSearch"
     },
     {
-      "interface_id": "search.web",
-      "interface_digest": "sha256:fea1d32087a65259d93586a9d582a5112d08f051c59d97e8737d10ad5bc295bb",
-      "definition": {
-        "path": "contracts/search.web.json",
-        "digest": "sha256:e04c9833b06488dac28a0e886381a0585c519d414ce0785d38718d1b275e44ba"
-      },
-      "vocabulary": {
-        "path": "vocab/search.web.yaml",
-        "digest": "sha256:3daa38826d3e800d19d49333ae624a8b0fd81e88f66012c119bcf5d160359189"
-      },
-      "classifier": {
-        "identity": "search.web.input",
-        "version": 1,
-        "entrypoint": "cruxible_provider_web.interfaces:classify_search",
-        "source": {
-          "path": "interfaces.py",
-          "digest": "sha256:c10a55759078c4e385e5a03900944ae53c2259f9767a8427faa616722f936abc"
+      "name": "web.fetch",
+      "in": "web.fetch.request@1",
+      "out": "web.fetch.result@1",
+      "effect": "external_read",
+      "refusals": {
+        "credential_unavailable": {
+          "contract": "web.fetch.refusal.credential_unavailable@1",
+          "absorbable": false
+        },
+        "cross_origin_credentialed_redirect": {
+          "contract": "web.fetch.refusal.cross_origin_credentialed_redirect@1",
+          "absorbable": false
+        },
+        "private_or_internal_address": {
+          "contract": "web.fetch.refusal.private_or_internal_address@1",
+          "absorbable": false
+        },
+        "provider_declined": {
+          "contract": "web.fetch.refusal.provider_declined@1",
+          "absorbable": true
+        },
+        "redirect_limit": {
+          "contract": "web.fetch.refusal.redirect_limit@1",
+          "absorbable": false
+        },
+        "unsupported_redirect_scheme": {
+          "contract": "web.fetch.refusal.unsupported_redirect_scheme@1",
+          "absorbable": false
         }
       },
-      "fixtures": {
-        "path": "registration-fixtures/search.web.json",
-        "digest": "sha256:6358abad92bd1654b1dae39c0e77ee97b3bab720195893c19d61be78382aca85"
-      },
-      "predecessors": [
-        {
-          "definition": {
-            "path": "contracts/history/search.web.v1.json",
-            "digest": "sha256:3bbd46aa5d0b37629d263094d7fe2727cc304ddfba027c44586675c83aa69d36"
-          },
-          "interface_digest": "sha256:346827bfeeeabe10cd9655f73025ad77a717ad1bac6a8f828551b3fd9b506b9d"
+      "entrypoint": "cruxible_provider_web.fetch:WebFetch"
+    },
+    {
+      "name": "web.fetch.pages",
+      "in": "web.fetch.pages.request@1",
+      "out": "web.fetch.pages.result@1",
+      "effect": "external_read",
+      "refusals": {
+        "credential_unavailable": {
+          "contract": "web.fetch.pages.refusal.credential_unavailable@1",
+          "absorbable": false
+        },
+        "cross_origin_credentialed_redirect": {
+          "contract": "web.fetch.pages.refusal.cross_origin_credentialed_redirect@1",
+          "absorbable": false
+        },
+        "private_or_internal_address": {
+          "contract": "web.fetch.pages.refusal.private_or_internal_address@1",
+          "absorbable": false
+        },
+        "provider_declined": {
+          "contract": "web.fetch.pages.refusal.provider_declined@1",
+          "absorbable": true
+        },
+        "redirect_limit": {
+          "contract": "web.fetch.pages.refusal.redirect_limit@1",
+          "absorbable": false
+        },
+        "unsupported_redirect_scheme": {
+          "contract": "web.fetch.pages.refusal.unsupported_redirect_scheme@1",
+          "absorbable": false
         }
-      ]
+      },
+      "entrypoint": "cruxible_provider_web.pages:WebFetchPages"
+    },
+    {
+      "name": "web.render",
+      "in": "web.render.request@1",
+      "out": "web.render.result@1",
+      "effect": "pure",
+      "refusals": {
+        "provider_declined": {
+          "contract": "web.render.refusal.provider_declined@1",
+          "absorbable": true
+        }
+      },
+      "entrypoint": "cruxible_provider_web.render:WebRender"
+    },
+    {
+      "name": "web.render.dom",
+      "in": "web.render.dom.request@1",
+      "out": "web.render.dom.result@1",
+      "effect": "external_read",
+      "refusals": {
+        "engine_unavailable": {
+          "contract": "web.render.dom.refusal.engine_unavailable@1",
+          "absorbable": false
+        },
+        "private_or_internal_address": {
+          "contract": "web.render.dom.refusal.private_or_internal_address@1",
+          "absorbable": false
+        },
+        "provider_declined": {
+          "contract": "web.render.dom.refusal.provider_declined@1",
+          "absorbable": true
+        }
+      },
+      "entrypoint": "cruxible_provider_web.dom:WebRenderDom"
     }
   ],
-  "runtime_requirements": []
+  "runtime_requirements": [
+    {
+      "entrypoint": "cruxible_provider_web.dom:WebRenderDom",
+      "kind": "python_extra",
+      "name": "browser",
+      "description": "Required Python extra for this implementation."
+    },
+    {
+      "entrypoint": "cruxible_provider_web.dom:WebRenderDom",
+      "kind": "runtime_resource",
+      "name": "playwright.chromium",
+      "description": "Dom renders require a Chromium browser matching the installed Playwright version; installing the Python extra alone is insufficient.",
+      "probe_entrypoint": "cruxible_provider_web.resources:chromium_available"
+    }
+  ]
 }

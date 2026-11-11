@@ -1,7 +1,7 @@
 {
   "id": "scan-degraded",
-  "note": "The same three lines, rotated, blurred, and speckled: the degraded bucket.",
-  "interface_id": "ocr.extract",
+  "note": "The same three lines, rotated, blurred, and speckled: a degraded scan.",
+  "operation": "ocr.extract",
   "engine": "paddleocr",
   "recorded_from": "the ground-truth text drawn into the shipped image before degradation; the engine-marked lane asserts the engine still recovers it, normalised for case and spacing.",
   "document": {

@@ -18,7 +18,7 @@ import base64
 
 import pytest
 from cruxible_provider_docs.documents import DEFAULT_SUFFIX, document_suffix, resolve_source
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError
+from cruxible_provider_runtime.errors import Declined
 
 
 def _inline(filename: str) -> dict[str, object]:
@@ -48,15 +48,15 @@ HOSTILE_FILENAMES = [
 
 @pytest.mark.parametrize("filename", HOSTILE_FILENAMES)
 def test_a_filename_that_is_not_a_plain_name_refuses(filename: str) -> None:
-    with pytest.raises(RefusalError) as exc:
-        resolve_source(_inline(filename), interface_id="ocr.extract")
-    assert exc.value.code is RefusalCode.PROVIDER_DECLINED
+    with pytest.raises(Declined) as exc:
+        resolve_source(_inline(filename), operation="ocr.extract")
+    assert exc.value.code == "provider_declined"
 
 
 def test_an_ordinary_filename_still_resolves() -> None:
     """The check must not have become one that refuses everything."""
 
-    resolved = resolve_source(_inline("scan-clean.png"), interface_id="ocr.extract")
+    resolved = resolve_source(_inline("scan-clean.png"), operation="ocr.extract")
     assert resolved.filename == "scan-clean.png"
 
 

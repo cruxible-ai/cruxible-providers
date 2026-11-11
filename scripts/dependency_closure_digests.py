@@ -6,17 +6,18 @@
 Each package is resolved independently, from its own ``uv.lock``, for every
 marker environment in ``ci/marker-environments.json``. There is no shared root
 lock in this computation on purpose: the per-package lock is the identity
-source, and the one-package-one-digest-change gate depends on that being true.
+source, and the closure-version check (``check_closure_moves_are_versioned.py``)
+depends on that being true.
 
 **Closure digest, not materialization digest.** A materialization digest also
 pins the root distribution's sha256, which does not exist until the package is
 built and which moves on every release by construction. The closure digest
 covers the root's name, the marker environment, and the resolved dependency set
 — exactly the part a *dependency* bump moves, and therefore the right instrument
-for a gate that is asking whether a dependency bump escaped its package.
+for a check that asks whether a package's environment moved under its version.
 
 Local sources are admitted here, and only here: a monorepo's packages depend on
-each other by path before they are published, and the gate has to see those
+each other by path before they are published, and the check has to see those
 edges. Production binds refuse them.
 """
 
@@ -45,22 +46,21 @@ def load_environments(repo: Path) -> list[MarkerEnvironment]:
 
 
 def is_exempt(package_dir: Path) -> bool:
-    """Whether a package declares itself out of the digest-scope gate."""
+    """Whether a package declares itself out of the closure measurement."""
 
     document = tomllib.loads((package_dir / "pyproject.toml").read_text(encoding="utf-8"))
     return document.get("tool", {}).get("cruxible", {}).get("digest_scope") == "exempt"
 
 
 def package_dirs(repo: Path) -> list[Path]:
-    """Every package the scope gate measures.
+    """Every package whose dependency closure is measured.
 
     A directory with both a pyproject and its own lock, minus any that declares
     ``[tool.cruxible] digest_scope = "exempt"``. One kind of package may declare
     that, and it is the umbrella: its entire content is other packages, so its
-    closure moves whenever any plane's does. The gate exists to stop a bump in one
-    *provider* re-pinning another provider's environment; the umbrella pins no
-    environment, carries no implementation digest, and appears in no track record,
-    so its closure moving is information about the planes rather than about it.
+    closure moves whenever any plane's does. The umbrella pins no environment,
+    carries no implementation digest, and appears in no track record, so its
+    closure moving is information about the planes rather than about it.
 
     The exemption is a written field rather than a name the script recognises,
     because a hard-coded name is an exemption nobody can see from the package.

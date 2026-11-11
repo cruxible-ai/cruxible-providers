@@ -5,10 +5,13 @@ from the package's own committed lock: a committed artifact would carry a
 materialization digest that goes stale the moment a dependency moves, and a
 stale pin nobody notices is what the bind-time recomputation exists to catch.
 
-One environment, one lock. Neither implementation declares an extra, so both
-bind the same base materialization.
+Two environments, one lock. ``web.render.dom`` declares the ``browser`` extra
+and ``web.fetch``, ``search.web`` and ``web.render`` declare none, so the
+artifact pins two
+materializations — ``linux-cp311-engines`` and ``linux-cp311-engines+browser`` —
+and a bind for one implementation cannot pick up the other's environment.
 
-Nothing here needs a network or a container engine.
+Nothing here needs a network, a browser, or a container engine.
 """
 
 from __future__ import annotations
@@ -43,8 +46,8 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
+    register_package,
 )
-from cruxible_provider_web.interfaces import registrations
 
 PACKAGE_DIR = Path(cruxible_provider_web.__file__).resolve().parent.parent.parent
 REPO_ROOT = PACKAGE_DIR.parent.parent
@@ -57,14 +60,16 @@ IMAGE_DIGEST = "sha256:" + "c1" * 32
 BASE_IMAGE_DIGEST = "sha256:" + "b0" * 32
 BUILDER_IDENTITY = "ci/build-provider-images@runner-0"
 
-# The broad marker environment the runtime ships for plane packages; see its
-# docstring.
+# The plane's engine environment carries a browser, so the marker environment is
+# the broad one the runtime ships for exactly this purpose. See its docstring for
+# why the launch environment list cannot pin an environment containing an engine.
 MARKER_ENVIRONMENT = ENGINE_MARKER_ENVIRONMENT
 
-# Extras per implementation, mirroring the manifest: none for either. Spelled
-# out here rather than read from the manifest so that a manifest edit adding an
+# Extras per implementation, mirroring the manifest. Spelled out here rather than
+# read from the manifest so that a manifest edit changing an implementation's
 # engine fails these tests instead of being followed by them.
-EXTRAS: tuple[str, ...] = ()
+RENDER_EXTRAS: tuple[str, ...] = ("browser",)
+BASE_EXTRAS: tuple[str, ...] = ()
 
 
 @pytest.fixture(scope="session")
@@ -97,13 +102,19 @@ def _resolved(lock_path: Path, extras: tuple[str, ...]) -> ResolvedSet:
 
 @pytest.fixture(scope="session")
 def base_resolution(lock_path: Path) -> ResolvedSet:
-    return _resolved(lock_path, EXTRAS)
+    return _resolved(lock_path, BASE_EXTRAS)
+
+
+@pytest.fixture(scope="session")
+def browser_resolution(lock_path: Path) -> ResolvedSet:
+    return _resolved(lock_path, RENDER_EXTRAS)
 
 
 @pytest.fixture()
 def accepted_artifact(
     manifest: ProviderManifest,
     base_resolution: ResolvedSet,
+    browser_resolution: ResolvedSet,
     lock_path: Path,
 ) -> ProviderArtifactPayload:
     lock = load_uv_lock(lock_path)
@@ -127,8 +138,11 @@ def accepted_artifact(
         local_env=LocalEnvBackendPin(
             lock_sha256=lock.lock_sha256,
             materialization_digests={
-                environment_pin_key(MARKER_ENVIRONMENT.id, EXTRAS): materialization_digest(
+                environment_pin_key(MARKER_ENVIRONMENT.id, BASE_EXTRAS): materialization_digest(
                     base_resolution, distribution_sha256=DISTRIBUTION_SHA256
+                ),
+                environment_pin_key(MARKER_ENVIRONMENT.id, RENDER_EXTRAS): materialization_digest(
+                    browser_resolution, distribution_sha256=DISTRIBUTION_SHA256
                 ),
             },
         ),
@@ -138,7 +152,7 @@ def accepted_artifact(
             provenance=ImageProvenance(
                 provider_artifact_digest="sha256:" + "00" * 32,
                 materialization_digest=materialization_digest(
-                    base_resolution, distribution_sha256=DISTRIBUTION_SHA256
+                    browser_resolution, distribution_sha256=DISTRIBUTION_SHA256
                 ),
                 base_image_digest=BASE_IMAGE_DIGEST,
                 builder_identity=BUILDER_IDENTITY,
@@ -162,9 +176,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
-    stub.register_provider(accepted_artifact)
+    register_package(stub, accepted_artifact, cruxible_provider_web.PACKAGE_ROOT)
     return stub
 
 

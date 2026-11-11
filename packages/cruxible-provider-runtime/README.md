@@ -1,15 +1,41 @@
 # cruxible-provider-runtime
 
+## In plain terms
+
+This is the shared library every Cruxible provider package depends on. A
+**provider** is an add-on package that does one kind of work for Cruxible
+(fetching web pages, converting documents, running statistics), and each task
+it offers is an **operation**. This library is the plumbing between Cruxible
+and those packages. It reads a package's description of its operations, sets
+up an isolated Python environment for it, runs one operation per process,
+passes in credentials safely, enforces time and output-size limits, and
+records which network addresses the run contacted.
+
+It has no operations of its own. You do not install it directly: it arrives as
+a dependency of whichever provider package you install. You work with it
+directly only if you write a provider, and then mostly through
+`cruxible_provider_runtime.provider_api` (shown below).
+
+What gets installed: `pydantic`, `packaging` and `pyyaml`. There are no
+optional extras.
+
+Terms used below: a **Contract** is the declared shape of an input or output; a
+**refusal** is a typed "no" an operation returns instead of a result, with a
+code saying why; a **Line** fixes which installed provider build Cruxible uses
+for a given step.
+
+## Reference
+
 The support library every [Cruxible](https://github.com/cruxible-ai/cruxible)
 provider package is built on. Apache-2.0.
 
 A Cruxible provider is one Python package with its own committed lock, a
-package-side manifest, and one or more entrypoints, each implementing a
-registered interface (`web.fetch`, `doc.to_markdown`, …). Cruxible runs it out
-of process, on an exact pin that an operator accepted through governance. This
-library is both halves of that contract: the small surface a provider
-implements, and the machinery the executor uses to resolve, materialize,
-verify, invoke and record it.
+package-side manifest, a `registration.json` declaring its typed operations,
+and one or more entrypoints serving them (`web.fetch`, `doc.to_markdown`, …).
+Cruxible runs it out of process, on an exact build an operator accepted through
+governance. This library is both halves of that contract: the small surface a
+provider implements, and the machinery the executor uses to resolve,
+materialize, verify, invoke and record it.
 
 ## How Cruxible uses it
 
@@ -17,21 +43,19 @@ Operators never install providers ad hoc. A governed install —
 `cruxible provider install <package>` — resolves the package's lock (embedded in
 its wheel) for an explicit platform, fetches each locked wheel from a pinned
 index and checks its hash, materializes an isolated environment, seals it under
-its digest, and proposes the Provider registration as an ordinary change-set.
-Every later run is bound to that accepted pin and refuses if anything has
-drifted: the manifest, the lock, the environment.
-
-A provider package depends on this library, so it is installed alongside every
-provider. `pip install cruxible-provider-runtime` on its own is useful for
-writing or testing a provider.
+its digest, and proposes the Provider build as an ordinary change. Every later
+run is bound to that accepted build and refuses if anything has drifted: the
+manifest, the lock, the environment.
 
 ## Identity
 
 Three identifiers, deliberately separate:
 
-- **`implementation_digest`** — the track-record key. It covers the interface id
-  and digest, the entrypoint, and the provider distribution's own sha256, and it
-  is the same whichever backend runs the provider.
+- **`implementation_digest`** — the track-record key. It covers the entrypoint
+  and the provider distribution's own sha256, and it is the same whichever
+  backend runs the provider. Which operation a run executed is recorded beside
+  it (`operation`, `operation_signature_digest`), because one entrypoint may
+  serve several operations.
 - **`materialization_digest`** — one environment pin per backend and platform:
   locally, the hashed *resolution* of the package's lock (not the lock file's
   bytes) plus the root distribution's identity; in a container, the image digest.
@@ -45,41 +69,67 @@ Three identifiers, deliberately separate:
 | `provider_api` | The provider-facing surface: `ProviderRunContext` in, `ProviderResult` out |
 | `manifest` | The package-side manifest schema. Unknown fields fail closed. |
 | `artifact` | The governed Provider artifact payload and its digest |
-| `protocol` | The run context and result envelope, and `protocol_version` |
+| `protocol` | The run context and result envelope, and `protocol_version` (2.0: one operation of one build per run) |
+| `operations` | The typed operation declaration a registration carries, Contract pins, and the operation signature digest |
 | `canonical` | Canonical JSON and domain-tagged digests |
 | `digests` | `implementation_digest` and `materialization_digest` |
 | `resolution` | Lock resolution for an explicit marker environment, including per-implementation extras |
-| `index` | Hash-checked artifact retrieval from pinned indexes, for materializing an environment; refuses unpinned origins and redirects |
+| `index` | Artifact fetches from pinned indexes: no redirects, hash-checked, cache-only when air-gapped. Core's installer uses it at install; the stub registry's local backend uses it at bind |
 | `cache` | The sealed, permission-checked, atomically-renamed materialization cache |
 | `secrets` | Credential delivery over an inherited descriptor, and redaction |
 | `budget` | Out-of-process wall-clock and output-size enforcement |
 | `egress` | Endpoints declared versus endpoints actually contacted |
-| `buckets` | The input-bucket vocabulary format, ids, and selectors |
-| `registration` | Data-only package descriptor reader; verifies bundled resources and exports without executing provider code |
+| `registration` | Data-only `registration.json` (schema 2) reader; verifies the manifest, the operations and their entrypoints without executing provider code |
 | `registry` | A **stub** registry standing in for Cruxible core, for conformance tests |
 | `backends` | The two backend kinds (`local_env`, `container`) and their injected drivers |
 | `binding`, `execute` | Bind and invoke |
 | `child` | The provider-side process harness |
 | `container_entry` | The image's entry shim: a memory-backed secret in, an inherited descriptor out |
 | `testing` | Fakes, so that no conformance test needs a network or a container engine |
-| `errors` | The typed refusal taxonomy |
+| `errors` | The runtime's own closed refusal codes, and the operation-refusal exception |
 
-Every path fails closed: an unexpected condition raises a `RefusalError` carrying
+Every runtime path fails closed: an unexpected condition raises a `RefusalError` carrying
 a machine-readable `RefusalCode`, never a bare exception and never a silent
 fallback.
 
 ## The provider-facing surface
 
 ```python
+from cruxible_provider_runtime.errors import decline
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 
 class Implementation:
-    interface_id = "plane.operation"
+    operations = ("plane.operation",)
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
+        if not context.input.get("text"):
+            return ProviderResult.refused("empty_text", "nothing to work on")
         return ProviderResult.ok({"result": ...})
 ```
+
+An entrypoint declares the operations it serves; `context.operation` names the
+one this run executes, and the harness refuses (`undeclared_operation`) a run
+for an operation the entrypoint does not declare. A refusal code is the
+operation's own — declared under `refusals` in `registration.json`, each with a
+detail Contract — never one of the runtime's `RefusalCode` values, which are
+reserved for the runtime's machinery. `raise decline(code, message, **detail)`
+gives the same refusal from deep inside a call.
+
+`ProviderResult.ok(output, incomplete_captures=[...])` names out-Contract
+`list<capture<...>>` fields the output is missing members of (a page that
+failed to fetch, say). It travels in the result envelope's generic field of the
+same name, and only on an `ok` result.
+
+Runtime codes come from runtime machinery only. A `RefusalError` raised by
+provider code — while its module is imported, its object constructed, its
+`operations` read, or during the call — or a runtime code returned in a
+`ProviderResult`, is reported as `provider_protocol_violation` naming the stage: a provider cannot report a budget breach, a cache
+failure or an undelivered credential on its own say-so. The executor also
+refuses an envelope carrying a runtime code outside the few the child harness
+produces (`HARNESS_REFUSAL_CODES`). A condition only the provider can detect —
+an engine its environment lacks, a model file that misses its pin — is an
+operation refusal it declares.
 
 Credentials arrive already resolved in `context.secrets`, keyed by ref. Endpoints
 are recorded through `context.egress.record(url)`. Budgets are in
@@ -236,10 +286,12 @@ portable delivery.
 
 ## What it does not own
 
-Governance. The Provider artifact kind, interface registration and input-bucket
-registration live in Cruxible core. `registry.StubRegistry` exists so that a
-provider's conformance suite has something to bind against without a running
-Cruxible.
+Governance. The Provider build artifact, the Contracts an operation names, and
+the Line that binds a slot to one exact `{build, operation}` live in core;
+`registry.StubRegistry` exists so that this repository's conformance suite has
+something to bind against, and
+[`docs/core-integration-seam.md`](https://github.com/cruxible-ai/cruxible-providers/blob/main/docs/core-integration-seam.md)
+specifies what replaces it.
 
 ## Honest boundaries
 

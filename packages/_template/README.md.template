@@ -4,8 +4,8 @@ Cruxible provider adapters for the PLANE plane. Apache-2.0.
 
 ## What this package is
 
-One distribution, one lock, one identity unit. It may implement several
-interfaces within its plane; it never reaches outside it.
+One distribution, one lock, one identity unit. It may serve several typed
+operations within its plane; it never reaches outside it.
 
 The Core installer prepares the package locally and proposes its definitions.
 The umbrella `cruxible-providers[PLANE]` remains a development convenience.
@@ -16,38 +16,45 @@ The umbrella `cruxible-providers[PLANE]` remains a development convenience.
     directory**. This package's lock is its identity source; there is no shared
     root lock. A heavy engine goes under `[project.optional-dependencies]`, not
     into the base dependencies.
-2.  Declare the entry point under `[project.entry-points."cruxible.providers"]`.
-3.  Add the implementation block to `src/cruxible_provider_PLANE/manifest.yaml`,
-    including the exact registered interface digest, the buckets you claim, and
-    a conformance fixture for each claimed bucket.
-4.  Add `registration.json` with hashed references to the manifest, bundled
-    operation contracts, classifier sources, vocabularies and classification
-    fixture sets. Use the existing package descriptor format, not a Core-side
-    provider list. Preserve changed contracts under `contracts/history/` and
-    record their predecessors. Declare any non-Python runtime resources.
+2.  Declare the entry point under `[project.entry-points."cruxible.providers"]`,
+    named by the operation it serves (one entry per operation).
+3.  Add the implementation row to `src/cruxible_provider_PLANE/manifest.yaml`:
+    one row per entrypoint, with its backends, endpoints and extras.
+4.  Declare the operation in `registration.json` (schema 2): its name, its
+    input and output Contracts as `name@N`, its effect (`pure`,
+    `external_read` or `external_mutation`), each refusal code it may return
+    with that refusal's detail Contract, and the entrypoint that serves it.
+    Refresh the manifest's digest there: `sha256:` followed by the hex sha256
+    of `manifest.yaml`'s bytes. The Contracts themselves must be accepted on
+    the instance before install (a kit ships them, or the package ships their
+    bodies under `src/cruxible_provider_PLANE/contracts/`, as the web and noop
+    packages do); the registration only names them. Declare any non-Python
+    runtime resources under `runtime_requirements`.
 5.  Implement the callable in `provider.py`.
 6.  Write the conformance suite (see `tests/test_conformance.py`). The test
     directory carries **no `__init__.py`** -- two packages both exporting a
     `tests` package collide at collection -- and real-engine tests are marked
     `engine`, which the default run excludes.
-7.  Confirm `uv run python scripts/check_single_package_digest_change.py` still
-    reports at most one changed package.
+7.  Before releasing, confirm `uv run python scripts/check_closure_moves_are_versioned.py`
+    passes: a released package whose dependency closure moved needs a new version.
 
 ## What this package must never do
 
-- Ship a manifest that claims authority. The accepted
-  `providers/<provider-id>.yaml` is authority; this manifest is a transcription
-  source.
-- Claim a bucket without a passing per-bucket conformance fixture.
+- Ship a manifest that claims authority. The accepted provider build is
+  authority; this manifest is a transcription source.
+- Refuse under a code its operation does not declare, or under one of the
+  runtime's reserved codes.
 - Contact an endpoint it does not declare.
 - Emit an `observed` grade. Providers produce readings; grades are governed by
   the CaptureContract.
 - Read a credential from argv or the environment.
 - Put a heavy engine in the base install, or import one at module scope. Import
-  it inside the method that needs it and turn a missing import into a typed
-  `environment_divergence` refusal: an environment lacking the engine its
-  implementation declared has diverged from the resolution it was meant to be,
-  which is not a failed answer.
+  it inside the method that needs it and turn a missing import into a declared
+  operation refusal (`engine_unavailable`, not absorbable): an environment
+  lacking the engine its implementation declared is not a failed answer.
+- Raise or return one of the runtime's own codes (`RefusalCode`, `refuse`).
+  They are produced by runtime machinery only; from provider code the harness
+  reports them as `provider_protocol_violation`.
 - Print to standard output on purpose. The harness reserves it for the result
   envelope and hands the provider stderr, so stray output is harmless -- but
   trace material belongs in the result's events, where something can read it.

@@ -28,12 +28,10 @@ pytestmark = pytest.mark.engine
 MARKDOWN_RECORDINGS = sorted(
     recording.id
     for recording in load_recordings().values()
-    if recording.interface_id == "doc.to_markdown"
+    if recording.operation == "doc.to_markdown"
 )
 OCR_RECORDINGS = sorted(
-    recording.id
-    for recording in load_recordings().values()
-    if recording.interface_id == "ocr.extract"
+    recording.id for recording in load_recordings().values() if recording.operation == "ocr.extract"
 )
 
 

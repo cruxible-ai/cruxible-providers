@@ -1,0 +1,24 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of a provider_declined refusal: for an unknown file, its name and the recorded files there are.",
+  "fields": {
+    "file": {
+      "optional": true,
+      "type": {
+        "kind": "string"
+      }
+    },
+    "known": {
+      "optional": true,
+      "type": {
+        "item": {
+          "kind": "string"
+        },
+        "kind": "list",
+        "max_items": 16
+      }
+    }
+  },
+  "name": "noop.captures.refusal.provider_declined",
+  "version": 1
+}

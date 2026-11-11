@@ -1,13 +1,16 @@
-"""The private-address guard on ``web.fetch``'s plain path.
+"""The private-address guard on ``web.fetch`` and ``web.fetch.pages``.
 
 Three properties, each asserted where it would fail:
 
 * **classification** — every blocked address class refuses, in IPv4 and IPv6,
   spelled literally in the URL and returned by a resolver; public addresses pass;
 * **every hop** — a redirect onto a private address is refused before anything
-  is sent to it;
+  is sent to it, for one fetch and for each page of a paged one;
 * **pinning** — the socket opens to the address that was checked, whatever the
   resolver says afterwards, while ``Host`` and SNI keep naming the host.
+
+``web.render.dom``'s use of the same guard is held in ``test_web_render_dom.py``,
+beside the page double it needs.
 
 No test here touches real DNS or opens a socket: resolvers are stubs, and the
 pinning tests observe the connection through an httpcore network backend double.
@@ -16,6 +19,7 @@ pinning tests observe the connection through an httpcore network backend double.
 from __future__ import annotations
 
 import functools
+import ssl
 from collections.abc import Iterable, Mapping, Sequence
 from ipaddress import ip_address
 from typing import Any
@@ -24,10 +28,16 @@ import httpcore
 import httpx
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError
-from cruxible_provider_runtime.protocol import Budgets
-from cruxible_provider_runtime.provider_api import ProviderRunContext
-from cruxible_provider_web.addresses import AddressGuard, Resolver, address_class
+from cruxible_provider_runtime.errors import Declined
+from cruxible_provider_web import addresses
+from cruxible_provider_web.addresses import (
+    ADDRESS_CLASSES,
+    PRIVATE_ADDRESS_MESSAGE,
+    AddressGuard,
+    Resolver,
+    address_class,
+    system_resolver,
+)
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.http import (
     PinnedTransport,
@@ -35,7 +45,11 @@ from cruxible_provider_web.http import (
     default_client_factory,
     guarded_client_factory,
 )
+from cruxible_provider_web.operations import PRIVATE_OR_INTERNAL_ADDRESS
+from cruxible_provider_web.pages import WebFetchPages
 from cruxible_provider_web.search import SearxngSearch
+
+from .test_web_secrets import _context
 
 PUBLIC_V4 = "93.184.216.34"
 PUBLIC_V6 = "2606:4700:4700::1111"
@@ -64,6 +78,7 @@ BLOCKED = [
     ("fd12:3456:789a::1", "private"),
     ("fec0::1", "private"),
     ("fe80::1", "link_local"),
+    ("febf::1", "link_local"),
     ("ff02::1", "multicast"),
     ("2001:db8::1", "reserved"),
     ("100::1", "reserved"),
@@ -75,6 +90,7 @@ BLOCKED = [
     ("::127.0.0.1", "ipv4_embedded_loopback"),
     ("::10.0.0.1", "ipv4_embedded_private"),
     ("64:ff9b::7f00:1", "ipv4_embedded_loopback"),
+    ("64:ff9b::a9fe:a9fe", "ipv4_embedded_link_local"),
     ("2002:c0a8:101::1", "ipv4_embedded_private"),
     ("2001:0:4136:e378:8000:63bf:f5ff:fffe", "ipv4_embedded_private"),
 ]
@@ -96,12 +112,64 @@ def _url_host(address: str) -> str:
     return f"[{address}]" if ":" in address else address
 
 
+def _refused(exc: pytest.ExceptionInfo[Declined]) -> dict[str, Any]:
+    assert exc.value.code == PRIVATE_OR_INTERNAL_ADDRESS
+    return dict(exc.value.refusal.detail)
+
+
 # -- classification ----------------------------------------------------------
 
 
 @pytest.mark.parametrize(("address", "expected"), BLOCKED)
 def test_every_blocked_class_is_classified(address: str, expected: str) -> None:
     assert address_class(ip_address(address)) == expected
+    assert expected in ADDRESS_CLASSES
+
+
+#: IETF-reserved IPv6 space outside every explicit table. Python reports each of
+#: these as ``is_global`` *and* ``is_reserved`` (3.11 to 3.13), so a backstop on
+#: ``is_global`` alone would admit them.
+RESERVED_OUTSIDE_THE_TABLES = [
+    "200::1",
+    "400::1",
+    "800::1",
+    "1000::1",
+    "4000::1",
+    "6000::1",
+    "8000::1",
+    "a000::1",
+    "c000::1",
+    "e000::1",
+    "f000::1",
+    "f800::1",
+    "fe00::1",
+]
+
+
+@pytest.mark.parametrize("address", RESERVED_OUTSIDE_THE_TABLES)
+def test_reserved_ipv6_outside_the_tables_is_refused(address: str) -> None:
+    parsed = ip_address(address)
+    assert parsed.is_reserved
+    assert address_class(parsed) == "reserved"
+
+    def no_dns(host: str, port: int) -> Sequence[str]:
+        raise AssertionError("a literal address was handed to the resolver")
+
+    with pytest.raises(Declined) as exc:
+        AddressGuard(no_dns).vet(f"https://[{address}]/")
+    assert _refused(exc)["address_class"] == "reserved"
+    with pytest.raises(Declined):
+        AddressGuard(_resolver({"reserved.example": (address,)})).vet("https://reserved.example/")
+
+
+def test_a_public_ipv4_host_in_a_translated_form_still_passes() -> None:
+    """The backstop does not catch translations: NAT64 (``64:ff9b::/96``) sits in
+    reserved IPv6 space, and the IPv4 host it carries is the whole verdict."""
+
+    nat64 = ip_address("64:ff9b::101:101")
+    assert nat64.is_reserved
+    assert address_class(nat64) is None
+    assert address_class(ip_address("::ffff:1.1.1.1")) is None
 
 
 @pytest.mark.parametrize("address", PUBLIC)
@@ -114,24 +182,24 @@ def test_a_literal_blocked_address_refuses_without_resolving(address: str, expec
     def no_dns(host: str, port: int) -> Sequence[str]:
         raise AssertionError(f"a literal address was handed to the resolver: {host}")
 
-    with pytest.raises(RefusalError) as exc:
+    with pytest.raises(Declined) as exc:
         AddressGuard(no_dns).vet(f"http://{_url_host(address)}:8080/admin")
 
-    assert exc.value.code is RefusalCode.PROVIDER_DECLINED
-    assert exc.value.refusal.detail["address_class"] == expected
-    assert ip_address(exc.value.refusal.detail["address"]) == ip_address(address)
+    detail = _refused(exc)
+    assert detail["address_class"] == expected
+    assert ip_address(detail["address"]) == ip_address(address)
 
 
 @pytest.mark.parametrize(("address", "expected"), BLOCKED)
 def test_a_name_resolving_to_a_blocked_address_refuses(address: str, expected: str) -> None:
     guard = AddressGuard(_resolver({"innocent.example": (address,)}))
 
-    with pytest.raises(RefusalError) as exc:
+    with pytest.raises(Declined) as exc:
         guard.vet("https://innocent.example/report")
 
-    assert exc.value.code is RefusalCode.PROVIDER_DECLINED
-    assert exc.value.refusal.detail["address_class"] == expected
-    assert exc.value.refusal.detail["host"] == "innocent.example"
+    detail = _refused(exc)
+    assert detail["address_class"] == expected
+    assert detail["host"] == "innocent.example"
 
 
 @pytest.mark.parametrize(
@@ -139,9 +207,9 @@ def test_a_name_resolving_to_a_blocked_address_refuses(address: str, expected: s
     ["127.1", "2130706433", "0x7f.1", "0x7f000001", "017700000001"],
 )
 def test_shorthand_ipv4_spellings_are_read_as_the_address_they_are(host: str) -> None:
-    with pytest.raises(RefusalError) as exc:
+    with pytest.raises(Declined) as exc:
         AddressGuard(_resolver()).vet(f"http://{host}/")
-    assert exc.value.refusal.detail["address_class"] == "loopback"
+    assert _refused(exc)["address_class"] == "loopback"
 
 
 @pytest.mark.parametrize(
@@ -161,16 +229,19 @@ def test_shorthand_ipv4_spellings_are_read_as_the_address_they_are(host: str) ->
 def test_local_names_refuse_whatever_a_resolver_would_say(host: str) -> None:
     guard = AddressGuard(_resolver({host.lower(): (PUBLIC_V4,)}))
 
-    with pytest.raises(RefusalError) as exc:
+    with pytest.raises(Declined) as exc:
         guard.vet(f"http://{host}/")
 
-    assert exc.value.refusal.detail["address_class"] == "local_name"
+    detail = _refused(exc)
+    assert detail["address_class"] == "local_name"
+    # Refused by name: there is no address, and an optional detail is absent.
+    assert "address" not in detail
 
 
 def test_a_scoped_link_local_literal_refuses() -> None:
-    with pytest.raises(RefusalError) as exc:
+    with pytest.raises(Declined) as exc:
         AddressGuard(_resolver()).vet("http://[fe80::1%25en0]/")
-    assert exc.value.refusal.detail["address_class"] == "link_local"
+    assert _refused(exc)["address_class"] == "link_local"
 
 
 def test_an_answer_mixing_public_and_private_addresses_refuses() -> None:
@@ -178,10 +249,38 @@ def test_an_answer_mixing_public_and_private_addresses_refuses() -> None:
 
     guard = AddressGuard(_resolver({"split.example": (PUBLIC_V4, PUBLIC_V6, "10.0.0.1")}))
 
-    with pytest.raises(RefusalError) as exc:
+    with pytest.raises(Declined) as exc:
         guard.vet("https://split.example/")
 
-    assert exc.value.refusal.detail["address"] == "10.0.0.1"
+    assert _refused(exc)["address"] == "10.0.0.1"
+
+
+@pytest.mark.parametrize("size", [8, 4096])
+def test_the_system_resolver_keeps_first_seen_order_and_drops_duplicates(
+    size: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order is the resolver's; a repeat (also one differing only by its zone) is dropped.
+
+    Each distinct address is recorded once against a set, so a large answer costs
+    one pass rather than a scan of everything seen before it per entry.
+    """
+
+    distinct = [f"2606:4700::{index:x}" for index in range(size)]
+    # Every address twice, the repeat later in the answer and half of them
+    # carrying a zone; and the answer's own order is not sorted.
+    answer = list(reversed(distinct)) + [
+        f"{address}%en0" if index % 2 else address for index, address in enumerate(distinct)
+    ]
+    calls: list[tuple[str, int]] = []
+
+    def getaddrinfo(host: str, port: int, *args: Any, **kwargs: Any) -> list[Any]:
+        calls.append((host, port))
+        return [(10, 1, 6, "", (address, port, 0, 0)) for address in answer]
+
+    monkeypatch.setattr(addresses.socket, "getaddrinfo", getaddrinfo)
+
+    assert system_resolver("many.example", 443) == list(reversed(distinct))
+    assert calls == [("many.example", 443)]
 
 
 def test_a_public_answer_is_pinned_in_full() -> None:
@@ -202,32 +301,27 @@ def test_an_unresolvable_name_is_a_connection_failure_not_a_refusal() -> None:
 def test_a_refusal_says_why_and_names_the_path_for_internal_sources() -> None:
     """A declined run should tell its author what to do instead."""
 
-    with pytest.raises(RefusalError) as exc:
+    with pytest.raises(Declined) as exc:
         AddressGuard(_resolver({"wiki.corp.example": ("10.0.0.9",)})).vet(
             "https://wiki.corp.example/page"
         )
 
     refusal = exc.value.refusal
-    assert refusal.code is RefusalCode.PROVIDER_DECLINED
-    assert refusal.message == (
-        "web.fetch does not retrieve private or internal addresses; internal sources need "
-        "a provider with a declared endpoint"
-    )
-    assert refusal.detail["reason"] == "private_or_internal_address"
-    assert "declares that endpoint" in refusal.detail["remedy"]
-
-
-def test_a_local_name_refusal_carries_the_same_explanation() -> None:
-    with pytest.raises(RefusalError) as exc:
-        AddressGuard(_resolver()).vet("http://localhost:8080/")
-    assert exc.value.refusal.message.startswith("web.fetch does not retrieve private")
-    assert exc.value.refusal.detail["reason"] == "private_or_internal_address"
+    assert refusal.code == PRIVATE_OR_INTERNAL_ADDRESS
+    assert refusal.message == PRIVATE_ADDRESS_MESSAGE
+    assert "declares that endpoint" in refusal.message
+    assert refusal.detail == {
+        "url": "https://wiki.corp.example",
+        "host": "wiki.corp.example",
+        "address": "10.0.0.9",
+        "address_class": "private",
+    }
 
 
 def test_a_refusal_names_the_origin_and_never_the_path() -> None:
-    with pytest.raises(RefusalError) as exc:
+    with pytest.raises(Declined) as exc:
         AddressGuard(_resolver()).vet("http://127.0.0.1:8080/admin?token=abc")
-    assert exc.value.refusal.detail["url"] == "http://127.0.0.1:8080"
+    assert _refused(exc)["url"] == "http://127.0.0.1:8080"
     assert "token" not in repr(exc.value.refusal)
 
 
@@ -266,16 +360,29 @@ def _guarded(origins: _Origins, resolver: Resolver, recorder: EgressRecorder) ->
     )
 
 
-@pytest.mark.parametrize(
-    ("location", "answers"),
-    [
-        ("http://169.254.169.254/latest/meta-data/", {}),
-        ("http://[::ffff:127.0.0.1]:6379/", {}),
-        ("http://localhost:8080/", {}),
-        ("https://internal.example/admin", {"internal.example": ("172.20.0.5",)}),
-    ],
-    ids=["literal-metadata", "mapped-loopback", "localhost", "resolved-private"],
-)
+REDIRECTS_ONTO_PRIVATE = [
+    ("http://169.254.169.254/latest/meta-data/", {}),
+    ("http://[::ffff:127.0.0.1]:6379/", {}),
+    ("http://[::1]:8080/", {}),
+    ("http://[fd00:ec2::254]/latest/meta-data/", {}),
+    ("http://[fe80::a9fe:a9fe]/", {}),
+    ("http://localhost:8080/", {}),
+    ("https://internal.example/admin", {"internal.example": ("172.20.0.5",)}),
+    ("https://internal6.example/admin", {"internal6.example": ("fc00::5",)}),
+]
+REDIRECT_IDS = [
+    "literal-metadata",
+    "mapped-loopback",
+    "ipv6-loopback",
+    "ipv6-unique-local-metadata",
+    "ipv6-link-local",
+    "localhost",
+    "resolved-private",
+    "resolved-unique-local",
+]
+
+
+@pytest.mark.parametrize(("location", "answers"), REDIRECTS_ONTO_PRIVATE, ids=REDIRECT_IDS)
 def test_a_redirect_onto_a_private_address_is_refused_before_it_is_sent(
     location: str, answers: dict[str, tuple[str, ...]]
 ) -> None:
@@ -284,11 +391,11 @@ def test_a_redirect_onto_a_private_address_is_refused_before_it_is_sent(
 
     with (
         _guarded(origins, _resolver(answers), recorder) as client,
-        pytest.raises(RefusalError) as exc,
+        pytest.raises(Declined) as exc,
     ):
         client.get("https://public.example/start", cap_bytes=CAP_BYTES)
 
-    assert exc.value.code is RefusalCode.PROVIDER_DECLINED
+    assert exc.value.code == PRIVATE_OR_INTERNAL_ADDRESS
     assert origins.hosts == ["public.example"]
     assert recorder.observed() == ["https://public.example"]
 
@@ -299,28 +406,11 @@ def test_a_private_first_hop_contacts_nobody() -> None:
 
     resolver = _resolver({"lan.example": ("192.168.0.10",)})
 
-    with _guarded(origins, resolver, recorder) as client, pytest.raises(RefusalError):
+    with _guarded(origins, resolver, recorder) as client, pytest.raises(Declined):
         client.get("https://lan.example/", cap_bytes=CAP_BYTES)
 
     assert origins.hosts == []
     assert recorder.observed() == []
-
-
-def _context(url: str, **input_fields: Any) -> ProviderRunContext:
-    return ProviderRunContext(
-        run_id="run-private",
-        interface_id="web.fetch",
-        interface_digest="sha256:" + "aa" * 32,
-        implementation_digest="sha256:" + "bb" * 32,
-        input_bucket="source_kind=static_html;access=public;page_weight=light",
-        input={"url": url, **input_fields},
-        coordinates={},
-        budgets=Budgets(wall_clock_seconds=30.0, output_bytes=1_000_000),
-        declared_endpoints=("dynamic:target-from-run-input",),
-        capture_contract=None,
-        secrets={},
-        egress=EgressRecorder(),
-    )
 
 
 @pytest.mark.parametrize(
@@ -329,6 +419,8 @@ def _context(url: str, **input_fields: Any) -> ProviderRunContext:
         "http://127.0.0.1:8080/",
         "http://[::1]/",
         "http://169.254.169.254/latest/meta-data/iam/",
+        "http://[fe80::1]/",
+        "http://[fc00::1]/",
         "http://localhost/",
         "http://2130706433/",
         "http://[::ffff:10.0.0.1]/",
@@ -337,23 +429,13 @@ def _context(url: str, **input_fields: Any) -> ProviderRunContext:
 def test_web_fetch_refuses_private_targets_with_its_production_defaults(url: str) -> None:
     """No seam is replaced: this is the client a deployed ``web.fetch`` builds."""
 
-    result = WebFetch()(_context(url))
-
-    assert result.status == "refused"
-    assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.PROVIDER_DECLINED
-    assert result.refusal.detail["address_class"]
-
-
-def test_a_direct_rendered_invocation_is_declined_without_contacting_anything() -> None:
-    """Admission refuses ``render: true`` first; the adapter refuses it as well."""
-
-    context = _context("https://news.example/app", render=True)
+    context = _context("web.fetch", input={"url": url})
     result = WebFetch()(context)
 
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert result.refusal.code == PRIVATE_OR_INTERNAL_ADDRESS
+    assert result.refusal.detail["address_class"]
     assert context.egress.observed() == []
 
 
@@ -362,15 +444,18 @@ def test_web_fetch_refuses_a_name_resolving_privately() -> None:
         guarded_client_factory, resolver=_resolver({"wiki.corp.example": ("10.20.30.40",)})
     )
 
-    result = WebFetch(client_factory=factory)(_context("https://wiki.corp.example/page"))
+    result = WebFetch(client_factory=factory)(
+        _context("web.fetch", input={"url": "https://wiki.corp.example/page"})
+    )
 
     assert result.status == "refused"
     assert result.refusal is not None
+    assert result.refusal.code == PRIVATE_OR_INTERNAL_ADDRESS
     assert result.refusal.detail["address_class"] == "private"
 
 
 def test_search_web_is_not_guarded() -> None:
-    """SearXNG is an endpoint the operator declared, and it may well be local."""
+    """SearXNG is an endpoint the operator configured, and it may well be local."""
 
     unguarded = default_client_factory(
         EgressRecorder(), url="http://127.0.0.1:8888/search", timeout_seconds=1.0
@@ -380,13 +465,28 @@ def test_search_web_is_not_guarded() -> None:
     )
     try:
         unguarded.vet("http://127.0.0.1:8888/search")
-        with pytest.raises(RefusalError):
+        with pytest.raises(Declined):
             guarded.vet("http://127.0.0.1:8888/search")
     finally:
         unguarded.close()
         guarded.close()
     assert SearxngSearch()._client_factory is default_client_factory
     assert WebFetch()._client_factory is guarded_client_factory
+    assert WebFetchPages()._client_factory is guarded_client_factory
+
+
+def test_a_packaged_recording_needs_no_guard_and_opens_no_socket() -> None:
+    """``fixture.invalid`` is served from the distribution, never from a socket."""
+
+    client = guarded_client_factory(
+        EgressRecorder(),
+        url="https://fixture.invalid/articles/tide-gauge-recalibration",
+        timeout_seconds=1.0,
+    )
+    try:
+        assert client._guard is None
+    finally:
+        client.close()
 
 
 # -- pinning -----------------------------------------------------------------
@@ -406,7 +506,12 @@ class _Wire(httpcore.MockStream):
         self, ssl_context: Any, server_hostname: str | None = None, timeout: float | None = None
     ) -> httpcore.NetworkStream:
         self._backend.server_hostnames.append(server_hostname)
+        self._backend.ssl_contexts.append(ssl_context)
         return self
+
+    def close(self) -> None:
+        self._backend.closed += 1
+        super().close()
 
 
 class _Backend(httpcore.NetworkBackend):
@@ -416,7 +521,9 @@ class _Backend(httpcore.NetworkBackend):
         self._answers = list(answers)
         self.connected: list[tuple[str, int]] = []
         self.server_hostnames: list[str | None] = []
+        self.ssl_contexts: list[Any] = []
         self.written: list[bytes] = []
+        self.closed = 0
 
     def connect_tcp(
         self,
@@ -481,6 +588,43 @@ def test_the_connection_goes_to_the_address_that_was_checked() -> None:
     assert backend.connected == [(PUBLIC_V4, 443)]
     assert backend.server_hostnames == ["rebind.example"]
     assert b"Host: rebind.example" in b"".join(backend.written)
+    # TLS runs on a verified context: the name is checked against the certificate.
+    (context,) = backend.ssl_contexts
+    assert context.check_hostname is True
+    assert context.verify_mode is ssl.CERT_REQUIRED
+
+
+def test_a_pinned_transport_loads_the_trust_store_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One verified context per transport, not one built and thrown away.
+
+    Every page of a paged fetch builds its own client, so a discarded trust-store
+    load would be paid up to 64 times per run.
+    """
+
+    loads: list[object] = []
+    original = ssl.SSLContext.load_verify_locations
+
+    def counting(self: ssl.SSLContext, *args: Any, **kwargs: Any) -> None:
+        loads.append(self)
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ssl.SSLContext, "load_verify_locations", counting)
+
+    transport = PinnedTransport(AddressGuard(_resolver()))
+    try:
+        assert len(loads) == 1
+        # The pool that opens the connections uses that one context.
+        assert transport._pool._ssl_context is loads[0]
+    finally:
+        transport.close()
+    loads.clear()
+    client = guarded_client_factory(
+        EgressRecorder(), url="https://news.example/article", timeout_seconds=1.0
+    )
+    try:
+        assert len(loads) == 1
+    finally:
+        client.close()
 
 
 def test_a_rebinding_answer_on_a_later_hop_is_refused() -> None:
@@ -489,20 +633,20 @@ def test_a_rebinding_answer_on_a_later_hop_is_refused() -> None:
     resolver = _Rebinding(private="169.254.169.254")
     backend = _Backend([_answer("302 Found", b"", Location="https://rebind.example/next")])
 
-    with _pinned(resolver, backend, EgressRecorder()) as client, pytest.raises(RefusalError) as exc:
+    with _pinned(resolver, backend, EgressRecorder()) as client, pytest.raises(Declined) as exc:
         client.get("https://rebind.example/doc", cap_bytes=CAP_BYTES)
 
-    assert exc.value.refusal.detail["address_class"] == "link_local"
+    assert _refused(exc)["address_class"] == "link_local"
     assert backend.connected == [(PUBLIC_V4, 443)]
 
 
-def test_the_transport_refuses_a_host_nobody_vetted() -> None:
+def test_the_transport_connects_nowhere_for_a_host_nobody_vetted() -> None:
     """Pinning is enforced in the transport, not only in the caller's habits."""
 
     backend = _Backend([_answer()])
     transport = PinnedTransport(AddressGuard(_resolver()), network_backend=backend)
 
-    with httpx.Client(transport=transport) as client, pytest.raises(RefusalError):
+    with httpx.Client(transport=transport) as client, pytest.raises(httpx.ConnectError):
         client.get("https://unvetted.example/")
 
     assert backend.connected == []
@@ -523,9 +667,116 @@ def test_a_public_fetch_still_works_end_to_end() -> None:
             guard=guard,
         )
 
-    context = _context("https://news.example/article")
+    context = _context("web.fetch", input={"url": "https://news.example/article"})
     result = WebFetch(client_factory=factory)(context)
 
     assert result.status == "ok", result
     assert backend.connected == [(PUBLIC_V4, 443)]
     assert context.egress.observed() == ["https://news.example"]
+
+
+# -- web.fetch.pages, page by page ---------------------------------------------
+
+
+def _pinned_factory(backend: _Backend, resolver: Resolver) -> Any:
+    """One guarded, pinned client per page, every connection through ``backend``."""
+
+    def factory(recorder: EgressRecorder, *, url: str, timeout_seconds: float) -> RecordingClient:
+        del url
+        guard = AddressGuard(resolver)
+        return RecordingClient(
+            recorder,
+            timeout_seconds=timeout_seconds,
+            transport=PinnedTransport(guard, network_backend=backend),
+            guard=guard,
+        )
+
+    return factory
+
+
+PAGED = {
+    "url": "https://api.example/epss",
+    "query": [{"name": "cve", "values": [f"CVE-2024-{index:05d}" for index in range(3)]}],
+    "page_param": "cve",
+    "max_url_chars": len("https://api.example/epss?cve=CVE-2024-00000"),
+}
+
+
+def test_a_page_redirected_onto_a_private_address_is_that_page_s_refusal() -> None:
+    """The middle page bounces to the metadata service; the other two are captured.
+
+    The refused hop is never connected to, and every connection the call did
+    open is closed by the time it returns.
+    """
+
+    json_ok = _answer(Content_Type="application/json", body=b'{"data": []}')
+    backend = _Backend(
+        [
+            json_ok,
+            _answer("302 Found", b"", Location="http://169.254.169.254/latest/meta-data/"),
+            json_ok,
+        ]
+    )
+    context = _context("web.fetch.pages", input=PAGED)
+    result = WebFetchPages(client_factory=_pinned_factory(backend, _resolver()))(context)
+
+    assert result.status == "ok", result
+    assert len(result.output["captures"]) == 2
+    (failed,) = result.output["failed_pages"]
+    assert failed["page_index"] == 1
+    assert failed["outcome"] == "refused"
+    assert failed["code"] == PRIVATE_OR_INTERNAL_ADDRESS
+    assert result.incomplete_captures == ["captures"]
+    assert backend.connected == [(PUBLIC_V4, 443)] * 3
+    assert backend.closed == len(backend.connected)
+    assert context.egress.observed() == ["https://api.example"]
+
+
+def test_a_page_whose_host_is_re_pointed_privately_is_refused_alone() -> None:
+    """Each page's client resolves afresh; a name that turns private mid-call is caught."""
+
+    calls = {"count": 0}
+
+    def flips(host: str, port: int) -> Sequence[str]:
+        del host, port
+        calls["count"] += 1
+        return ("10.9.8.7",) if calls["count"] == 3 else (PUBLIC_V4,)
+
+    json_ok = _answer(Content_Type="application/json", body=b'{"data": []}')
+    backend = _Backend([json_ok, json_ok])
+    result = WebFetchPages(client_factory=_pinned_factory(backend, flips))(
+        _context("web.fetch.pages", input=PAGED)
+    )
+
+    assert result.status == "ok", result
+    (failed,) = result.output["failed_pages"]
+    assert failed["page_index"] == 2
+    assert failed["code"] == PRIVATE_OR_INTERNAL_ADDRESS
+    assert backend.connected == [(PUBLIC_V4, 443)] * 2
+
+
+def test_every_page_of_a_private_target_is_refused_and_nothing_is_connected() -> None:
+    backend = _Backend([])
+    resolver = _resolver({"api.example": ("10.0.0.1",)})
+    result = WebFetchPages(client_factory=_pinned_factory(backend, resolver))(
+        _context("web.fetch.pages", input=PAGED)
+    )
+
+    assert result.status == "error" and result.error is not None
+    assert result.error.kind == "AllPagesFailed"
+    pages = result.error.detail["failed_pages"]
+    assert [page["code"] for page in pages] == [PRIVATE_OR_INTERNAL_ADDRESS] * 3
+    assert backend.connected == []
+
+
+def test_a_one_page_private_target_is_the_call_s_refusal_with_production_defaults() -> None:
+    context = _context(
+        "web.fetch.pages",
+        input={**PAGED, "url": "http://[fd00::1]/epss", "max_url_chars": 8192},
+    )
+    result = WebFetchPages()(context)
+
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PRIVATE_OR_INTERNAL_ADDRESS
+    assert result.refusal.detail["address_class"] == "private"
+    assert context.egress.observed() == []

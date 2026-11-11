@@ -34,10 +34,12 @@ import math
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult
 
-from .refusals import decline
+from .refusals import (
+    NON_FINITE_RESULT,
+    decline,
+)
 
 __all__ = ["non_finite_paths", "ok_if_finite"]
 
@@ -79,7 +81,7 @@ def ok_if_finite(
     found += [f"events.{name}" for name in non_finite_paths(events or [])]
     if found:
         return decline(
-            RefusalCode.NON_FINITE_RESULT,
+            NON_FINITE_RESULT,
             "the computation produced a value that is not a number; the inputs were "
             "well-formed but the declared method has no answer for them",
             paths=sorted(found)[:_MAX_REPORTED_PATHS],

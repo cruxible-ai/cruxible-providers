@@ -303,7 +303,7 @@ wheels = [
 
 [[package]]
 name = "cruxible-provider-docs"
-version = "0.2.0"
+version = "0.3.1"
 source = { editable = "../cruxible-provider-docs" }
 dependencies = [
     { name = "cruxible-provider-runtime" },
@@ -328,7 +328,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-quant"
-version = "0.2.0"
+version = "0.3.1"
 source = { editable = "../cruxible-provider-quant" }
 dependencies = [
     { name = "cruxible-provider-runtime" },
@@ -369,7 +369,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-runtime"
-version = "0.2.0"
+version = "0.4.0"
 source = { editable = "../cruxible-provider-runtime" }
 dependencies = [
     { name = "packaging" },
@@ -380,7 +380,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "packaging", specifier = ">=24.0" },
-    { name = "pydantic", specifier = ">=2.7,<3" },
+    { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 
@@ -394,7 +394,7 @@ dev = [
 
 [[package]]
 name = "cruxible-provider-web"
-version = "0.2.2"
+version = "0.5.0"
 source = { editable = "../cruxible-provider-web" }
 dependencies = [
     { name = "cruxible-provider-runtime" },
@@ -408,27 +408,10 @@ requires-dist = [
     { name = "cruxible-provider-runtime", editable = "../cruxible-provider-runtime" },
     { name = "httpcore", specifier = ">=1.0" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.44" },
     { name = "trafilatura", specifier = ">=2.0" },
 ]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.11" },
-    { name = "pytest", specifier = ">=8.2" },
-    { name = "ruff", specifier = ">=0.6" },
-    { name = "types-pyyaml", specifier = ">=6.0" },
-]
-
-[[package]]
-name = "cruxible-provider-workspace"
-version = "0.2.0"
-source = { editable = "../cruxible-provider-workspace" }
-dependencies = [
-    { name = "cruxible-provider-runtime" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "cruxible-provider-runtime", editable = "../cruxible-provider-runtime" }]
+provides-extras = ["browser"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -440,7 +423,7 @@ dev = [
 
 [[package]]
 name = "cruxible-providers"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -448,7 +431,6 @@ all = [
     { name = "cruxible-provider-docs" },
     { name = "cruxible-provider-quant" },
     { name = "cruxible-provider-web" },
-    { name = "cruxible-provider-workspace" },
 ]
 docs = [
     { name = "cruxible-provider-docs" },
@@ -458,9 +440,6 @@ quant = [
 ]
 web = [
     { name = "cruxible-provider-web" },
-]
-workspace = [
-    { name = "cruxible-provider-workspace" },
 ]
 
 [package.dev-dependencies]
@@ -477,10 +456,8 @@ requires-dist = [
     { name = "cruxible-provider-quant", marker = "extra == 'quant'", editable = "../cruxible-provider-quant" },
     { name = "cruxible-provider-web", marker = "extra == 'all'", editable = "../cruxible-provider-web" },
     { name = "cruxible-provider-web", marker = "extra == 'web'", editable = "../cruxible-provider-web" },
-    { name = "cruxible-provider-workspace", marker = "extra == 'all'", editable = "../cruxible-provider-workspace" },
-    { name = "cruxible-provider-workspace", marker = "extra == 'workspace'", editable = "../cruxible-provider-workspace" },
 ]
-provides-extras = ["web", "docs", "quant", "workspace", "all"]
+provides-extras = ["web", "docs", "quant", "all"]
 
 [package.metadata.requires-dev]
 dev = [

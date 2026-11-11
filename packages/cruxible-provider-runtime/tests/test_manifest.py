@@ -27,24 +27,20 @@ from pydantic import ValidationError
 DIGEST_ONE = "sha256:" + "11" * 32
 DIGEST_TWO = "sha256:" + "22" * 32
 
+ENTRYPOINT = "sample_provider.impl:Echo"
+
 MANIFEST: dict[str, Any] = {
-    "schema_version": 1,
+    "schema_version": 2,
     "provider_id": "cruxible-provider-sample",
     "distribution": {"name": "cruxible-provider-sample", "version": "0.1.0"},
     "entrypoint_group": "cruxible.providers",
-    "supported_protocol_majors": [1],
+    "supported_protocol_majors": [2],
     "implementations": [
         {
-            "interface_id": "sample.echo",
-            "interface_digest": DIGEST_ONE,
-            "entrypoint": "sample_provider.impl:Echo",
+            "entrypoint": ENTRYPOINT,
             "backends": ["local_env"],
-            "declared_input_buckets": ["size=small"],
-            "bucket_conformance": {"size=small": "fixture-small"},
             "declared_endpoints": [],
-            "capture_contract_families": ["sample.capture.v1"],
             "deterministic": True,
-            "side_effects": False,
         }
     ],
 }
@@ -59,7 +55,7 @@ def _write(tmp_path: Path, document: dict[str, Any], name: str = "manifest.yaml"
 def test_manifest_loads(tmp_path: Path) -> None:
     manifest = load_manifest(_write(tmp_path, MANIFEST))
     assert manifest.provider_id == "cruxible-provider-sample"
-    assert manifest.implementation("sample.echo").deterministic is True
+    assert manifest.implementation(ENTRYPOINT).deterministic is True
 
 
 def test_unknown_manifest_field_fails_closed(tmp_path: Path) -> None:
@@ -79,11 +75,54 @@ def test_unknown_field_inside_an_implementation_fails_closed(tmp_path: Path) -> 
     assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
 
 
-def test_undeclared_interface_refuses() -> None:
+def test_an_entrypoint_the_manifest_does_not_declare_is_a_divergence() -> None:
+    """An operation names its entrypoint; a manifest without that row disagrees."""
+
     manifest = load_manifest_document(MANIFEST)
     with pytest.raises(RefusalError) as exc:
-        manifest.implementation("sample.absent")
-    assert exc.value.code is RefusalCode.UNDECLARED_INTERFACE
+        manifest.implementation("sample_provider.impl:Absent")
+    assert exc.value.code is RefusalCode.MANIFEST_DIVERGENCE
+    assert exc.value.refusal.detail["declared"] == [ENTRYPOINT]
+
+
+SCHEMA_1_IMPLEMENTATION: dict[str, Any] = {
+    "interface_id": "sample.echo",
+    "interface_digest": DIGEST_ONE,
+    "entrypoint": ENTRYPOINT,
+    "backends": ["local_env"],
+    "declared_input_buckets": ["size=small"],
+    "bucket_conformance": {"size=small": "fixture-small"},
+    "capture_contract_families": ["sample.capture.v1"],
+    "deterministic": True,
+    "side_effects": False,
+}
+
+
+def test_a_schema_1_manifest_is_refused_whole() -> None:
+    document = {**MANIFEST, "schema_version": 1, "implementations": [SCHEMA_1_IMPLEMENTATION]}
+    with pytest.raises(RefusalError) as exc:
+        load_manifest_document(document)
+    assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
+    assert exc.value.refusal.detail == {"schema_version": 1}
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "interface_id",
+        "interface_digest",
+        "declared_input_buckets",
+        "bucket_conformance",
+        "capture_contract_families",
+        "side_effects",
+    ],
+)
+def test_a_protocol_1_implementation_field_is_unknown_at_schema_2(field: str) -> None:
+    document = copy.deepcopy(MANIFEST)
+    document["implementations"][0][field] = SCHEMA_1_IMPLEMENTATION[field]
+    with pytest.raises(RefusalError) as exc:
+        load_manifest_document(document)
+    assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
 
 
 def test_manifest_digest_is_stable_under_key_order() -> None:
@@ -170,31 +209,14 @@ def test_artifact_with_an_unknown_manifest_field_refuses_with_the_manifest_code(
     assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
 
 
-def test_two_implementations_of_one_interface_is_terminal() -> None:
-    """RP-0 has no tie-break, and inventing one would make ordering decide."""
+def test_two_rows_for_one_entrypoint_refuse() -> None:
+    """One row per entrypoint; what it serves is the registration's business."""
 
     document = copy.deepcopy(MANIFEST)
-    second = copy.deepcopy(document["implementations"][0])
-    second["entrypoint"] = "sample_provider.impl:EchoFast"
-    document["implementations"].append(second)
-    manifest = load_manifest_document(document)
+    document["implementations"].append(copy.deepcopy(document["implementations"][0]))
     with pytest.raises(RefusalError) as exc:
-        manifest.implementation("sample.echo")
-    assert exc.value.code is RefusalCode.AMBIGUOUS_IMPLEMENTATION
-    assert "terminal" in exc.value.refusal.message
-    assert exc.value.refusal.detail["entrypoints"] == [
-        "sample_provider.impl:Echo",
-        "sample_provider.impl:EchoFast",
-    ]
-
-
-def test_an_absent_interface_is_a_different_refusal_from_an_ambiguous_one() -> None:
-    """Over-declaration and non-declaration are different faults."""
-
-    manifest = load_manifest_document(MANIFEST)
-    with pytest.raises(RefusalError) as exc:
-        manifest.implementation("sample.absent")
-    assert exc.value.code is RefusalCode.UNDECLARED_INTERFACE
+        load_manifest_document(document)
+    assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
 
 
 def test_a_manifest_may_require_per_engine_extras() -> None:
@@ -203,11 +225,11 @@ def test_a_manifest_may_require_per_engine_extras() -> None:
     document = copy.deepcopy(MANIFEST)
     document["implementations"][0]["requires_extras"] = ["docling"]
     manifest = load_manifest_document(document)
-    assert manifest.implementation("sample.echo").requires_extras == ("docling",)
+    assert manifest.implementation(ENTRYPOINT).requires_extras == ("docling",)
 
 
 def test_an_implementation_requires_no_extras_by_default() -> None:
-    assert load_manifest_document(MANIFEST).implementation("sample.echo").requires_extras == ()
+    assert load_manifest_document(MANIFEST).implementation(ENTRYPOINT).requires_extras == ()
 
 
 def test_a_repeated_extra_refuses() -> None:
@@ -224,7 +246,7 @@ def test_the_dynamic_endpoint_form_is_a_legal_declaration() -> None:
     document = copy.deepcopy(MANIFEST)
     document["implementations"][0]["declared_endpoints"] = ["dynamic:target-from-run-input"]
     manifest = load_manifest_document(document)
-    assert manifest.implementation("sample.echo").declared_endpoints == (
+    assert manifest.implementation(ENTRYPOINT).declared_endpoints == (
         "dynamic:target-from-run-input",
     )
 

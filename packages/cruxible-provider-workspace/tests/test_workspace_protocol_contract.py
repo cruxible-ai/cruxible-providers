@@ -1,18 +1,11 @@
-"""The adapter against the provider-runtime protocol exactly as core mirrors it.
+"""The adapter against the provider-runtime protocol 2.0 contract core vendors.
 
-``fixtures/provider_runtime_contract_v1.json`` is a verbatim copy of the fixture
-core pins in ``tests/test_guardrails/test_provider_runtime_contract_mirror.py``
-(P2-B2, tip 61f68629; unchanged since review round 1). Three things are asserted
-against it, in the direction core cannot assert them:
-
-1. the copy is byte-identical to what core pins (its sha256 is a literal here);
-2. this runtime's wire models reproduce the schemas core froze, so the envelope
-   the child writes is the envelope core parses;
-3. driving the child harness with core's run-context vector, adapted to this
-   interface, yields an envelope of exactly the frozen shape.
-
-**When B2 lands, re-verify the literal digest below against the landed tip
-before core pins this package's digests.**
+``packages/cruxible-provider-runtime/tests/fixtures/provider_runtime_contract_v2.json``
+is produced by ``scripts/export_runtime_contract.py`` from this runtime's own
+models, and is the fixture core pins for its mirror. Driving the child harness
+with its run-context vector, re-pointed at this operation, yields envelopes of
+exactly the shapes the fixture's result vectors carry; its protocol-1.x vector
+is refused the way core will see it refused.
 """
 
 from __future__ import annotations
@@ -26,80 +19,39 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import pytest
-from cruxible_provider_runtime import protocol
-from cruxible_provider_runtime.egress import DYNAMIC_ENDPOINT_FORMS
-from cruxible_provider_runtime.errors import ProviderErrorPayload, Refusal, RefusalCode
 from cruxible_provider_runtime.protocol import PROTOCOL_VERSION, parse_result_envelope
+from cruxible_provider_workspace.file import PROVIDER_DECLINED
 
-from .conftest import RUNTIME_SRC, WORKSPACE_SRC
+from .conftest import ENTRYPOINT, OPERATION, REPO_ROOT, RUNTIME_SRC, WORKSPACE_SRC
 
-FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "provider_runtime_contract_v1.json"
-
-# tests/test_guardrails/test_provider_runtime_contract_mirror.py at core 61f68629:
-# PROVIDER_RUNTIME_CONTRACT_FIXTURE_DIGEST.
-CORE_PINNED_FIXTURE_DIGEST = (
-    "sha256:56b1d2799515c84f3848d08c79b33a3297280ebef82232701612ccf3ce4488c7"
+FIXTURE_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "cruxible-provider-runtime"
+    / "tests"
+    / "fixtures"
+    / "provider_runtime_contract_v2.json"
 )
-# provider_runtime_contract.PROVIDER_RUNTIME_CONTRACT_COMMIT at core 61f68629:
-# the commit of THIS repository core mirrored the protocol from.
-CORE_PINNED_PROVIDER_COMMIT = "389e9f44de56c1adebae731228cf4628c6fbeca8"
-
-ENTRYPOINT = "cruxible_provider_workspace.file:WorkspaceFile"
-
-_MODEL_MAP: dict[str, type[Any]] = {
-    "Budgets": protocol.Budgets,
-    "ProtocolVersion": protocol.ProtocolVersion,
-    "ProviderErrorPayload": ProviderErrorPayload,
-    "Refusal": Refusal,
-    "ResultEnvelope": protocol.ResultEnvelope,
-    "RunContext": protocol.RunContext,
-    "SecretChannelSpec": protocol.SecretChannelSpec,
-    "SecretRef": protocol.SecretRef,
-    "Trace": protocol.Trace,
-}
 
 
 def _fixture() -> dict[str, Any]:
-    return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+    document: dict[str, Any] = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+    return document
 
 
-def test_the_vendored_fixture_is_byte_identical_to_what_core_pins() -> None:
-    raw = FIXTURE_PATH.read_bytes()
-    assert "sha256:" + hashlib.sha256(raw).hexdigest() == CORE_PINNED_FIXTURE_DIGEST
-
-
-def test_current_vocabulary_extends_the_frozen_fixture_explicitly() -> None:
-    fixture = _fixture()
-    assert fixture["provider_commit"] == CORE_PINNED_PROVIDER_COMMIT
-    assert fixture["protocol_version"] == PROTOCOL_VERSION.render()
-    # Keep the old Core-pinned fixture byte-identical. The package-registration
-    # successor adds a configuration-derived endpoint; old forms remain valid.
-    assert fixture["dynamic_endpoint_forms"] == ["dynamic:target-from-run-input"]
-    assert (
-        frozenset({*fixture["dynamic_endpoint_forms"], "dynamic:target-from-configuration"})
-        == DYNAMIC_ENDPOINT_FORMS
-    )
-    assert fixture["refusal_codes"] == sorted(
-        (code.value for code in RefusalCode), key=lambda value: value.encode("utf-8")
-    )
-
-
-@pytest.mark.parametrize("name", sorted(_MODEL_MAP))
-def test_this_runtime_reproduces_the_schema_core_froze(name: str) -> None:
-    assert _MODEL_MAP[name].model_json_schema() == _fixture()["schemas"][name]
+def test_the_fixture_is_this_runtimes_protocol() -> None:
+    assert _fixture()["protocol_version"] == PROTOCOL_VERSION.render()
 
 
 def _workspace_context(fixture: dict[str, Any], data: bytes) -> dict[str, Any]:
-    """Core's run-context vector, re-pointed at this interface and adapter."""
+    """The contract's run-context vector, re-pointed at this operation and adapter."""
 
     context = dict(fixture["valid_vectors"]["run_context"])
     context.update(
         {
-            "interface_id": "workspace.file",
+            "operation": OPERATION,
             "entrypoint": ENTRYPOINT,
-            "input_bucket": "content_kind=text;byte_size=tiny",
-            "capture_contract": "workspace.file.capture.v1",
+            "capture_contract": None,
             "declared_endpoints": [],
             "secret_channel": None,
             "input": {
@@ -170,18 +122,30 @@ def test_a_declined_run_yields_the_frozen_refused_envelope_shape() -> None:
     context = _workspace_context(fixture, b"alpha\n")
     context["input"]["bytes_digest"] = "sha256:" + "ab" * 32
     envelope, _ = _run_child(context)
-    expected = fixture["valid_vectors"]["results"]["refused"]
+    expected = fixture["valid_vectors"]["results"]["refused_by_operation"]
     assert _shape({**envelope, "refusal": {**envelope["refusal"], "detail": {}}}) == _shape(
         {**expected, "refusal": {**expected["refusal"], "detail": {}}}
     )
-    assert envelope["refusal"]["code"] == "provider_declined"
-    assert envelope["refusal"]["code"] in fixture["refusal_codes"]
+    assert envelope["refusal"]["code"] == PROVIDER_DECLINED
+    assert envelope["refusal"]["code"] not in fixture["runtime_refusal_codes"]
 
 
-def test_every_refusal_the_adapter_can_emit_is_in_the_frozen_vocabulary() -> None:
-    from cruxible_provider_workspace.interface import INTERFACE_PREIMAGE
-
-    assert set(INTERFACE_PREIMAGE["refusals"]) <= set(_fixture()["refusal_codes"])
+def test_a_protocol_1_context_is_refused_typed_under_its_run() -> None:
+    fixture = _fixture()
+    context = dict(fixture["invalid_vectors"]["context_protocol_1"])
+    context.update(
+        {
+            "interface_id": OPERATION,
+            "entrypoint": ENTRYPOINT,
+            "declared_endpoints": [],
+            "secret_channel": None,
+            "input": _workspace_context(fixture, b"alpha\n")["input"],
+        }
+    )
+    envelope, _ = _run_child(context)
+    assert envelope["status"] == "refused"
+    assert envelope["run_id"] == context["run_id"]
+    assert envelope["refusal"]["code"] == "unsupported_protocol"
 
 
 def test_a_field_outside_the_additive_region_refuses_in_the_child() -> None:
@@ -220,13 +184,13 @@ def test_the_receipt_fields_core_records_exist_on_an_outcome(
     from cruxible_provider_runtime.execute import invoke
     from cruxible_provider_runtime.protocol import Budgets
 
-    from .conftest import INTERFACE_ID, MARKER_ENVIRONMENT, PROVIDER_ID
+    from .conftest import MARKER_ENVIRONMENT, PROVIDER_ID
 
     binding = bind(
         registry,
         BindRequest(
             provider_id=PROVIDER_ID,
-            interface_id=INTERFACE_ID,
+            operation=OPERATION,
             backend_kind="local_env",
             manifest_path=manifest_path,
             lock_path=lock_path,

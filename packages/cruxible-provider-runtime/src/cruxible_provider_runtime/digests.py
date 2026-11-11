@@ -3,11 +3,13 @@
 Three levels of identity, one track-record key:
 
 ``implementation_digest``
-    Backend-invariant, and **the** track-record key. Domain tag
-    ``cruxible.provider.implementation.v1`` over interface id, interface digest,
-    entrypoint object path, and the provider distribution's own sha256 — never a
-    bare ``version``, which is a claim rather than an identity. A backend switch
-    never changes it and never splits earned track record.
+    Backend-invariant. Domain tag ``cruxible.provider.implementation.v2`` over
+    the entrypoint object path and the provider distribution's own sha256 —
+    never a bare ``version``, which is a claim rather than an identity. A
+    backend switch never changes it and never splits earned track record. It
+    names the code that ran; which operation it ran is the run's ``operation``
+    and ``operation_signature_digest``, recorded beside it, because one
+    entrypoint may serve several operations.
 
 ``materialization_digest``
     A per-backend environment pin. Domain tag
@@ -35,7 +37,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .canonical import SHA256_RE, domain_digest, normalize_sha256
+from .canonical import domain_digest, normalize_sha256
 from .resolution import ResolvedSet
 
 __all__ = [
@@ -48,51 +50,33 @@ __all__ = [
     "materialization_preimage",
 ]
 
-IMPLEMENTATION_DOMAIN_TAG = "cruxible.provider.implementation.v1"
+IMPLEMENTATION_DOMAIN_TAG = "cruxible.provider.implementation.v2"
 MATERIALIZATION_DOMAIN_TAG = "cruxible.provider.materialization.v1"
 CLOSURE_DOMAIN_TAG = "cruxible.provider.closure.v1"
 
 
-def implementation_preimage(
-    *,
-    interface_id: str,
-    interface_digest: str,
-    entrypoint: str,
-    distribution_sha256: str,
-) -> dict[str, Any]:
+def implementation_preimage(*, entrypoint: str, distribution_sha256: str) -> dict[str, Any]:
     """The canonical implementation preimage.
 
-    Exactly four fields, in the order the contract names them. Nothing about the
-    backend, the environment, or the protocol appears here.
+    Exactly two fields. Nothing about the backend, the environment, the
+    protocol, or the operations the entrypoint serves appears here.
     """
 
-    if not SHA256_RE.match(interface_digest):
-        raise ValueError(f"interface_digest must be sha256:<hex>, got {interface_digest!r}")
+    module, separator, member = entrypoint.partition(":")
+    if not separator or not module or not member:
+        raise ValueError(f"entrypoint must be 'module:object', got {entrypoint!r}")
     return {
-        "interface_id": interface_id,
-        "interface_digest": interface_digest,
         "entrypoint": entrypoint,
         "distribution_sha256": normalize_sha256(distribution_sha256),
     }
 
 
-def implementation_digest(
-    *,
-    interface_id: str,
-    interface_digest: str,
-    entrypoint: str,
-    distribution_sha256: str,
-) -> str:
+def implementation_digest(*, entrypoint: str, distribution_sha256: str) -> str:
     """Compute the backend-invariant implementation digest."""
 
     return domain_digest(
         IMPLEMENTATION_DOMAIN_TAG,
-        implementation_preimage(
-            interface_id=interface_id,
-            interface_digest=interface_digest,
-            entrypoint=entrypoint,
-            distribution_sha256=distribution_sha256,
-        ),
+        implementation_preimage(entrypoint=entrypoint, distribution_sha256=distribution_sha256),
     )
 
 

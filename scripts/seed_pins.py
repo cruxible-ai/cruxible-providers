@@ -4,9 +4,9 @@
     uv run python scripts/seed_pins.py --package cruxible-provider-workspace \
         --wheel packages/cruxible-provider-workspace/dist/<wheel>.whl [--json]
 
-For every implementation the package's manifest declares: the interface id and
-digest, the entrypoint, and the **implementation digest** over the built
-wheel's sha256. For the package: the lock's sha256, and one **materialization
+For every implementation the package's manifest declares: the entrypoint, the
+operations its registration says it serves, and the **implementation digest**
+over the built wheel's sha256. For the package: the lock's sha256, and one **materialization
 digest** per marker environment in ``ci/marker-environments.json`` (the launch
 floors), resolved from the committed lock with the wheel's sha256 as the root
 identity.
@@ -40,6 +40,7 @@ from cruxible_provider_runtime.digests import (  # noqa: E402
     materialization_digest,
 )
 from cruxible_provider_runtime.manifest import load_manifest, manifest_digest  # noqa: E402
+from cruxible_provider_runtime.registration import load_registration  # noqa: E402
 from cruxible_provider_runtime.resolution import (  # noqa: E402
     MarkerEnvironment,
     load_uv_lock,
@@ -63,17 +64,17 @@ def compute(repo: Path, package: str, wheel: Path) -> dict[str, Any]:
     lock = load_uv_lock(package_dir / "uv.lock")
     environments_path = repo / "ci" / "marker-environments.json"
 
+    operations = load_registration(manifest_path.parent).operations
     implementations = []
     for implementation in manifest.implementations:
         implementations.append(
             {
-                "interface_id": implementation.interface_id,
-                "interface_digest": implementation.interface_digest,
                 "entrypoint": implementation.entrypoint,
+                "operations": [
+                    item.name for item in operations if item.entrypoint == implementation.entrypoint
+                ],
                 "requires_extras": list(implementation.requires_extras),
                 "implementation_digest": implementation_digest(
-                    interface_id=implementation.interface_id,
-                    interface_digest=implementation.interface_digest,
                     entrypoint=implementation.entrypoint,
                     distribution_sha256=distribution_sha256,
                 ),
@@ -137,9 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  lock           {pins['lock_sha256']}")
     print(f"  environments   {pins['marker_environments_sha256']}  (ci/marker-environments.json)")
     for implementation in pins["implementations"]:
-        print(f"  {implementation['interface_id']}")
-        print(f"    interface      {implementation['interface_digest']}")
-        print(f"    entrypoint     {implementation['entrypoint']}")
+        print(f"  {implementation['entrypoint']}")
+        print(f"    operations     {', '.join(implementation['operations'])}")
         print(f"    implementation {implementation['implementation_digest']}")
     for key, digest in pins["materialization_digests"].items():
         print(f"  materialization {key:<22} {digest}")

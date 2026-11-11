@@ -1,0 +1,24 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of a redirect_limit refusal: the requested URL, the hop it would have followed next, and the hop limit.",
+  "fields": {
+    "max_redirects": {
+      "type": {
+        "kind": "int",
+        "min": 1
+      }
+    },
+    "next_url": {
+      "type": {
+        "kind": "string"
+      }
+    },
+    "url": {
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "search.web.refusal.redirect_limit",
+  "version": 1
+}

@@ -1,25 +1,41 @@
 # cruxible-provider-workspace
 
+## In plain terms
+
+This package turns the contents of a file into a structured record Cruxible
+can cite line by line. It is a **provider** (an add-on package that does one
+kind of work for Cruxible) with one **operation** (a named task). Core
+already has this operation built in, so a normal instance never needs the
+package; it is kept so the built-in copy can be tested against it.
+
+| Operation | What it does | Network | Needs |
+|---|---|---|---|
+| `workspace.file` | Cruxible reads a file from the attached workspace and hands over its bytes, with their length and SHA-256 hash. The operation checks both, then returns the content: for text, the text itself, its lines, and its line-ending style; for anything else, the bytes in base64. It opens no file itself. | no | nothing extra |
+
+What gets installed: `cruxible-provider-runtime` and nothing else; no extras.
+The package names the **Contracts** its operation uses (a Contract is the
+declared shape of an input or output) but does not ship them: Cruxible core
+sets them up on every new instance, together with its built-in copy of the
+operation. When a check fails, the operation returns a **refusal**: a typed
+"no" with a code saying why, such as a length that does not match.
+
+You do not need this package unless you are testing core's built-in
+`workspace.file` or want a separately installed build of it.
+
+## Reference
+
 The `workspace.file` source adapter for [Cruxible](https://github.com/cruxible-ai/cruxible).
 Apache-2.0.
-
-| Interface | Entrypoint | Effect |
-|---|---|---|
-| `workspace.file` | `cruxible_provider_workspace.file:WorkspaceFile` | pure |
 
 Cruxible core reads a file from an attached workspace. This package turns the
 bytes it was handed into a structured capture body, and does nothing else.
 
-## Installing
-
-`workspace.file` is a Cruxible built-in. Core seeds its Provider into an
-instance through an ordinary governed proposal that pins this distribution's
-exact wheel and lock, and materializes an isolated environment from them; you do
-not normally install it by hand. `pip install cruxible-provider-workspace` is for
-development and testing.
-
-The package depends on `cruxible-provider-runtime` and nothing else, and has no
-extras.
+Core does not need this package. Every new instance starts with core's own
+in-process port of this adapter, the `cruxible-builtin` Provider, which serves
+the same `workspace.file` signature and refusal Contracts; a parity golden in
+core holds the two to the same result envelope. Installing this package
+registers a separate build beside the built-in, and a Line binds whichever build
+it names.
 
 ## Where the boundary is
 
@@ -41,29 +57,39 @@ What crosses into this adapter is the **outcome** of that read:
 | `byte_length` | The declared length of the decoded payload; **checked** |
 | `bytes_digest` | The declared `sha256:` of the decoded payload; **checked, then echoed** |
 
+It serves one operation, `workspace.file`: `workspace.file.request@1` in,
+`workspace.file.result@1` out, effect `pure`, with three declared refusals —
+the same signature and refusal Contracts core seeds for its built-in port of
+this adapter.
+
 Every declaration is verified against the decoded bytes rather than trusted. A
-length that disagrees refuses (`mismatched_lengths`), a digest that disagrees
-refuses (`provider_declined`), and a field that is missing, malformed or
-undeclared refuses (`invalid_parameter`). Only a digest that agrees is echoed
-into the body, so a reader of the Capture gets the digest core's read receipt
+length that disagrees refuses (`mismatched_lengths`); a digest that disagrees
+refuses (`provider_declined`); a field that is missing, malformed, or undeclared
+refuses (`invalid_parameter`); a payload over one mebibyte refuses
+(`provider_declined`). Only a digest that agrees is echoed into the body
+as the source digest, so a reader of the Capture gets the digest core's receipt
 names, re-verified by the process that structured the bytes.
 
 ## Pure
 
-The adapter opens no file, contacts no endpoint, reads no clock and consults no
-secret. Its output is a function of its input alone, so the same input replays
-to the same body under a later evaluation. The manifest says so the only way a
-manifest can — `declared_endpoints: []`, `deterministic: true`,
-`side_effects: false` — and the conformance suite checks it three ways:
-structurally (the adapter module's imports are an allowlist with no filesystem or
-socket module on it), at runtime (`open` raises for the duration of an
-invocation), and with outbound sockets blocked in both the executor and the
-provider process.
+The adapter opens no file, contacts no endpoint, reads no clock, and consults no
+secret. Its output is a function of its input alone, which is what lets the same
+input replay to the same body under a later evaluation. The manifest spells the
+same fact the only way a manifest can: `declared_endpoints: []` and
+`deterministic: true`; the operation's effect is `pure`. The conformance suite asserts it
+three ways — structurally (the adapter module's imports are an allowlist with no
+filesystem or socket module on it), at runtime (`open` is replaced with something
+that raises for the duration of an invocation), and in the egress-conformance
+lane (outbound sockets blocked in both processes, declared == observed == empty).
+
+Time-bearing fields: none. The body carries no clock.
 
 ## The body
 
-Two shapes, selected by what the bytes are. The choice is the `content_kind`
-input bucket, measured from the decoded bytes and never read from a declaration.
+Two shapes, selected by what the bytes are, measured from the decoded bytes and
+never read from a declaration. The result's `input_bucket` names that
+measurement (`content_kind` and `byte_size`); nothing classifies the input
+before the run.
 
 **Text** — strict UTF-8 with no NUL byte (an empty file is text):
 
@@ -83,17 +109,18 @@ input bucket, measured from the decoded bytes and never read from a declaration.
 }
 ```
 
-The text path never normalizes. A byte-order mark stays in `text` and is
+The text path never normalises. The byte-order mark stays in `text` and is
 reported in `bom`; the newline style is reported (`lf`, `crlf`, `cr`, `mixed`,
-`none`) rather than rewritten. A line is what stands between two line feeds, with
-one carriage return before the feed excluded; the empty tail after a trailing
-feed is not a line. This is deliberately not `str.splitlines`, which also splits
-on form feeds and Unicode separators that a line-numbered citation into a source
-file does not expect.
+`none`) rather than rewritten. A line is what stands between two line feeds,
+with one carriage return before the feed excluded; the empty tail after a
+trailing feed is not a line. This is deliberately not `str.splitlines`, which
+also splits on form feeds and the Unicode separators that a line-numbered
+citation into a source file does not expect.
 
-Both `text` and `lines` ship. That doubles the body for text, on purpose: a claim
-cites a line and a digest covers the text, and a consumer that reconstructs one
-from the other is a consumer that can get it wrong.
+`text` and `lines` both ship. That doubles the body's size for text, and it is
+the trade the operation makes on purpose: a claim cites a line, a digest covers
+the text, and a consumer that reconstructs one from the other is a consumer that
+can get it wrong.
 
 **Bytes** — anything else:
 
@@ -103,34 +130,39 @@ from the other is a consumer that can get it wrong.
 }
 ```
 
-## Input buckets
+## Size
 
-Two dimensions, both measured: `content_kind` (`text` or `binary`) and
-`byte_size` (`tiny` ≤ 4 KiB, `small` ≤ 64 KiB, `medium` ≤ 1 MiB, `large`). The
-manifest claims every `text` and `binary` class up to `medium` and leaves `large`
-unclaimed, so a file above one mebibyte refuses at admission (`unclaimed_bucket`)
-before any process starts.
+Classes for the result's `input_bucket` label: `tiny` ≤ 4 KiB, `small` ≤ 64 KiB,
+`medium` ≤ 1 MiB, `large` above. The adapter structures at most one mebibyte
+and refuses anything larger (`provider_declined`, with `byte_length` and
+`max_bytes`) rather than structuring it into a body twice its size.
 
-Each claimed bucket has a fixture shipped in the package: the exact run input,
-the bucket it measures into, and the digest of the body the adapter must
-produce. The fixtures are generated from fixed rules, and a test asserts that
-regenerating them is a byte-identical no-op.
+## The protocol
 
-## Backends
+The adapter speaks provider runtime protocol 2.0.
+`tests/test_workspace_protocol_contract.py` drives the child harness with the
+run-context vector of the contract core vendors
+(`packages/cruxible-provider-runtime/tests/fixtures/provider_runtime_contract_v2.json`)
+re-pointed at this operation, and checks the envelopes it gets back against the
+contract's result vectors — and that its protocol-1.x vector is refused.
 
-The manifest declares both backend kinds, `local_env` and `container`, and the
-conformance suite runs every loop on both — the container path at protocol
-level, without Docker.
-In a hosted deployment, workspace reads themselves are refused by core, upstream
-of this adapter.
+## Both backend kinds
+
+Every loop test runs on both `local_env` and `container`, with no Docker: the
+container path runs at protocol level against the runtime's fake driver, and
+`container/` is the buildable spelling of the same contract. In a hosted
+deployment, workspace reads themselves are refused by core, upstream of this
+adapter.
 
 ## Identity
 
-The implementation digest covers the interface id and digest, the entrypoint
-`cruxible_provider_workspace.file:WorkspaceFile`, and the built wheel's sha256.
-The materialization digests cover the package's lock, resolved for each
-supported platform. Cruxible pins both; track record is keyed on the
-implementation digest, which a change of backend does not move.
+Three levels, as everywhere in this repository. The implementation digest covers
+the entrypoint `cruxible_provider_workspace.file:WorkspaceFile` and the built
+wheel's sha256;
+the materialization digests cover the committed lock resolved for each marker
+environment in `ci/marker-environments.json`. `scripts/seed_pins.py` prints
+these pins for a built wheel. Core's built-in does not use them: its identity is
+derived from a core-owned revision constant, not from this package's wheel.
 
 ## Development
 

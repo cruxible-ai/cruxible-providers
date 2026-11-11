@@ -31,8 +31,8 @@ jobs:
       - name: Run the conformance suite
         # Base deps only, and no engine: `uv sync` installs no per-engine extra
         # and the default options exclude the `engine` marker. A default lane
-        # that downloaded a conversion stack and an OCR runtime would have given
-        # up the whole point of the heavy-engine split.
+        # that downloaded a browser and a tensor stack would have given up the
+        # whole point of the heavy-engine split.
         run: uv run --python ${{ matrix.python-version }} pytest -q
 
   engine-collect:
@@ -144,11 +144,13 @@ jobs:
               uv lock --check --directory "$package"
             fi
           done
-      - name: Assert a change moves at most one package's dependency closure
-        # No --allow-missing-base: an unresolvable base fails the gate rather
+      - name: Assert every released package whose dependency closure moved has a new version
+        # A wheel embeds its lock, so a released version is one environment.
+        # "Released" is the PUBLISHABLE set in publish.yml (base or head).
+        # No --allow-missing-base: an unresolvable base fails the check rather
         # than reporting green on a comparison that never ran.
         run: |
-          uv run python scripts/check_single_package_digest_change.py \
+          uv run python scripts/check_closure_moves_are_versioned.py \
             --base "${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
       - name: Report the per-package dependency-closure digests
         run: uv run python scripts/dependency_closure_digests.py
@@ -186,11 +188,11 @@ jobs:
   engines:
     name: real engines (opt-in)
     # NOT part of the default lane, and deliberately manual. Every job here
-    # installs a per-engine extra and, on first use, downloads a model; that is
-    # minutes and gigabytes per run, against tests whose whole subject is whether
-    # a recorded engine response still describes what the engine does. That
-    # question is worth asking on a schedule and before a release, not on every
-    # push.
+    # installs a per-engine extra and, on first use, downloads a browser build or
+    # a model; that is minutes and gigabytes per run, against tests whose whole
+    # subject is whether a recorded engine response still describes what the
+    # engine does. That question is worth asking on a schedule and before a
+    # release, not on every push.
     #
     # A recording that has drifted fails HERE and nowhere else, so a red run in
     # this lane means the fixtures are describing an engine that no longer
@@ -202,6 +204,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - package: cruxible-provider-web
+            extra: browser
           - package: cruxible-provider-docs
             extra: docling
           - package: cruxible-provider-docs
@@ -218,5 +222,8 @@ jobs:
             "packages/${{ matrix.package }}[${{ matrix.extra }}]" \
             packages/cruxible-provider-runtime \
             pytest
+      - name: Fetch the browser build, when the extra is a browser
+        if: matrix.extra == 'browser'
+        run: .engine-venv/bin/python -m playwright install --with-deps chromium
       - name: Run the engine lane for this package
         run: .engine-venv/bin/python -m pytest -m engine packages/${{ matrix.package }}/tests -q

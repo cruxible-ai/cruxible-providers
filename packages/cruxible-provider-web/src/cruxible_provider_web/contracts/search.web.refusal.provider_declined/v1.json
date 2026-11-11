@@ -1,0 +1,7 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "Detail of a provider_declined refusal: none; the message names the input or configuration the adapter declined.",
+  "fields": {},
+  "name": "search.web.refusal.provider_declined",
+  "version": 1
+}

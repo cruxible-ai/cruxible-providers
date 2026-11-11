@@ -1,16 +1,55 @@
 # cruxible-provider-quant
 
-Cruxible provider adapters for the quantitative plane. Apache-2.0.
+**Status: not yet released.** No kit uses this package yet and it ships no Contracts, so an instance cannot install it; it will be released when a kit uses it.
 
-Seven classical baselines on seven interfaces. These are the slots where
-narrow-ML implementations will later compete for the same track-record key, so
-what matters here is not sophistication but **contract fidelity**: the same
-input buckets, the same typed output, the same refusals, the same digests. A
+## In plain terms
+
+This package does standard number work for Cruxible: totals and averages,
+forecasts, spotting unusual values, statistical tests, ranking, matching
+records that may describe the same thing, and checking how well past
+predictions turned out. It is a **provider**, an add-on package that does one
+kind of work for Cruxible, and each task it offers is an **operation**. Every
+operation computes only from the data in the request: none of them uses the
+network, a clock or a random number, and the same input always gives the same
+answer.
+
+| Operation | What it does | Network | Needs |
+|---|---|---|---|
+| `calc.reduce` | You give it a table of rows. It returns sums, means, minimums, maximums, counts, medians or standard deviations, for the whole table, per group, or over moving windows. | no | nothing extra |
+| `ts.forecast` | You give it a time series, a model (ARIMA or ETS) and how many steps ahead. It returns the forecast with low and high bounds at the levels you ask for (for example 80% and 95%), and names the exact model it fitted. | no | nothing extra |
+| `ts.anomaly` | You give it a time series and a method. It returns either the points that stand out from the series' usual pattern, with a score for each, or the positions where the series changes level, for a number of changes you set. | no | nothing extra |
+| `stat.test` | You name a test (for example Student's t, Mann-Whitney U, Pearson correlation, Shapiro-Wilk) and give it the samples. It runs exactly that test and returns the statistic, the p-value, whether the result clears the threshold you set, and whether the test's assumptions look met. | no | nothing extra |
+| `score.rank` | You give it candidates and either fixed weights for their scores or a saved scikit-learn model with its SHA-256 hash. It returns the candidates in order, with their scores and how ties were broken. | no | nothing extra; a saved model must be a file the operator trusts |
+| `match.record` | You give it a list of records, how to compare their fields, and how likely each comparison outcome is for a true match and for a non-match. It returns pairs of records that may describe the same real thing, each with a match score. It never merges records; every result is marked for review. | no | nothing extra |
+| `calc.calibrate` | You give it past predictions together with what actually happened. It returns how well the predicted probabilities matched the outcomes (Brier score and its parts, a per-bin breakdown, expected calibration error). | no | nothing extra |
+
+What gets installed: the base package carries every engine, with no optional
+extras: NumPy, pandas, Polars, ruptures, scikit-learn, SciPy, splink,
+statsforecast and statsmodels. None of them needs a GPU.
+
+The package names the **Contracts** its operations use (a Contract is the
+declared shape of an input or output) but does not ship them; they must already
+be accepted in Cruxible, for example from a kit, before the package installs.
+When an operation cannot answer, it returns a **refusal**: a typed "no" with a
+code saying why, such as a series too short for the model.
+
+You do not need this package if nothing you run computes statistics,
+forecasts, rankings or record matches.
+
+## Reference
+
+Cruxible provider adapters for the quantitative plane (the numeric family of
+operations). Apache-2.0.
+
+Seven classical baselines, one operation each. These are the signatures on
+which narrow-ML implementations will later compete, so what matters here is not
+sophistication but **contract fidelity**: the same input and output Contracts,
+the same declared refusals, the same digests. A
 baseline that is clever and slightly off-contract is worth less than a dull one
 that is exactly on it, because only the second one makes the comparison mean
 anything.
 
-| Interface | Engine | What it does |
+| Operation | Engine | What it does |
 |---|---|---|
 | `calc.reduce` | Polars | scalar, grouped, and windowed aggregation over a relation |
 | `ts.anomaly` | statsmodels STL + ruptures | STL-residual scoring against a MAD scale estimate; binary-segmentation changepoints |
@@ -34,34 +73,31 @@ scans every fixture's output for the banned vocabulary.
 
 **Grade is the CaptureContract's.** No output carries a `grade` field. A
 forecast, an anomaly flag, a rank, and a linkage score are derived readings;
-every declared capture-contract family here is named `…capture.derived.v1`, and
-a test asserts that none of them is anything else. A provider that graded its
-own output would be self-certifying.
+a test asserts it. A provider that graded its own output would be
+self-certifying.
 
-## Why these buckets and not others
+## Operations
 
-Each implementation claims the faces of its cube these baselines actually serve.
-The exclusions are deliberate, and each one is a slot a later implementation can
-claim on the same key:
+`registration.json` (schema 2) declares each operation: its input and output
+Contracts (`<operation>.request@1`, `<operation>.result@1`), its effect (all
+seven are `pure`), the refusals it may return — each with a detail Contract
+`<operation>.refusal.<code>@1` — and the entrypoint serving it. The Contracts
+are named, not shipped: an install pins each to the version accepted at its
+base. `tests/test_registration_stability.py` asserts that every operation
+declares exactly the refusals its implementation can return, read from the
+implementation's own source.
 
-| Interface | Not claimed | Why |
-|---|---|---|
-| `calc.reduce` | `row_count=large`, `very_large`, `memory_fit=out_of_core` | the relation arrives as a payload and is in memory by construction; an out-of-core reducer takes a *reference* to storage and is a different implementation |
-| `ts.anomaly` | `domain_class=categorical_encoded` | numeric distance between encoded states is not meaningful, so a residual against them is not either |
-| `ts.anomaly` | `series_length=very_short`, `medium`, `long`; `gap_profile` other than `regular`; multi-series | STL needs two full periods; imputation and batching are modelling acts this baseline does not perform |
-| `ts.forecast` | `domain_class=rates`, `continuous_bounded` | Gaussian prediction intervals can cross a hard bound, and an interval that leaves the feasible set is a wrong interval, not a wide one |
-| `ts.forecast` | `domain_class=intermittent` | mostly-zero demand is Croston-family territory, not ARIMA or ETS |
-| `ts.forecast` | `exogenous` other than `none`; multi-series | covariate-aware and batched forecasting are separate implementations |
-| `stat.test` | `test_family=count_model`; `design=clustered`, `time_ordered`; multivariate | tests that model dependence structure or multiplicity are a different set of tests |
-| `score.rank` | `candidate_count=large` | above ten thousand candidates the ordering cost, not the scoring, is what needs designing |
-| `match.record` | `label_availability=partial`, `labeled` | this implementation is told its m/u probabilities and never estimates them; a trained variant claims those buckets |
-| `match.record` | `pair_space` above `small`, `blocking=none` | an unblocked cross product is a different scaling problem |
-| `calc.calibrate` | `outcome_type` other than `binary`; `base_rate=rare_event` | reliability binning over a rare event puts almost every observation in one bin, which is a reading nobody should act on |
-
-Every claimed selector has a passing conformance fixture in
-`tests/test_bucket_conformance.py`, and a test asserts the manifest's fixture
-ids are exactly the ids the suite defines — so a claim without a passing fixture
-cannot exist, in either direction.
+What each baseline deliberately does not model — large or out-of-core
+relations, categorically-encoded series, intermittent demand, covariates,
+dependence-modelling tests, trained linkage, rare-event calibration — is no
+longer enforced by classifying the input against bucket claims; there is no
+bucket in protocol 2.0. Where a bound matters it belongs in the operation's
+input Contract, and a narrow-ML implementation of the same signature is a
+different implementation with its own digest. Two of those inputs now reach the
+implementation where they used to be refused at admission, and are ignored
+there: a `value_kind` declaring categorical encoding on `ts.anomaly`, and
+`known_matches` on `match.record`, which never trains. Closing them is the
+input Contracts' job.
 
 ## Determinism and tolerances
 
@@ -104,7 +140,7 @@ are two different things:
 | Failure | Refusal |
 |---|---|
 | no `model_ref`, unsupported `kind`, missing path, absent or ill-formed pin, unnamed score scale, missing `feature_order`, **unreadable path** | `malformed_model_ref` — a request this implementation cannot serve |
-| the file was read and its bytes do not hash to the pin | `artifact_hash_mismatch` — an **integrity** signal, from the runtime taxonomy, countable on a track record apart from ordinary declines |
+| the file was read and its bytes do not hash to the pin | `model_digest_mismatch` — an **integrity** signal, declared by `score.rank` apart from its declines (not absorbable), countable on a track record apart from them |
 
 A file that is not there has not been altered; folding a missing path into the
 tampering signal would put one on a track record every time somebody mistyped a
@@ -136,24 +172,23 @@ broken, and distinct from `non_finite_input`, which is the caller's to fix.
 
 ## Refusals
 
-Executor-side refusals — `unclaimed_bucket`, `unclassified_input`, budget
-breaches, `undeclared_egress` — come from the runtime taxonomy unchanged, and so
-does `artifact_hash_mismatch`, which the taxonomy already defines for the one
-event on this plane that is about integrity rather than capability.
+Executor-side refusals — budget breaches, `undeclared_egress` — are the
+runtime's own codes, produced by its machinery only; no operation declares one,
+and provider code never returns or raises one. The one event on this plane that
+is about integrity rather than capability — a model file that misses its pin —
+is `score.rank`'s separately declared `model_digest_mismatch`.
 
 The conditions only a quantitative implementation can detect — a series too short
 for the declared seasonal model, a test name that is not a test, a model
-reference of the wrong shape — are codes in that same taxonomy. They were a
-second enum here for one release, carried inside the `reason` detail of
-`provider_declined` because the runtime package was owned by a concurrent batch.
-They have since been lifted, so the code a caller reads *is* the reason.
+reference of the wrong shape — are the operations' own refusals, declared per
+operation in `registration.json`, so the code a caller reads *is* the reason.
 
-`refusals.py` is now the closed subset a provider on this plane may reach for,
+`refusals.py` is the closed set this plane's operations draw from,
 `QUANT_DECLINES`, plus a constructor that refuses to build anything outside it:
-most of the taxonomy belongs to the executor, and an implementation reporting
-`cache_integrity` would be making a judgement it is not positioned to make.
-`tests/test_refusals.py` fails if any member of that subset is not exercised by
-a named test.
+the runtime's codes are reserved for the runtime, and an implementation
+reporting `cache_integrity` would be making a judgement it is not positioned to
+make. `tests/test_refusals.py` fails if any member of that set is not exercised
+by a named test.
 
 The line between the two is capability versus integrity. "I do not do that" is a
 decline; "this is not the artifact that was approved" is not, and it must stay
@@ -170,10 +205,10 @@ identical to a run without one.
 
 ## Registration and numerical transport
 
-The package supplies operation contracts, classifier exports, vocabularies and
-canonical fixture sets through `registration.json`. Core reads these definitions;
-it need not contain a quantitative-provider catalog. The same interface contract
-and request classification must apply to competing implementations.
+The package declares its typed operations through `registration.json`. Core
+reads them and pins each named Contract at install; it need not contain a
+quantitative-provider catalog. A competing implementation serves the same
+signature — the same input and output Contracts and effect.
 
 Quantitative engines compute with native numbers. At the invocation boundary,
 finite fractional values use canonical `{"$decimal": "0.125"}` objects so accepted
@@ -181,4 +216,3 @@ inputs and outputs contain no binary JSON floats. Integers stay integers. The
 `numeric` helpers encode and decode this representation; the adapter encodes its
 output before returning. This does not increase the numerical precision of the
 underlying engines. Noncanonical decimals and values outside engine range refuse.
-Contracts and their predecessors are bundled, with exact version and digest pins.

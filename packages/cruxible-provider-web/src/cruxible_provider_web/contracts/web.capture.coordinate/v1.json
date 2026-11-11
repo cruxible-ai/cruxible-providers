@@ -1,0 +1,85 @@
+{
+  "artifact_format": "cruxible-contract-v1",
+  "description": "How a web Capture's bytes were obtained, never inside them: the URL requested and the URL settled on, the 2xx status, the bytes' media type, the request digest, the kept freshness headers and whether a network or a packaged recording answered; for a derived document, the engine that made it and the content digest of the Capture it was made from; for an assembled listing, its pages.",
+  "fields": {
+    "content_type": {
+      "type": {
+        "kind": "string"
+      }
+    },
+    "derived_from": {
+      "optional": true,
+      "type": {
+        "kind": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "final_url": {
+      "type": {
+        "kind": "string"
+      }
+    },
+    "headers": {
+      "optional": true,
+      "type": {
+        "contract": {
+          "digest": "sha256:c2ccf272aca44d964aaa14f1dcf9d0f0c49757a8f26b05c90cbe097115d3e679",
+          "name": "web.capture.headers",
+          "version": 1
+        },
+        "kind": "contract"
+      }
+    },
+    "pages": {
+      "optional": true,
+      "type": {
+        "item": {
+          "contract": {
+            "digest": "sha256:24a95d5e9bd0df3d0365adc7ff21771135e6804cdf91d62c16d04b280122b018",
+            "name": "web.capture.page",
+            "version": 1
+          },
+          "kind": "contract"
+        },
+        "kind": "list",
+        "max_items": 10000
+      }
+    },
+    "renderer": {
+      "optional": true,
+      "type": {
+        "kind": "string",
+        "min_len": 1
+      }
+    },
+    "request_digest": {
+      "type": {
+        "kind": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "source": {
+      "type": {
+        "kind": "enum",
+        "members": [
+          "network",
+          "packaged-recording"
+        ]
+      }
+    },
+    "status": {
+      "type": {
+        "kind": "int",
+        "max": 299,
+        "min": 200
+      }
+    },
+    "url": {
+      "type": {
+        "kind": "string"
+      }
+    }
+  },
+  "name": "web.capture.coordinate",
+  "version": 1
+}

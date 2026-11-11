@@ -1,377 +1,380 @@
-"""``web.fetch`` — retrieve one web resource, and optionally extract its content.
+"""``web.fetch`` — retrieve one web resource; its Capture is the body the origin sent.
 
-The output is deliberately split in two, and the split is the contract rather
-than a formatting choice:
+The Capture's bytes are the response body, verbatim. Nothing is wrapped around
+them and nothing is derived from them here: how the body was obtained (the URL
+asked for, the URL the redirect chain settled on, the status, the media type,
+the request digest, the freshness headers, whether a network or a packaged
+recording answered) is the typed coordinate (:mod:`.coordinate`). A reading of
+the document — rendered, extracted, converted — is a different operation,
+``web.render``, whose output is a derived Capture citing this one.
 
-``retrieved``
-    What came off the wire — the final URL, the status, the headers, the byte
-    count and digest of the **body an origin sent**, and where it came from. This
-    is the material a CaptureContract may grade as observed-shaped, because it is
-    a record of an exchange that happened.
-
-``derived``
-    What an extractor made of it — Markdown, a title, an author, a date. This is
-    derived under every contract, whatever the extractor's confidence, because
-    it is a reading of the document rather than the document.
-
-**No rendering.** This implementation does not run a browser, so a run asking
-for ``render: true`` is refused with ``provider_declined``.
-``retrieved.renderer`` is therefore always ``null``.
-
-**What it declines.** Core runs no input classifier, so this adapter refuses
-for itself every input it cannot serve, before contacting anything, with
-``provider_declined`` and a ``reason`` in the refusal detail: a binary resource
-(``expected_format: bytes``, or a URL whose suffix names a PDF, image, archive,
-media or Office file: the document plane's work, not an HTML extractor's), and
-an HTML page whose ``max_bytes`` cap is above the medium weight class (2 MiB).
-Structured endpoints are served at any cap up to 32 MiB.
-
-The adapter never mints a Capture. It returns a typed payload plus trace and the
-executor carries both to the CaptureContract, which decides the grade. That
-ordering is what keeps a provider from being able to certify itself.
+The adapter never mints a Capture. It returns Capture wire and the executor
+carries it to the CaptureKind; core commits the bytes and never looks inside
+them except through a declared ``extract``.
 
 **Egress.** This implementation cannot enumerate its endpoints: the resource is
-named by the caller, which is the whole point of the interface. Its manifest
+named by the caller, which is the whole point of the operation. Its manifest
 therefore declares the experimental ``dynamic:target-from-run-input`` form, and
-what governs is the recording — every request the client issues reaches the run's
-egress recorder through an httpx event hook, redirect hops included.
+what governs is the recording — every request the client issues reaches the
+run's egress recorder through an httpx event hook, redirect hops included.
 
-**Private targets.** ``web.fetch`` refuses, with ``provider_declined``, any
-target whose addresses are loopback, private, link-local, or otherwise not
+**Private targets.** ``web.fetch`` refuses, with ``private_or_internal_address``,
+any target whose addresses are loopback, private, link-local, or otherwise not
 publicly routable — on the first request and on every redirect hop — and
-connects only to the addresses it checked,
-so a name cannot be re-pointed between the check and the connection. See
-:mod:`cruxible_provider_web.addresses`. The guard always applies; there is no
-opt-out.
+connects only to the addresses it checked, so a name cannot be re-pointed
+between the check and the connection. See :mod:`cruxible_provider_web.addresses`.
+The guard always applies; there is no opt-out.
 
 One reading note about that recording. A request to the reserved
 ``fixture.invalid`` host is served from a recording shipped in this distribution
 rather than from a socket; it is still recorded, because the recorder's subject
 is the request the adapter issued. Nobody can misread the receipt: ``.invalid``
-resolves nowhere, and ``retrieved.source`` says ``packaged-recording`` in so many
-words.
+resolves nowhere, and the coordinate's ``source`` says ``packaged-recording`` in
+so many words.
 """
 
 from __future__ import annotations
 
-import base64
 import csv
-import hashlib
 import io
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 from cruxible_provider_runtime.acquisition import external_capture_result
-from cruxible_provider_runtime.canonical import canonical_json
-from cruxible_provider_runtime.errors import RefusalCode, RefusalError, refuse
+from cruxible_provider_runtime.errors import Declined, decline
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
-from .engines import Extraction, HtmlExtractor, TrafilaturaExtractor
-from .http import ClientFactory, ResponseTooLarge, guarded_client_factory
-from .interfaces import (
-    DEFAULT_MAX_BYTES,
-    FETCH_INTERFACE_ID,
-    MAX_RESPONSE_BYTES,
-    MEDIUM_CEILING_BYTES,
-    classify_web_fetch,
-    page_weight_class,
-)
+from .coordinate import COORDINATE_TYPE, SELECTOR_TYPE, http_coordinate
+from .http import ClientFactory, HttpResponse, ResponseTooLarge, guarded_client_factory
+from .operations import CREDENTIAL_UNAVAILABLE, FETCH_OPERATION, PROVIDER_DECLINED
 
-__all__ = ["WebFetch"]
+__all__ = [
+    "DEFAULT_MAX_BYTES",
+    "MAX_QUERY_PARAMETERS",
+    "MAX_QUERY_VALUES",
+    "MAX_RESPONSE_BYTES",
+    "MAX_URL_LENGTH",
+    "FetchRequest",
+    "WebFetch",
+    "encoded_name",
+    "encoded_value",
+    "exchange",
+    "page_weight_class",
+    "recording_events",
+    "with_query",
+]
 
-RETAINED_HEADERS = ("content-type", "content-length", "last-modified", "etag")
+DEFAULT_MAX_BYTES = 262_144
+MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+LIGHT_CEILING_BYTES = 262_144
+MEDIUM_CEILING_BYTES = 2 * 1024 * 1024
+MAX_QUERY_PARAMETERS = 64
+MAX_QUERY_VALUES = 1000
+MAX_URL_LENGTH = 8192
+"""The longest request URL this adapter builds; many origins refuse longer ones."""
+_QUERY_SAFE = "-._~!$'()*,;:@/?"
+"""RFC 3986 query characters kept literal; ``&``, ``=``, ``+`` and ``#`` are encoded."""
 
 
-@dataclass(frozen=True)
-class _Exchange:
-    """One retrieval: what the wire said, and the body the origin sent."""
+def encoded_name(name: str) -> str:
+    """A query parameter's name, percent-encoded the way :func:`with_query` sends it."""
 
-    final_url: str
-    status_code: int
-    headers: Mapping[str, str]
-    wire_body: bytes
-    document: str
-    from_recording: bool
+    return quote(name, safe=_QUERY_SAFE)
 
-    @property
-    def content_type(self) -> str:
-        return self.headers.get("content-type", "")
+
+def encoded_value(value: str, join: str) -> str:
+    """One value, percent-encoded for its join (a comma inside a comma-joined value is)."""
+
+    return quote(value, safe=_QUERY_SAFE.replace(",", "") if join == "comma" else _QUERY_SAFE)
+
+
+def with_query(url: str, query: list[tuple[str, list[str], str]]) -> str:
+    """``url`` with ``query``'s ``(name, values, join)`` parameters appended, in order."""
+
+    pairs: list[str] = []
+    for name, values, join in query:
+        key = encoded_name(name)
+        if join == "comma":
+            pairs.append(key + "=" + ",".join(encoded_value(value, join) for value in values))
+        else:
+            pairs.extend(f"{key}={encoded_value(value, join)}" for value in values)
+    if not pairs:
+        return url
+    parts = urlsplit(url)
+    query_string = "&".join([parts.query, *pairs] if parts.query else pairs)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query_string, parts.fragment))
+
+
+def page_weight_class(byte_count: int) -> str:
+    """The weight class a byte count falls in, reported on an oversized response."""
+
+    if byte_count <= LIGHT_CEILING_BYTES:
+        return "light"
+    if byte_count <= MEDIUM_CEILING_BYTES:
+        return "medium"
+    return "heavy"
 
 
 class WebFetch:
     """Retrieve a resource the run input names."""
 
-    interface_id = FETCH_INTERFACE_ID
+    operations = (FETCH_OPERATION,)
 
-    def __init__(
-        self,
-        *,
-        client_factory: ClientFactory | None = None,
-        extractor: HtmlExtractor | None = None,
-    ) -> None:
-        # Every default is the production spelling. The seams exist so a test can
-        # hold one variable still, not so a test can replace the thing under
-        # test: the conformance suite drives these same defaults.
+    def __init__(self, *, client_factory: ClientFactory | None = None) -> None:
+        # The default is the production spelling: the guarded, address-pinned
+        # client. The seam exists so a test can hold the transport still, not so
+        # a test can replace the thing under test: the conformance suite drives
+        # this same default.
         self._client_factory = client_factory or guarded_client_factory
-        self._extractor = extractor or TrafilaturaExtractor()
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
         try:
-            request = _Request.parse(context)
-        except RefusalError as exc:
+            request = FetchRequest.parse(context)
+        except Declined as exc:
             return ProviderResult(status="refused", refusal=exc.refusal)
 
         timeout_seconds = max(1.0, context.budgets.wall_clock_seconds * 0.8)
-        try:
-            exchange = self._get(context, request, timeout_seconds)
-        except RefusalError as exc:
-            return ProviderResult(status="refused", refusal=exc.refusal)
-        except ResponseTooLarge as exc:
-            return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED,
-                "the origin sent more than the byte cap this run was admitted under",
-                url=request.url,
-                cap_bytes=exc.cap_bytes,
-                observed_weight=page_weight_class(exc.read_bytes),
-            )
-
-        if not 200 <= exchange.status_code < 300:
-            # A status outside 2xx is a failed attempt at an answer, not a
-            # declined one: the interface's product is a retrieved resource, and
-            # this run did not get one.
-            return ProviderResult.failed(
-                "HttpStatus",
-                f"origin answered {exchange.status_code}",
-                url=request.url,
-                final_url=exchange.final_url,
-                status_code=exchange.status_code,
-            )
-
-        if len(exchange.wire_body) > request.max_bytes:
-            return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED, "origin body exceeds max_bytes"
-            )
-        try:
-            request.validate_format(exchange)
-            derived = self._derive(request, exchange)
-        except (ValueError, UnicodeError, csv.Error) as exc:
-            return ProviderResult.failed("ResponseFormat", str(exc))
-        source = "packaged-recording" if exchange.from_recording else "network"
-        events: list[dict[str, Any]] = []
-        if source == "packaged-recording":
-            events.append(
-                {
-                    "kind": "packaged_recording",
-                    "url": request.url,
-                    "note": "served from a recording shipped in this distribution; no origin "
-                    "was contacted",
-                }
-            )
-        material = {
-            # Required by the interface's pinned material contract, so it stays
-            # until the definition succeeds; core now sends a placeholder here.
-            "input_bucket": context.input_bucket,
-            "retrieved": {
-                "url": request.url,
-                "final_url": exchange.final_url,
-                "status_code": exchange.status_code,
-                "headers": {
-                    key: value for key, value in exchange.headers.items() if key in RETAINED_HEADERS
-                },
-                # The body an origin sent, exactly as it arrived.
-                "byte_count": len(exchange.wire_body),
-                "body_sha256": _digest(exchange.wire_body),
-                "body_base64": base64.b64encode(exchange.wire_body).decode("ascii"),
-                "source": source,
-                # Which client performed the exchange, in the sense a
-                # user-agent names one. What it built is derived.
-                "renderer": None,
-            },
-            "derived": derived,
-        }
+        exchanged = exchange(
+            self._client_factory, context, request, request.url, timeout_seconds=timeout_seconds
+        )
+        if isinstance(exchanged, ProviderResult):
+            return exchanged
         return ProviderResult.ok(
             external_capture_result(
-                canonical_json(material),
+                exchanged.body,
                 source_identity=request.logical_source,
-                coordinate_type="http-response-v1",
-                selector_type="whole-response-v1",
-                coordinate={
-                    "request_digest": _digest(request.url.encode()),
-                    "status": exchange.status_code,
-                    "body_sha256": _digest(exchange.wire_body),
-                    "source": source,
-                },
+                coordinate_type=COORDINATE_TYPE,
+                selector_type=SELECTOR_TYPE,
+                coordinate=http_coordinate(
+                    url=request.url,
+                    final_url=exchanged.final_url,
+                    status=exchanged.status_code,
+                    content_type=exchanged.content_type,
+                    response_headers=exchanged.headers,
+                    from_recording=exchanged.from_recording is not None,
+                ),
                 observed_at=datetime.now(UTC),
             ),
-            metrics={"byte_count": float(len(exchange.document.encode("utf-8")))},
-            events=events,
+            metrics={"byte_count": float(len(exchanged.body))},
+            events=recording_events(exchanged, request.url),
         )
 
-    # -- retrieval ---------------------------------------------------------
 
-    def _get(
-        self, context: ProviderRunContext, request: _Request, timeout_seconds: float
-    ) -> _Exchange:
-        client = self._client_factory(
-            context.egress, url=request.url, timeout_seconds=timeout_seconds
-        )
-        with client:
-            response = client.get(request.url, headers=request.headers, cap_bytes=request.max_bytes)
-        return _Exchange(
-            final_url=response.final_url,
-            status_code=response.status_code,
-            headers=response.headers,
-            wire_body=response.body,
-            document=response.text,
-            from_recording=response.from_recording is not None,
-        )
+def exchange(
+    client_factory: ClientFactory,
+    context: ProviderRunContext,
+    request: FetchRequest,
+    url: str,
+    *,
+    timeout_seconds: float,
+) -> HttpResponse | ProviderResult:
+    """One GET of ``url`` under ``request``: a 2xx response in the declared format,
+    or the refused or failed result that says why there is none.
 
-    # -- derivation --------------------------------------------------------
-
-    def _derive(self, request: _Request, exchange: _Exchange) -> dict[str, Any]:
-        if not request.extract:
-            return {"kind": "none", "engine": None, "text": None, "metadata": {}}
-        if request.expected_format != "html":
-            # Extraction is for documents. A structured endpoint is carried
-            # through verbatim rather than run through a main-content heuristic
-            # that would find "main content" in a JSON array.
-            return {
-                "kind": "verbatim",
-                "engine": None,
-                "text": exchange.document,
-                "metadata": {"content_type": exchange.content_type},
-            }
-        extraction: Extraction = self._extractor.extract(exchange.document, url=request.url)
-        return {
-            "kind": extraction.kind,
-            "engine": extraction.engine,
-            "text": extraction.text,
-            "metadata": extraction.metadata,
-        }
-
-
-def _decline_unserved(
-    payload: Mapping[str, Any], url: str, expected_format: str, max_bytes: int
-) -> None:
-    """Refuse the source kinds and weights this adapter does not serve.
-
-    The kind is the package's own reading of the input (the same function its
-    registration names), so what is refused here is exactly what the manifest
-    leaves unclaimed: binary resources, and HTML pages heavier than the medium
-    weight class. Called only after the input is otherwise valid.
+    ``web.fetch`` returns that result as its own; ``web.fetch.pages`` records it
+    against the page it was for.
     """
 
-    measured = classify_web_fetch(payload)
-    source_kind = "static_html" if measured is None else measured["source_kind"]
-    if source_kind == "binary":
-        raise refuse(
-            RefusalCode.PROVIDER_DECLINED,
-            "web.fetch does not fetch binary resources; a PDF, image, archive or Office "
-            "file is the document plane's work",
-            reason="binary_resource",
+    try:
+        client = client_factory(context.egress, url=url, timeout_seconds=timeout_seconds)
+        with client:
+            response = client.get(url, headers=request.headers, cap_bytes=request.max_bytes)
+    except Declined as exc:
+        return ProviderResult(status="refused", refusal=exc.refusal)
+    except ResponseTooLarge as exc:
+        return ProviderResult.refused(
+            PROVIDER_DECLINED,
+            "the origin sent more than the max_bytes this run declared",
             url=url,
-            expected_format=expected_format,
-        )
-    if source_kind == "static_html" and max_bytes > MEDIUM_CEILING_BYTES:
-        raise refuse(
-            RefusalCode.PROVIDER_DECLINED,
-            "web.fetch serves HTML pages up to 2 MiB; a larger max_bytes is a heavy page",
-            reason="heavy_page",
-            url=url,
-            max_bytes=max_bytes,
-            ceiling_bytes=MEDIUM_CEILING_BYTES,
+            cap_bytes=exc.cap_bytes,
+            observed_weight=page_weight_class(exc.read_bytes),
         )
 
+    if not 200 <= response.status_code < 300:
+        # A status outside 2xx is a failed attempt at an answer, not a declined
+        # one: the operation's product is a retrieved resource, and this run did
+        # not get one.
+        return ProviderResult.failed(
+            "HttpStatus",
+            f"origin answered {response.status_code}",
+            url=url,
+            final_url=response.final_url,
+            status_code=response.status_code,
+        )
+    try:
+        request.validate_format(response)
+    except (ValueError, UnicodeError, csv.Error) as exc:
+        return ProviderResult.failed("ResponseFormat", str(exc))
+    return response
 
-def _digest(payload: bytes) -> str:
-    """The ``sha256:`` digest of ``payload``."""
 
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+def recording_events(response: HttpResponse, url: str) -> list[dict[str, Any]]:
+    """The trace event that labels an exchange a packaged recording served."""
+
+    if response.from_recording is None:
+        return []
+    return [
+        {
+            "kind": "packaged_recording",
+            "url": url,
+            "note": "served from a recording shipped in this distribution; no origin was contacted",
+        }
+    ]
 
 
-class _Request:
+def _query(value: object, *, page_param: str | None = None) -> list[tuple[str, list[str], str]]:
+    """The validated ``query``: one parameter per name, each with at least one value.
+
+    ``page_param``, the parameter ``web.fetch.pages`` pages over, may have none:
+    no values is no pages, and nothing is sent.
+    """
+
+    if not isinstance(value, list) or len(value) > MAX_QUERY_PARAMETERS:
+        raise decline(
+            PROVIDER_DECLINED, f"query must be a list of at most {MAX_QUERY_PARAMETERS} parameters"
+        )
+    parameters: list[tuple[str, list[str], str]] = []
+    names: set[str] = set()
+    for item in value:
+        if not isinstance(item, Mapping) or set(item) - {"name", "values", "join"}:
+            raise decline(PROVIDER_DECLINED, "a query parameter is {name, values, join?}")
+        name, values, join = item.get("name"), item.get("values"), item.get("join", "repeat")
+        if not isinstance(name, str) or not name:
+            raise decline(PROVIDER_DECLINED, "a query parameter needs a name")
+        if name in names:
+            raise decline(PROVIDER_DECLINED, f"query parameter {name!r} is named twice")
+        names.add(name)
+        least = 0 if name == page_param else 1
+        if (
+            not isinstance(values, list)
+            or not least <= len(values) <= MAX_QUERY_VALUES
+            or not all(isinstance(entry, str) for entry in values)
+        ):
+            # No values is refused rather than sent as nothing: an empty filter
+            # usually means "everything", which is not what an empty list asked.
+            # The paged parameter is the exception: its values are split into
+            # requests, and no values is no requests at all.
+            raise decline(
+                PROVIDER_DECLINED,
+                f"query parameter {name!r} needs between {least} and {MAX_QUERY_VALUES} "
+                "string values",
+            )
+        if join not in {"comma", "repeat"}:
+            raise decline(PROVIDER_DECLINED, "a query parameter's join is comma or repeat")
+        parameters.append((name, list(values), str(join)))
+    return parameters
+
+
+def _refuse_parameter_collisions(url: str, query: list[tuple[str, list[str], str]]) -> None:
+    """Refuse a typed parameter whose name ``url``'s own query already carries.
+
+    ``url?cve=CVE-old`` with a typed ``cve`` would send ``cve=CVE-old&cve=CVE-new``,
+    and an origin that reads the first value answers for a filter the run did not
+    derive. The names compared are the decoded ones, the way an origin reads them.
+    Repeated values inside one typed parameter are the parameter's own and stay.
+    """
+
+    if not query:
+        return
+    present = {name for name, _ in parse_qsl(urlsplit(url).query, keep_blank_values=True)}
+    for name, _values, _join in query:
+        if name in present:
+            raise decline(
+                PROVIDER_DECLINED,
+                f"query parameter {name!r} is already in the url; pass it once, as a typed "
+                "parameter or in the url",
+                url=url,
+            )
+
+
+class FetchRequest:
     """The validated run input."""
 
-    __slots__ = (
-        "expected_format",
-        "extract",
-        "headers",
-        "logical_source",
-        "max_bytes",
-        "url",
-    )
+    __slots__ = ("expected_format", "headers", "logical_source", "max_bytes", "query", "url")
 
     def __init__(
         self,
         *,
         url: str,
         max_bytes: int,
-        extract: bool,
         headers: Mapping[str, str],
         expected_format: str,
         logical_source: str,
+        query: list[tuple[str, list[str], str]],
     ) -> None:
         self.url = url
+        self.query = query
         self.max_bytes = max_bytes
-        self.extract = extract
         self.headers = dict(headers)
         self.expected_format = expected_format
         self.logical_source = logical_source
 
     @classmethod
-    def parse(cls, context: ProviderRunContext) -> _Request:
+    def parse(cls, context: ProviderRunContext, *, page_param: str | None = None) -> FetchRequest:
+        """The validated request. A ``page_param`` leaves ``url`` unbuilt.
+
+        ``web.fetch.pages`` reads the same request and builds one URL per page
+        itself, so it takes the base ``url`` and the parsed ``query`` from here
+        and bounds each page's URL by its own ``max_url_chars``. The parameter it
+        pages over may have no values.
+        """
+
         payload = context.input
         logical_source = payload.get("logical_source", "web.response")
         if not isinstance(logical_source, str) or not re.fullmatch(
             r"[a-z][a-z0-9_.-]{0,255}", logical_source
         ):
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            raise decline(
+                PROVIDER_DECLINED,
                 "logical_source must be a logical name, not a locator",
             )
         url = payload.get("url")
         if not isinstance(url, str) or urlsplit(url).scheme not in {"http", "https"}:
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
+            # The detail names the url only when there is one: an optional
+            # detail field is an absent key, never null.
+            raise decline(
+                PROVIDER_DECLINED,
                 "web.fetch needs an http or https url",
-                url=url if isinstance(url, str) else None,
+                **({"url": url} if isinstance(url, str) else {}),
             )
+        query = _query(payload["query"], page_param=page_param) if "query" in payload else []
+        _refuse_parameter_collisions(url, query)
+        if page_param is None:
+            url = with_query(url, query)
+            # The bound is on the request this adapter sends, so it holds for a
+            # url that arrived long as much as for one a query made long.
+            if len(url) > MAX_URL_LENGTH:
+                raise decline(
+                    PROVIDER_DECLINED,
+                    f"the request URL is longer than {MAX_URL_LENGTH} characters; "
+                    "web.fetch.pages splits one parameter's values across as few "
+                    "requests as fit",
+                )
         max_bytes = payload.get("max_bytes", DEFAULT_MAX_BYTES)
         if (
             not isinstance(max_bytes, int)
             or isinstance(max_bytes, bool)
             or not 0 < max_bytes <= MAX_RESPONSE_BYTES
         ):
-            raise refuse(RefusalCode.PROVIDER_DECLINED, "max_bytes must be between 1 and 33554432")
-
-        for flag in ("render", "extract", "paced"):
-            if flag in payload and not isinstance(payload[flag], bool):
-                raise refuse(RefusalCode.PROVIDER_DECLINED, f"{flag} must be a bool")
-        if payload.get("render", False):
-            # This implementation runs no browser, so a rendered fetch has no
-            # code path to reach.
-            raise refuse(
-                RefusalCode.PROVIDER_DECLINED,
-                "web.fetch does not render pages; the js_rendered bucket is not claimed",
-            )
+            raise decline(PROVIDER_DECLINED, "max_bytes must be between 1 and 33554432")
+        if "paced" in payload and not isinstance(payload["paced"], bool):
+            raise decline(PROVIDER_DECLINED, "paced must be a bool")
         expected_format = payload.get("expected_format", "auto")
         if expected_format not in {"auto", "html", "json", "csv", "text", "bytes"}:
-            raise refuse(RefusalCode.PROVIDER_DECLINED, "unsupported expected_format")
-        _decline_unserved(payload, url, expected_format, max_bytes)
+            raise decline(PROVIDER_DECLINED, "unsupported expected_format")
         headers: dict[str, str] = {}
         credential_ref = payload.get("credential_ref")
         if credential_ref is not None:
             if not isinstance(credential_ref, str):
-                raise refuse(RefusalCode.PROVIDER_DECLINED, "credential_ref must be a string")
+                raise decline(PROVIDER_DECLINED, "credential_ref must be a string")
             material = context.secrets.get(credential_ref)
             if material is None:
-                raise refuse(
-                    RefusalCode.UNRESOLVED_SECRET_REF,
+                raise decline(
+                    CREDENTIAL_UNAVAILABLE,
                     f"the run names credential {credential_ref!r} and it was not delivered",
                     ref=credential_ref,
                 )
@@ -379,24 +382,28 @@ class _Request:
             if not isinstance(header, str) or not re.fullmatch(
                 r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", header
             ):
-                raise refuse(RefusalCode.PROVIDER_DECLINED, "credential_header must be a string")
+                raise decline(PROVIDER_DECLINED, "credential_header must be a string")
             if "\r" in material or "\n" in material:
-                raise refuse(
-                    RefusalCode.PROVIDER_DECLINED, "credential must be a single header value"
-                )
+                raise decline(PROVIDER_DECLINED, "credential must be a single header value")
             headers[header] = material
 
         return cls(
             url=url,
             max_bytes=max_bytes,
-            extract=bool(payload.get("extract", True)),
             headers=headers,
             expected_format=expected_format,
             logical_source=logical_source,
+            query=query,
         )
 
-    def validate_format(self, exchange: _Exchange) -> None:
-        media = exchange.content_type.partition(";")[0].strip().lower()
+    def validate_format(self, response: HttpResponse) -> None:
+        """Refuse a body that is not the format the run declared.
+
+        The provider checks its own payload; core never parses Capture bytes at
+        admission, so a wrong-format body is this adapter's failure to report.
+        """
+
+        media = response.content_type.partition(";")[0].strip().lower()
         actual = (
             "json"
             if media.endswith("json") or media.endswith("+json")
@@ -408,20 +415,20 @@ class _Request:
             if media.startswith("text/")
             else "bytes"
         )
-        if self.expected_format == "auto":
-            self.expected_format = actual
-        elif self.expected_format != "bytes" and self.expected_format != actual:
-            raise ValueError(
-                f"expected {self.expected_format}, received {media or 'unknown content type'}"
-            )
-        if self.expected_format == "json":
+        # Resolved per response, never stored: web.fetch.pages validates every
+        # page under the same request, and one page's media type is not the
+        # next one's expectation.
+        expected = actual if self.expected_format == "auto" else self.expected_format
+        if expected != "bytes" and expected != actual:
+            raise ValueError(f"expected {expected}, received {media or 'unknown content type'}")
+        if expected == "json":
 
             def invalid_constant(value: str) -> None:
                 raise ValueError(f"non-canonical JSON number: {value}")
 
-            json.loads(exchange.wire_body, parse_constant=invalid_constant)
-        elif self.expected_format == "csv":
-            text = exchange.wire_body.decode("utf-8-sig")
+            json.loads(response.body, parse_constant=invalid_constant)
+        elif expected == "csv":
+            text = response.body.decode("utf-8-sig")
             rows = csv.reader(io.StringIO(text), strict=True)
             width = None
             for row in rows:

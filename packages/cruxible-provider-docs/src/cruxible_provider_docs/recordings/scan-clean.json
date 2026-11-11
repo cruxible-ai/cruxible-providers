@@ -1,7 +1,7 @@
 {
   "id": "scan-clean",
   "note": "A clean, deskewed, single-page rendering of three printed lines.",
-  "interface_id": "ocr.extract",
+  "operation": "ocr.extract",
   "engine": "paddleocr",
   "recorded_from": "the ground-truth text drawn into the shipped image; the engine-marked lane runs PaddleOCR over these same bytes and asserts it reproduces this, normalised for case and spacing.",
   "document": {

@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import cruxible_provider_web
 import pytest
 import yaml
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
@@ -19,23 +20,24 @@ from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import BindRequest, bind
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.manifest import BackendKind, load_manifest, manifest_digest
+from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_runtime.registry import StubRegistry
-from cruxible_provider_runtime.testing import FakeContainerDriver
-from cruxible_provider_web.interfaces import registrations
+from cruxible_provider_runtime.resolution import environment_pin_key
+from cruxible_provider_runtime.testing import FakeContainerDriver, register_package
 
-from .conftest import MARKER_ENVIRONMENT, PROVIDER_ID
+from .conftest import MARKER_ENVIRONMENT, PROVIDER_ID, RENDER_EXTRAS
 
 
 def _request(
     manifest_path: Path,
     lock_path: Path | None,
-    interface_id: str = "web.fetch",
+    operation: str = "web.fetch",
     backend_kind: BackendKind = "local_env",
     **overrides: Any,
 ) -> BindRequest:
     fields: dict[str, Any] = {
         "provider_id": PROVIDER_ID,
-        "interface_id": interface_id,
+        "operation": operation,
         "backend_kind": backend_kind,
         "manifest_path": manifest_path,
         "lock_path": lock_path,
@@ -56,9 +58,7 @@ def _edited(manifest_path: Path, tmp_path: Path, edit: Any) -> Path:
 
 def _registry_for(payload: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
-    stub.register_provider(payload)
+    register_package(stub, payload, cruxible_provider_web.PACKAGE_ROOT)
     return stub
 
 
@@ -115,37 +115,23 @@ def test_unknown_manifest_field_refuses(
     assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
 
 
-def test_undeclared_interface_refuses(
+def test_undeclared_operation_refuses(
     registry: StubRegistry, manifest_path: Path, lock_path: Path, local_backend: LocalEnvBackend
 ) -> None:
     with pytest.raises(RefusalError) as exc:
         bind(
             registry,
-            _request(manifest_path, lock_path, interface_id="web.crawl"),
+            _request(manifest_path, lock_path, operation="web.crawl"),
             local_backend=local_backend,
         )
-    assert exc.value.code is RefusalCode.UNDECLARED_INTERFACE
-
-
-def test_interface_digest_mismatch_refuses(
-    accepted_artifact: ProviderArtifactPayload,
-    manifest_path: Path,
-    lock_path: Path,
-    tmp_path: Path,
-    local_backend: LocalEnvBackend,
-) -> None:
-    def edit(document: dict[str, Any]) -> None:
-        document["implementations"][0]["interface_digest"] = "sha256:" + "ab" * 32
-
-    edited = _edited(manifest_path, tmp_path, edit)
-    payload = _reaccepted(accepted_artifact, edited)
-    stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
-    stub.providers[payload.provider_id] = payload
-    with pytest.raises(RefusalError) as exc:
-        bind(stub, _request(edited, lock_path), local_backend=local_backend)
-    assert exc.value.code is RefusalCode.INTERFACE_DIGEST_MISMATCH
+    assert exc.value.code is RefusalCode.UNDECLARED_OPERATION
+    assert exc.value.refusal.detail["declared"] == [
+        "search.web",
+        "web.fetch",
+        "web.fetch.pages",
+        "web.render",
+        "web.render.dom",
+    ]
 
 
 def test_unsupported_protocol_refuses(
@@ -156,7 +142,7 @@ def test_unsupported_protocol_refuses(
     local_backend: LocalEnvBackend,
 ) -> None:
     def edit(document: dict[str, Any]) -> None:
-        document["supported_protocol_majors"] = [2]
+        document["supported_protocol_majors"] = [3]
 
     edited = _edited(manifest_path, tmp_path, edit)
     registry = _registry_for(_reaccepted(accepted_artifact, edited))
@@ -190,20 +176,21 @@ def test_unsupported_backend_refuses(
     assert exc.value.code is RefusalCode.UNSUPPORTED_BACKEND
 
 
-def test_bucket_fixture_missing_refuses_at_registration(
-    accepted_artifact: ProviderArtifactPayload, manifest_path: Path, tmp_path: Path
+def test_an_operation_naming_an_undeclared_entrypoint_refuses_at_registration(
+    accepted_artifact: ProviderArtifactPayload,
 ) -> None:
-    def edit(document: dict[str, Any]) -> None:
-        document["implementations"][0]["bucket_conformance"] = {}
+    """Registration and manifest are two declarations; they must name one entrypoint."""
 
-    edited = _edited(manifest_path, tmp_path, edit)
-    payload = _reaccepted(accepted_artifact, edited)
-    stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
+    fetch, *others = sorted(
+        load_registration(cruxible_provider_web.PACKAGE_ROOT).operations,
+        key=lambda item: item.name != "web.fetch",
+    )
+    moved = fetch.model_copy(update={"entrypoint": "cruxible_provider_web.fetch:Other"})
     with pytest.raises(RefusalError) as exc:
-        stub.register_provider(payload)
-    assert exc.value.code is RefusalCode.BUCKET_FIXTURE_MISSING
+        StubRegistry().register_provider(
+            accepted_artifact, tuple(sorted((*others, moved), key=lambda item: item.name))
+        )
+    assert exc.value.code is RefusalCode.MANIFEST_DIVERGENCE
 
 
 def test_a_lock_that_is_not_the_pinned_one_refuses_on_its_bytes(
@@ -253,6 +240,47 @@ def test_image_provenance_mismatch_refuses(
 
 
 # -- extras ----------------------------------------------------------------
+
+
+def test_an_artifact_pinning_only_the_base_environment_refuses_the_engine_one(
+    accepted_artifact: ProviderArtifactPayload,
+    manifest_path: Path,
+    lock_path: Path,
+    local_backend: LocalEnvBackend,
+) -> None:
+    """The mismatch that only exists once one lock has two environments.
+
+    Dropping the ``+browser`` pin leaves an artifact that is perfectly valid for
+    ``web.fetch``, ``search.web`` and ``web.render`` and pins nothing for
+    ``web.render.dom``. Falling
+    back to the base pin would materialize an environment with no browser in it
+    and then run an implementation that declared it needed one.
+    """
+
+    assert accepted_artifact.local_env is not None
+    engine_key = environment_pin_key(MARKER_ENVIRONMENT.id, RENDER_EXTRAS)
+    base_only = {
+        key: digest
+        for key, digest in accepted_artifact.local_env.materialization_digests.items()
+        if key != engine_key
+    }
+    payload = accepted_artifact.model_copy(
+        update={
+            "local_env": accepted_artifact.local_env.model_copy(
+                update={"materialization_digests": base_only}
+            )
+        }
+    )
+    registry = _registry_for(payload)
+    with pytest.raises(RefusalError) as exc:
+        bind(
+            registry,
+            _request(manifest_path, lock_path, operation="web.render.dom"),
+            local_backend=local_backend,
+        )
+    assert exc.value.code is RefusalCode.LOCK_MISMATCH
+    assert exc.value.refusal.detail["environment_pin_key"] == engine_key
+    assert exc.value.refusal.detail["extras"] == list(RENDER_EXTRAS)
 
 
 def test_an_extra_the_lock_does_not_declare_refuses(

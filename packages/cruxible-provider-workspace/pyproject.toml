@@ -1,5 +1,5 @@
 # The workspace built-in. One distribution, one lock, one identity unit; one
-# implementation, of the `workspace.file` interface.
+# implementation, serving the `workspace.file` operation.
 #
 # It is a built-in on the core side -- it enters every instance by the
 # seed-by-proposal verb -- and an ordinary plane package on this side. Nothing in
@@ -8,7 +8,7 @@
 # digests this package produces; it does not vendor the code.
 [project]
 name = "cruxible-provider-workspace"
-version = "0.2.0"
+version = "0.3.1"
 description = "Cruxible built-in Source adapter for the workspace plane: workspace.file."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,7 +28,7 @@ dependencies = [
   # The runtime and nothing else. The adapter is a base64 decode, a UTF-8
   # decode, and a digest; a dependency here would be a dependency in the seed
   # bundle's materialization pin, for no work it does.
-  "cruxible-provider-runtime>=0.2.0",
+  "cruxible-provider-runtime>=0.4.0",
 ]
 
 [project.urls]

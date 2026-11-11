@@ -32,7 +32,7 @@ RTOL_CALIBRATION = 1e-12
 def _ok(fixture_id: str, **mutations: Any) -> dict[str, Any]:
     fixture = next(f for f in FIXTURES if f.fixture_id == fixture_id)
     payload = {**fixture.payload, **mutations}
-    result = run_in_process(fixture.interface_id, payload)
+    result = run_in_process(fixture.operation, payload)
     assert result.status == "ok", result.refusal or result.error
     assert result.output is not None
     return result.output
@@ -282,7 +282,7 @@ def test_the_interval_levels_are_the_declared_ones() -> None:
 
 def test_the_declared_test_is_the_test_that_ran() -> None:
     for fixture in FIXTURES:
-        if fixture.interface_id != "stat.test":
+        if fixture.operation != "stat.test":
             continue
         output = _ok(fixture.fixture_id)
         assert output["test"] == fixture.payload["test"]
@@ -416,7 +416,7 @@ def test_the_ranking_is_ordered_and_the_tie_break_is_declared() -> None:
 
 
 def test_tied_items_are_named_and_ordered_by_the_declared_rule() -> None:
-    """The heavy-ties bucket exists so this case has somewhere to be checked."""
+    """The heavy-ties fixture exists so this case has somewhere to be checked."""
 
     output = _ok("quant-rank-medium")
     tied = [entry for entry in output["ranking"] if entry["tied_with"]]
@@ -558,3 +558,63 @@ def test_a_perfectly_calibrated_set_reads_as_calibrated() -> None:
     assert result.output is not None
     assert result.output["expected_calibration_error"] < 0.06
     assert result.output["brier_decomposition"]["reliability"] < 0.01
+
+
+# --------------------------------------------------------------------------
+# every fixture is answered
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fixture", FIXTURES, ids=[fixture.fixture_id for fixture in FIXTURES])
+def test_every_fixture_is_answered(fixture: Any) -> None:
+    result = run_in_process(fixture.operation, fixture.payload)
+    assert result.status == "ok", result.refusal or result.error
+    assert result.output
+
+
+def test_reduce_answers_every_reduction_kind() -> None:
+    """The fixtures exercise grouped and scalar aggregates; this adds the window."""
+
+    rows = [{"a": float(index), "b": index % 4} for index in range(120)]
+    windowed = run_in_process(
+        "calc.reduce",
+        {
+            "rows": rows,
+            "window": {"column": "a", "order_by": "a", "function": "sum", "size": 3},
+        },
+    )
+    assert windowed.status == "ok", windowed.refusal or windowed.error
+    assert windowed.output is not None
+    assert windowed.output["reduction_kind"] == "windowed"
+
+    scalar = run_in_process(
+        "calc.reduce",
+        {"rows": rows, "aggregations": [{"column": "a", "function": "sum"}]},
+    )
+    assert scalar.status == "ok", scalar.refusal or scalar.error
+    assert scalar.output is not None
+    assert scalar.output["reduction_kind"] == "scalar_aggregate"
+
+
+@pytest.mark.parametrize(
+    ("operation", "payload"),
+    [
+        pytest.param("ts.forecast", {"series": [], "horizon": 3}, id="empty-series"),
+        pytest.param(
+            "score.rank", {"items": [{"id": "a", "signals": {"x": [1]}}]}, id="non-scalar-signal"
+        ),
+    ],
+)
+def test_a_malformed_input_declines_typed_rather_than_crashing(
+    operation: str, payload: dict[str, Any]
+) -> None:
+    """Nothing classifies the input before the implementation sees it any more.
+
+    So the implementation is the first reader of a malformed payload, and it
+    must answer with a typed decline rather than an exception.
+    """
+
+    result = run_in_process(operation, payload)
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.code == "invalid_parameter"

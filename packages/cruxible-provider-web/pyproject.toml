@@ -1,14 +1,15 @@
-# The web plane. One distribution, one lock, one identity unit; two
-# implementations, of two different interfaces.
+# The web plane. One distribution, one lock, one identity unit; four
+# implementations, each serving one operation.
 #
-# The install is LIGHT and has no extras: the adapter logic, the schemas, the
-# bucket classifiers, the recorded fixtures, an HTTP client and an extractor.
-# Neither implementation needs a heavy engine (web.fetch does not render pages),
-# so both bind one environment. `uv run pytest` opens no socket.
+# The base install is LIGHT. It carries the adapter logic, the registration,
+# the recorded exchanges, and an HTTP client — everything the
+# default conformance lane needs. The heavy engines live behind per-engine
+# extras, and each implementation's manifest declares which extra it requires.
+# `uv run pytest` therefore downloads no browser and opens no socket.
 [project]
 name = "cruxible-provider-web"
-version = "0.2.2"
-description = "Cruxible provider adapters for the web plane: page retrieval and web search."
+version = "0.5.0"
+description = "Cruxible provider adapters for the web plane: page retrieval, web search, browser-assembled pages and derived readings."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -24,7 +25,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "cruxible-provider-runtime>=0.2.0",
+  "cruxible-provider-runtime>=0.4.0",
   # The HTTP client is base, not an extra: it is how both implementations reach
   # anything at all, and it is how egress gets recorded. An adapter that could
   # not make a request would have no adapter logic left to test.
@@ -41,12 +42,23 @@ dependencies = [
   "trafilatura>=2.0",
 ]
 
+[project.optional-dependencies]
+# The one per-engine extra: a browser. Its name is what the `web.render.dom`
+# implementation declares in `requires_extras`, and what the resolver is asked
+# for when that implementation's environment is materialized.
+browser = ["playwright>=1.44"]
+
 [project.urls]
 Homepage = "https://github.com/cruxible-ai/cruxible-providers"
+Documentation = "https://github.com/cruxible-ai/cruxible-providers/blob/main/packages/cruxible-provider-web/README.md"
+Source = "https://github.com/cruxible-ai/cruxible-providers/tree/main/packages/cruxible-provider-web"
 
 [project.entry-points."cruxible.providers"]
 "web.fetch" = "cruxible_provider_web.fetch:WebFetch"
+"web.fetch.pages" = "cruxible_provider_web.pages:WebFetchPages"
 "search.web" = "cruxible_provider_web.search:SearxngSearch"
+"web.render" = "cruxible_provider_web.render:WebRender"
+"web.render.dom" = "cruxible_provider_web.dom:WebRenderDom"
 
 [dependency-groups]
 dev = [

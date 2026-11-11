@@ -1,0 +1,13 @@
+{
+  "id": "dashboard-rendered",
+  "note": "A client-assembled page: the initial response carries an empty root, and the assembled DOM carries the content. The two are recorded separately so a fixture can tell a renderer that ran from one that did not.",
+  "request_url": "https://fixture.invalid/dashboard",
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "text/html; charset=utf-8"
+    },
+    "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Gauge dashboard</title></head>\n<body>\n  <div id=\"root\"></div>\n  <script src=\"/static/dashboard.js\"></script>\n  <noscript>This dashboard requires JavaScript.</noscript>\n</body>\n</html>\n"
+  },
+  "rendered_body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Gauge dashboard</title></head>\n<body>\n  <div id=\"root\">\n    <main>\n      <h1>Gauge dashboard</h1>\n      <p>Newlyn reported a mean sea level of 3.214 metres over the last complete\n      tidal cycle, assembled client-side from the readings endpoint.</p>\n      <p>Sheerness reported 3.902 metres over the same window, and both gauges are\n      inside their published tolerance.</p>\n    </main>\n  </div>\n  <script src=\"/static/dashboard.js\"></script>\n</body>\n</html>\n"
+}

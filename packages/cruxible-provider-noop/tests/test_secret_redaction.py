@@ -45,7 +45,7 @@ def binding(
         registry,
         BindRequest(
             provider_id="cruxible-provider-noop",
-            interface_id="noop.echo",
+            operation="noop.echo",
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,

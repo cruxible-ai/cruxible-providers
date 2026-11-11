@@ -20,7 +20,7 @@ Two declared methods, never auto-selected:
 A flag is a reading. It enters a Capture under the declared CaptureContract with
 a contract-governed grade, and it is never world-state truth on its own; a run
 that flags nothing and a run that flags everything are both successful runs of
-this interface.
+this operation.
 
 Determinism: STL is a deterministic LOESS fit and binary segmentation with a
 declared breakpoint count is a deterministic search, so both are reproducible
@@ -36,12 +36,18 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 
 from .numeric import canonical_call
 from .outputs import ok_if_finite
-from .refusals import decline
+from .refusals import (
+    DEGENERATE_SCALE,
+    INSUFFICIENT_SERIES_LENGTH,
+    INVALID_PARAMETER,
+    NON_FINITE_INPUT,
+    UNKNOWN_METHOD,
+    decline,
+)
 from .series import Series, parse_series
 
 __all__ = ["DEFAULT_MODIFIED_Z_THRESHOLD", "METHODS", "Anomaly"]
@@ -61,7 +67,7 @@ _DEGENERATE_MAD_RELATIVE = 1e-12
 class Anomaly:
     """Flag anomalous points or intervals in one time series."""
 
-    interface_id = "ts.anomaly"
+    operations = ("ts.anomaly",)
 
     @canonical_call
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
@@ -69,12 +75,12 @@ class Anomaly:
         series = parse_series(payload)
         if series is None:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "series must be a non-empty, strictly time-ordered array of "
                 "{timestamp, value} records",
             )
         if any(not math.isfinite(value) for value in series.values):
-            return decline(RefusalCode.NON_FINITE_INPUT, "every series value must be finite")
+            return decline(NON_FINITE_INPUT, "every series value must be finite")
 
         method = payload.get("method")
         if method == "stl_mad":
@@ -82,7 +88,7 @@ class Anomaly:
         if method == "changepoint":
             return self._changepoint(payload, series)
         return decline(
-            RefusalCode.UNKNOWN_METHOD,
+            UNKNOWN_METHOD,
             f"method {method!r} is not one this implementation performs",
             supported=list(METHODS),
         )
@@ -98,7 +104,7 @@ class Anomaly:
         if isinstance(period, Sequence) and not isinstance(period, str | bytes):
             if len(period) != 1:
                 return decline(
-                    RefusalCode.INVALID_PARAMETER,
+                    INVALID_PARAMETER,
                     "STL decomposes one period; a multi-period series needs an "
                     "implementation that says so",
                     season_length=list(period),
@@ -106,13 +112,13 @@ class Anomaly:
             period = period[0]
         if isinstance(period, bool) or not isinstance(period, int) or period < 2:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "season_length must be an integer of at least 2 for STL",
                 season_length=payload.get("season_length"),
             )
         if series.length < 2 * period:
             return decline(
-                RefusalCode.INSUFFICIENT_SERIES_LENGTH,
+                INSUFFICIENT_SERIES_LENGTH,
                 f"STL at period {period} needs at least {2 * period} observations, "
                 f"and the series carries {series.length}",
                 observations=series.length,
@@ -123,7 +129,7 @@ class Anomaly:
         threshold = payload.get("threshold_modified_z", DEFAULT_MODIFIED_Z_THRESHOLD)
         if isinstance(threshold, bool) or not isinstance(threshold, int | float) or threshold <= 0:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "threshold_modified_z must be a positive number",
                 threshold_modified_z=threshold,
             )
@@ -143,7 +149,7 @@ class Anomaly:
         floor = _DEGENERATE_MAD_RELATIVE * max(1.0, float(np.max(np.abs(values))))
         if mad <= floor:
             return decline(
-                RefusalCode.DEGENERATE_SCALE,
+                DEGENERATE_SCALE,
                 "the residual median absolute deviation is indistinguishable from zero "
                 "at the series' own scale, so no residual can be scored against it",
                 season_length=period,
@@ -202,7 +208,7 @@ class Anomaly:
         count = payload.get("changepoint_count")
         if isinstance(count, bool) or not isinstance(count, int) or count < 1:
             return decline(
-                RefusalCode.INVALID_PARAMETER,
+                INVALID_PARAMETER,
                 "changepoint_count must be a declared integer of at least 1; a "
                 "penalty-selected count is a modelling choice this slot will not make "
                 "silently",
@@ -211,7 +217,7 @@ class Anomaly:
         minimum = 2 * (count + 1)
         if series.length < minimum:
             return decline(
-                RefusalCode.INSUFFICIENT_SERIES_LENGTH,
+                INSUFFICIENT_SERIES_LENGTH,
                 f"{count} changepoints need at least {minimum} observations, and the "
                 f"series carries {series.length}",
                 observations=series.length,

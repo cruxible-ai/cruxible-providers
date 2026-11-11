@@ -1,6 +1,41 @@
 # cruxible-providers
 
-The umbrella meta-package for the Cruxible provider planes. Apache-2.0.
+## In plain terms
+
+This package contains no code. It is a shortcut for developers: installing it
+with an extra pulls in one or more of the Cruxible provider packages. A
+**provider** is an add-on package that does one kind of work for Cruxible, and
+each task it offers is an **operation**; this package adds no operations of its
+own.
+
+| Extra | Installs | Operations it brings |
+|---|---|---|
+| `web` | `cruxible-provider-web` | `web.fetch`, `web.fetch.pages`, `search.web`, `web.render`, `web.render.dom` |
+| `docs` | `cruxible-provider-docs` (not yet released) | `doc.to_markdown`, `ocr.extract` |
+| `quant` | `cruxible-provider-quant` (not yet released) | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
+| `all` | all three of the above | all of the above |
+
+`cruxible-provider-docs` and `cruxible-provider-quant` are not yet released: no
+kit uses them yet and they ship no Contracts, so an instance cannot install
+them, and the `docs`, `quant` and `all` extras resolve only in a checkout of
+this repository. They will be released when a kit uses them.
+
+`cruxible-provider-workspace` is not offered here: core has `workspace.file`
+built in, and that package stays in the repository only to test the built-in
+against.
+
+Each extra installs the package without its own heavy optional engines (for
+example the browser for `web.render.dom`); add those on the package itself,
+as *Extras and engines* below shows.
+
+You do not need this package to add a provider to a running Cruxible daemon.
+Operators use `cruxible provider install <package>` instead, as *Who this is
+for* below explains.
+
+## Reference
+
+The umbrella meta-package for the Cruxible provider planes (the families of
+operations, one package each). Apache-2.0.
 
 **Zero code.** This distribution is a dependency shell with one extra per plane,
 and it exists for install ergonomics during development:
@@ -9,6 +44,10 @@ and it exists for install ergonomics during development:
 pip install "cruxible-providers[web]"
 pip install "cruxible-providers[web,docs]"
 ```
+
+These resolve from the index, so they need the umbrella and the plane versions
+it names to be published. In a checkout, `uv sync` at the repository root
+installs every plane at its base install instead.
 
 ## Who this is for
 
@@ -37,7 +76,7 @@ implementation it binds, not of the umbrella somebody installed, so the
 per-engine extras stay on the plane package:
 
 ```sh
-pip install "cruxible-providers[docs]"          # adapters, schemas, fixtures
+pip install "cruxible-providers[docs]"          # adapters, registration, recordings
 pip install "cruxible-provider-docs[docling]"   # and the conversion engine
 ```
 
@@ -52,13 +91,14 @@ registered as a Provider artifact.
 
 ## The planes
 
-`web`, `docs`, `quant`, and `workspace` -- one extra per plane distribution
-that exists, and `all` is exactly their union. A plane is wired the moment it
-lands, never anticipated: naming a distribution that does not exist yet would
-produce an umbrella that cannot resolve, and an `all` extra that means "all but
-one" is worse than no `all` at all.
+`web`, `docs` and `quant` -- one extra per plane distribution that exists, and
+`all` is exactly their union. A plane is wired the moment it lands, never
+anticipated: naming a distribution that does not exist yet would produce an
+umbrella that cannot resolve, and an `all` extra that means "all but one" is
+worse than no `all` at all.
 
-`workspace` is the built-in Source adapter core seeds by proposal. It is in the
-umbrella for the same reason the others are -- a developer installing the planes
-gets the built-in too -- and for no other: end users never install it, and core
-pins its digests rather than its distribution.
+`cruxible-provider-workspace` is deliberately left out. It is the package
+core's built-in `workspace.file` was ported from; core does not need it,
+because every new instance already runs its own in-process copy, so it is not
+published and nothing installed through the umbrella pulls it in. Its source and
+tests stay in this repository.

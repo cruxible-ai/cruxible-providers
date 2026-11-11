@@ -1,4 +1,4 @@
-"""The instrumented HTTP client both web-plane implementations use.
+"""The instrumented HTTP client the web plane's fetches and search use.
 
 Egress recording is not something an adapter remembers to do; it is wired into
 the client itself, on httpx's request event hook, so that every request the
@@ -21,11 +21,13 @@ gets to decide before anything is sent.
 
 **Private targets are refused, and connections are pinned.** A client built with
 an :class:`~cruxible_provider_web.addresses.AddressGuard` — which is how
-``web.fetch`` always builds one — vets every hop before it is sent and connects
+``web.fetch`` and ``web.fetch.pages`` always build one
+(:func:`guarded_client_factory`) — vets every hop before it is sent and connects
 only to the addresses the vetting checked (:class:`PinnedTransport`). Checking a
 name and then letting the connection resolve it again would leave a DNS-rebinding
 gap between the two; pinning closes it. ``search.web`` builds its client without
-a guard, because its SearXNG instance is an endpoint the operator declared.
+a guard (:func:`default_client_factory`), because its SearXNG instance is an
+endpoint the operator configured.
 """
 
 from __future__ import annotations
@@ -40,9 +42,14 @@ from urllib.parse import urlsplit
 import httpcore
 import httpx
 from cruxible_provider_runtime.egress import EgressRecorder, normalize_endpoint
-from cruxible_provider_runtime.errors import RefusalCode, refuse
+from cruxible_provider_runtime.errors import decline
 
 from .addresses import AddressGuard, Resolver
+from .operations import (
+    CROSS_ORIGIN_CREDENTIALED_REDIRECT,
+    REDIRECT_LIMIT,
+    UNSUPPORTED_REDIRECT_SCHEME,
+)
 from .recordings import is_fixture_url, recording_for
 
 __all__ = [
@@ -157,7 +164,7 @@ class RecordingClient:
         **Every header in ``headers`` is treated as credential-bearing.** A
         client cannot tell one caller-chosen header name from another —
         ``x-api-key`` carries exactly what ``authorization`` carries, and this
-        interface lets the run name either — so the safe reading of a per-request
+        operation lets the run name either — so the safe reading of a per-request
         header is that the adapter attached it because it had to, and both
         adapters in this plane attach nothing else. An authenticated fetch
         redirected to a **different origin** therefore refuses rather than
@@ -166,7 +173,7 @@ class RecordingClient:
 
         With a guard, every hop is vetted before it is sent — the first request
         and each redirect alike — so an origin cannot bounce the run onto a
-        private address.
+        private address, and a refused hop is never sent or recorded.
         """
 
         carried = dict(headers or {})
@@ -181,8 +188,8 @@ class RecordingClient:
             # Outside the `with`: the hop is decided on what the origin said, and
             # the connection it said it on is of no further use.
             target = _next_hop(str(response.url), location, credentialed=bool(carried))
-        raise refuse(
-            RefusalCode.REDIRECT_LIMIT,
+        raise decline(
+            REDIRECT_LIMIT,
             f"the redirect chain did not settle within {MAX_REDIRECTS} hops",
             url=url,
             next_url=target,
@@ -218,8 +225,8 @@ def _next_hop(current: str, location: str, *, credentialed: bool) -> str:
 
     A credentialed fetch that changes origin is **refused, not stripped**. Both
     were available, and this plane already holds the position the refusal
-    follows from: a run admitted into the ``access=authenticated`` bucket does
-    not silently go out anonymous — the undelivered-credential refusal says so
+    follows from: a run that names a credential does not silently go out
+    anonymous — the undelivered-credential refusal says so
     in as many words. Stripping would do precisely that, and would hand the
     caller a document retrieved under terms the receipt no longer describes,
     with nothing in it to distinguish that document from one the credential
@@ -234,15 +241,15 @@ def _next_hop(current: str, location: str, *, credentialed: bool) -> str:
 
     destination = str(httpx.URL(current).join(location))
     if urlsplit(destination).scheme not in {"http", "https"}:
-        raise refuse(
-            RefusalCode.UNSUPPORTED_REDIRECT_SCHEME,
-            "the origin redirected to a scheme this interface does not retrieve",
+        raise decline(
+            UNSUPPORTED_REDIRECT_SCHEME,
+            "the origin redirected to a scheme this adapter does not retrieve",
             url=current,
             redirect_to=destination,
         )
     if credentialed and _crosses_origin(current, destination):
-        raise refuse(
-            RefusalCode.CROSS_ORIGIN_CREDENTIALED_REDIRECT,
+        raise decline(
+            CROSS_ORIGIN_CREDENTIALED_REDIRECT,
             "the origin redirected an authenticated fetch to a different origin",
             url=normalize_endpoint(current),
             redirect_to=normalize_endpoint(destination),
@@ -303,7 +310,7 @@ class _PinnedBackend(httpcore.NetworkBackend):
         timeout: float | None = None,
         socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
     ) -> httpcore.NetworkStream:
-        raise httpcore.ConnectError("web.fetch does not connect to unix sockets")
+        raise httpcore.ConnectError("the guarded client does not connect to unix sockets")
 
     def sleep(self, seconds: float) -> None:
         self._inner.sleep(seconds)
@@ -313,17 +320,23 @@ class PinnedTransport(httpx.HTTPTransport):
     """An httpx transport whose connections go only to vetted addresses.
 
     It is also deliberately proxy-free: a proxy resolves the name itself, which
-    would hand the decision this transport exists to make to somebody else.
-    ``network_backend`` is injectable so a test can observe which address a
-    connection was opened to without opening one.
+    would hand the decision this transport exists to make to somebody else (and
+    an ``httpx.Client`` given an explicit transport reads no proxy from the
+    environment). ``network_backend`` is injectable so a test can observe which
+    address a connection was opened to without opening one.
+
+    The trust store is loaded once per transport: the verified context built
+    here is handed to the base constructor, which then uses it as given rather
+    than building its own, and the pinned pool is built on that same context.
     """
 
     def __init__(
         self, guard: AddressGuard, *, network_backend: httpcore.NetworkBackend | None = None
     ) -> None:
-        super().__init__()
+        ssl_context = httpx.create_ssl_context()
+        super().__init__(verify=ssl_context)
         self._pool = httpcore.ConnectionPool(
-            ssl_context=httpx.create_ssl_context(),
+            ssl_context=ssl_context,
             network_backend=_PinnedBackend(guard, network_backend or httpcore.SyncBackend()),
         )
 
@@ -392,12 +405,13 @@ def guarded_client_factory(
     timeout_seconds: float,
     resolver: Resolver | None = None,
 ) -> RecordingClient:
-    """The client ``web.fetch`` uses: private targets refused, connections pinned.
+    """The client ``web.fetch`` and ``web.fetch.pages`` use: private targets refused,
+    connections pinned.
 
     The packaged-recording exception is the same as :func:`default_client_factory`'s
-    and needs no guard: it opens no socket, and ``fixture.invalid`` resolves
-    nowhere. Every other URL gets a client that vets each hop and connects only
-    to what it vetted.
+    and needs no guard: it opens no socket, whatever URL a hop names, and
+    ``fixture.invalid`` resolves nowhere. Every other URL gets a client that vets
+    each hop and connects only to what it vetted.
     """
 
     packaged = packaged_recording_transport(url)

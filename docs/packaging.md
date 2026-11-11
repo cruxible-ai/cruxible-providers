@@ -3,7 +3,7 @@
 ## One distribution per plane
 
 `cruxible-provider-<plane>` is the identity, lock, and digest unit. One package
-may implement several interfaces within its plane.
+may serve several typed operations within its plane.
 
 The rejected alternative was a single distribution with per-plane extras. It
 fails for a specific reason rather than an aesthetic one: the implementation
@@ -15,22 +15,21 @@ across the whole fleet on each publish.
 The umbrella meta-package `cruxible-providers` — a pure dependency shell with one
 extra per plane — exists for install ergonomics now that the first plane packages
 do. It ships no code, so it enters no implementation digest. Operators install
-providers into a daemon explicitly and through governance
-(`cruxible provider install`); nothing is fetched implicitly when a Procedure
-binds. The umbrella serves developers.
+providers into a daemon explicitly and through governance (`cruxible provider
+install`); nothing is fetched implicitly when a Procedure binds. The umbrella
+serves developers.
 
-Because its entire content is other packages, the umbrella declares itself exempt
-from the one-package-one-digest-change gate (`[tool.cruxible] digest_scope =
-"exempt"`). Its closure moves whenever any plane's does, so measuring it would
-report two changed packages for every one-package change; and it pins no
-environment, carries no implementation digest, and appears on no track record, so
-there is nothing the gate would be protecting. The exemption is a written field
-rather than a name the script recognises, and a repository test asserts it is the
-only one.
+Because its entire content is other packages, the umbrella declares itself out of
+the dependency-closure measurement (`[tool.cruxible] digest_scope = "exempt"`).
+Its closure moves whenever any plane's does, so measuring it would report a move
+for every plane change; and it pins no environment, carries no implementation
+digest, and appears on no track record, so there is nothing the closure-version
+check (below) would be protecting. The exemption is a written field rather than
+a name the script recognises, and a repository test asserts it is the only one.
 
 ## Per-engine extras, and the environment pin key
 
-A heavy engine — a document-conversion stack, an OCR runtime — never
+A heavy engine — a browser, a document-conversion stack, an OCR runtime — never
 enters a base install. It sits behind an extra, and the implementation that needs
 it declares that extra in its manifest (`requires_extras`).
 
@@ -49,7 +48,7 @@ artifact pins each under an **environment pin key**:
 
 ```
 linux-cp311                     the base environment
-linux-cp311+docling             the same lock, resolved with a conversion engine
+linux-cp311+browser             the same lock, resolved with a browser
 linux-cp311+docling+paddleocr   sorted, so the key is a set rather than an order
 ```
 
@@ -110,6 +109,7 @@ Reproduced against the committed locks, for the three environments in
 | Package | Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
 |---|---|---|---|---|
 | `cruxible-provider-web` | *(base)* | resolves | resolves | resolves |
+| `cruxible-provider-web` | `browser` | resolves | resolves | resolves |
 | `cruxible-provider-docs` | *(base)* | resolves | resolves | resolves |
 | `cruxible-provider-docs` | `docling` | resolves | resolves | resolves |
 | `cruxible-provider-docs` | `paddleocr` | resolves | resolves | resolves |
@@ -127,11 +127,11 @@ package's local materialization digest moved**, including base environments and
 extras sets whose selected wheels did not change. That global re-key was
 deliberate, pre-acceptance, and free: no accepted Provider artifact carried the
 old pins, so nothing needed re-issuance. The marker environments do not enter the
-backend-invariant implementation preimage, and this slice changes no interface,
-entrypoint, or released distribution pin; implementation digests do not move.
+backend-invariant implementation preimage, and this slice changes no entrypoint
+or released distribution pin; implementation digests do not move.
 
-Windows development uses WSL2 now. Native Windows is demand-gated and, if
-needed, arrives later as an **additive** marker environment. It will create new
+Windows development uses WSL2 now. Native Windows has no marker environment;
+one would arrive later as an **additive** marker environment. It will create new
 materialization digests for that environment without re-keying any existing
 Linux or macOS pin.
 
@@ -160,20 +160,34 @@ every package's resolved set move whenever any dependency anywhere moves. Every
 provider would be re-pinned, re-verified, re-materialised, and — in the cloud
 backend — re-attested, because of a change in a package it does not depend on.
 
-This is enforced, not merely documented:
+The layout is held by `tests/test_repo_layout.py` (the root is not a uv
+workspace, and every package has its own lock). What CI checks on every change
+is the release consequence of a lock moving:
 
 ```sh
-uv run python scripts/check_single_package_digest_change.py --base origin/main
+uv run python scripts/check_closure_moves_are_versioned.py --base origin/main
 ```
 
-The check computes each package's **dependency-closure** digests at the base
-revision and in the working tree, and fails if more than one package moved. A
-change that genuinely needs to move two packages should be two commits.
+A wheel embeds its package's lock, and an install by name builds the
+environment from it, so a released version is one dependency closure. The check
+computes each package's **dependency-closure** digests at the base revision and
+in the working tree and prints, per package, whether it moved, its version at
+both, and whether it is released. It fails when a **released** package's closure
+moved and its version did not: the next release would otherwise publish a
+second environment under a version an operator may already have pinned. Moving
+several packages in one change is fine as long as each released one gets a new
+version.
+
+**Released** is decided from the repository, with no network: a package is
+released when `.github/workflows/publish.yml` names it in its `PUBLISHABLE` set
+at the base or at the head, because that set is the only way a package reaches
+the index. A package that has never been on it may move without a version
+change. Packages added or removed by the change are reported and not judged.
 
 Closure digest, not materialization digest, and the distinction is not
 pedantry. A materialization digest also pins the root distribution's sha256,
 which does not exist until the package is built and which moves on every release
-by construction — it would drown out the signal the gate is looking for. The
+by construction — it would drown out the signal the check is looking for. The
 closure digest covers the root's *name*, the marker environment, and the
 resolved dependency set: exactly what a dependency bump moves.
 
@@ -193,7 +207,7 @@ cover part of the environment.
 `allow_editable_dev_sources` is a development-only escape hatch, false
 everywhere by default. It admits local sources under a path-derived identity so
 that this monorepo can bind its own in-tree packages before they are published,
-and so that the digest-scope gate can see cross-package edges. A binding
+and so that the closure-version check can see cross-package edges. A binding
 computed with it set records `dev_sources_permitted` in its snapshot, so a
 receipt shows it.
 
@@ -222,7 +236,7 @@ environment from whatever interpreter happened to run would produce a digest
 that cannot be reproduced anywhere else, which is not an identity.
 
 Changing that file re-pins every package at once. That is why it is a committed
-artifact rather than a runtime default, and why the digest-scope check holds the
+artifact rather than a runtime default, and why the closure-version check holds the
 environment list fixed across revisions: re-pinning the environments is a
 deliberate, separate act.
 
@@ -233,43 +247,52 @@ deliberate, separate act.
 | `pyproject.toml` | Distribution metadata, dependencies, `cruxible.providers` entry points |
 | `uv.lock` | The identity source. Committed, and compared byte-for-byte at bind against what the accepted artifact pinned. |
 | `src/<module>/manifest.yaml` | The package-side manifest. A transcription source, **never** authority. |
-| `src/<module>/registration.json` | Versioned registration descriptor: hashed manifest, interface definitions, vocabularies, classifier sources, fixture sets, and runtime requirements |
-| `src/<module>/contracts/*.json` | Current operation contracts; the Python interface helpers read these same files |
-| `src/<module>/contracts/history/*.json` | Frozen predecessor definitions; retain their original digest domain and bytes |
-| `src/<module>/registration-fixtures/*.json` | Self-contained canonical request-classification fixtures, usable without the test tree |
+| `src/<module>/registration.json` | The registration descriptor (schema 2): the manifest by path and digest, the package's typed operations (each `{name, in, out, effect, refusals, entrypoint}`, Contracts named `name@N`), and runtime requirements keyed by entrypoint |
 | `src/<module>/py.typed` | Typing marker |
 | `LICENSE`, `NOTICE` | Apache-2.0, per package |
 | `container/Dockerfile` | The container backend's build, when the package declares that backend |
 | `container/provenance.md` | The four provenance fields the executor checks |
-| `src/<module>/vocab/*.yaml` | The bucket vocabularies the package classifies against, copied from `vocab/interfaces/`; a repository test asserts the copies do not fork |
-| `src/<module>/recordings/`, `fixtures/` | Recorded exchanges or engine responses, and the per-bucket conformance fixtures that replay them |
+| `src/<module>/recordings/` | Recorded exchanges or engine responses the default lane replays |
+| `src/<module>/contracts/` | Optional: the bodies of the Contracts the operations pin, as accepted-tree members |
 | `tests/` | The conformance suite, which every plane package inherits. No `__init__.py` |
 
 ### Reading registration metadata
 
-`cruxible_provider_runtime.registration.load_registration(package_root)` verifies
-all package-relative resource hashes and interface/manifest/fixture cross-links
-without importing provider code. `registration_from_distribution(distribution)`
-locates that descriptor through installed wheel metadata and additionally checks
-the package name, version, entry points and extras. Neither function installs,
-authorizes, or accepts a provider. Metadata remains a source for an ordinary
-Core proposal. The host must pin the complete wheel before loading a classifier,
-validate operation contracts under its selected compiler, and verify fixtures.
+`cruxible_provider_runtime.registration.load_registration(package_root)` reads
+`registration.json` (schema 2 only; a schema-1 descriptor is refused whole),
+verifies the manifest's package-relative path and digest, and checks the
+cross-links without importing provider code: every operation names an
+entrypoint the manifest declares, every manifest implementation serves at least
+one operation, operations are sorted and named once, no operation declares one
+of the runtime's reserved refusal codes, and every runtime requirement belongs
+to a declared implementation. `registration_from_distribution(distribution)`
+locates the descriptor through installed wheel metadata and additionally checks
+the package name, version, extras, and that the `cruxible.providers` entry
+points are exactly the registered operations (one per operation, named by it).
+Neither function installs, authorizes, or accepts a provider.
 
-Node-type contracts use `contracts.input` and `contracts.output`, plus explicit
-`effect_class`. Package dependencies and operator configuration remain separate.
-Local Python installation does not imply a container deployment. Runtime resource
-requirements, such as a model or binary an engine downloads, are declared separately
-from Python extras and must not be reported ready merely because a wheel exists.
-
-The interface digest domain retains its historical `stub.v1` spelling. It is an
-identity rule, not a statement that current contracts are provisional. A changed
-contract increments its version and retains the predecessor definition and digest.
+The registration names Contracts by `name@N` and carries no digests: the
+install pins each to the version accepted at its base, and a Line binds one
+exact `{build, operation}`. The bodies travel either with a kit or with the
+package itself: a package that ships them puts each under
+`src/<module>/contracts/<name>/v<N>.json` as the exact accepted-tree member Core
+stores at `contracts/<name>/v<N>.json` (canonical JSON, every nested pin
+carrying its digest), and the operator accepts them as ordinary members before
+installing. `cruxible-provider-web` ships all of its Contracts this way
+(`cruxible_provider_web.contract_members()`, rendered by
+`scripts/render_web_contracts.py`). An operation's
+`refusals` are its whole refusal vocabulary, each with a detail Contract; there
+is no shared decline vocabulary, and the runtime's own closed codes are
+reserved for runtime conditions. An operation's `effect` (`pure`,
+`external_read`, `external_mutation`) is declared once, there; the manifest no
+longer repeats it. Runtime resource requirements, such as Playwright's browser
+executable, are declared separately from Python extras and must not be reported
+ready merely because a wheel exists.
 
 The cross-repository check accepts `CRUXIBLE_CORE_PYTHON`; the built-wheel check
 accepts `CRUXIBLE_PROVIDER_WHEEL_DIR`. These are explicit test inputs, not developer
-paths. Run `tests/test_package_registration.py` with them to check actual provider
-outputs against Core and descriptors from built distributions.
+paths. Run `tests/test_package_registration.py` with them to read every package
+through Core's own schema-2 reader and descriptors from built distributions.
 
 ### Test packages carry no `__init__.py`
 
@@ -299,7 +322,9 @@ fetches the wheel from the index, checks it against the index's sha256, and
 materializes the environment from that embedded lock, so it resolves exactly
 what the package was released with and needs no checkout. The lock names the
 runtime as a path source; the installer takes it from the same index at its
-locked version.
+locked version. That is why the runtime must be published first: until the
+locked runtime version is on the index, install from a checkout instead (built
+wheels, `--lock` and `--dependency`; see the repository README).
 
 `.github/workflows/publish.yml` publishes one package per run, wheels only,
 through PyPI trusted publishing with attestations. A tag

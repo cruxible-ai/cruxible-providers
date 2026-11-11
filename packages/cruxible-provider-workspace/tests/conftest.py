@@ -41,8 +41,8 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
+    register_package,
 )
-from cruxible_provider_workspace.interface import registration
 
 PACKAGE_DIR = Path(cruxible_provider_workspace.__file__).resolve().parent.parent.parent
 REPO_ROOT = PACKAGE_DIR.parent.parent
@@ -50,7 +50,8 @@ RUNTIME_SRC = REPO_ROOT / "packages" / "cruxible-provider-runtime" / "src"
 WORKSPACE_SRC = PACKAGE_DIR / "src"
 
 PROVIDER_ID = "cruxible-provider-workspace"
-INTERFACE_ID = "workspace.file"
+OPERATION = "workspace.file"
+ENTRYPOINT = "cruxible_provider_workspace.file:WorkspaceFile"
 DISTRIBUTION_SHA256 = "sha256:" + "5e" * 32
 IMAGE_DIGEST = "sha256:" + "e5" * 32
 BASE_IMAGE_DIGEST = "sha256:" + "b0" * 32
@@ -164,8 +165,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    stub.register_interface(registration())
-    stub.register_provider(accepted_artifact)
+    register_package(stub, accepted_artifact, cruxible_provider_workspace.PACKAGE_ROOT)
     return stub
 
 

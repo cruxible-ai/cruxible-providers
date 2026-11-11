@@ -8,15 +8,16 @@ from typing import Any
 
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
-from cruxible_provider_workspace.file import INPUT_FIELDS, WorkspaceFile, structure_bytes
-from cruxible_provider_workspace.interface import (
-    INTERFACE_DIGEST,
-    INTERFACE_ID,
-    VOCABULARY,
-    classify,
+from cruxible_provider_workspace.file import (
+    INPUT_FIELDS,
+    INVALID_PARAMETER,
+    MISMATCHED_LENGTHS,
+    OPERATION,
+    PROVIDER_DECLINED,
+    WorkspaceFile,
+    structure_bytes,
 )
 
 COMMITMENT = "sha256:" + "c0" * 32
@@ -36,19 +37,17 @@ def payload(data: bytes, **overrides: Any) -> dict[str, Any]:
 
 
 def run(document: dict[str, Any], *, secrets: dict[str, str] | None = None) -> ProviderResult:
-    assignment = classify(document)
-    bucket = VOCABULARY.bucket_id(assignment) if assignment is not None else "unmeasured"
     context = ProviderRunContext(
         run_id="run-adapter",
-        interface_id=INTERFACE_ID,
-        interface_digest=INTERFACE_DIGEST,
+        operation=OPERATION,
+        operation_signature_digest="sha256:" + "51" * 32,
+        build_digest="sha256:" + "b1" * 32,
         implementation_digest="sha256:" + "11" * 32,
-        input_bucket=bucket,
         input=document,
         coordinates={},
         budgets=Budgets(wall_clock_seconds=5.0, output_bytes=8_000_000),
         declared_endpoints=(),
-        capture_contract="workspace.file.capture.v1",
+        capture_contract=None,
         secrets=secrets or {},
         egress=EgressRecorder(),
     )
@@ -159,7 +158,7 @@ def test_a_length_that_disagrees_refuses_mismatched_lengths() -> None:
     result = run(payload(b"hello", byte_length=4))
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.MISMATCHED_LENGTHS
+    assert result.refusal.code == MISMATCHED_LENGTHS
     assert result.refusal.detail == {"declared": 4, "decoded": 5}
 
 
@@ -168,7 +167,7 @@ def test_a_digest_that_disagrees_refuses_and_names_both() -> None:
     result = run(payload(b"hello", bytes_digest=wrong))
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert result.refusal.code == PROVIDER_DECLINED
     assert result.refusal.detail["declared"] == wrong
     assert result.refusal.detail["computed"] == "sha256:" + hashlib.sha256(b"hello").hexdigest()
 
@@ -198,7 +197,7 @@ def test_a_malformed_field_refuses_invalid_parameter_naming_the_field(
     result = run(payload(b"hello", **overrides))
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.INVALID_PARAMETER
+    assert result.refusal.code == INVALID_PARAMETER
     assert result.refusal.detail["field"] == field
 
 
@@ -209,7 +208,7 @@ def test_a_missing_field_refuses_and_lists_what_is_missing() -> None:
     result = run(document)
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.INVALID_PARAMETER
+    assert result.refusal.code == INVALID_PARAMETER
     assert result.refusal.detail["missing"] == ["commitment_digest", "bytes_digest"]
 
 
@@ -217,7 +216,7 @@ def test_an_undeclared_field_refuses_rather_than_being_ignored() -> None:
     result = run(payload(b"hello", host_path="/Users/someone/workspace/readings.md"))
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.INVALID_PARAMETER
+    assert result.refusal.code == INVALID_PARAMETER
     assert result.refusal.detail["unknown"] == ["host_path"]
     assert result.refusal.detail["declared"] == list(INPUT_FIELDS)
 
@@ -258,3 +257,40 @@ def test_an_invocation_opens_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "open", forbidden)
     result = run(payload(b"line one\nline two\n"))
     assert result.status == "ok"
+
+
+# -- the result's input_bucket, measured from the bytes -------------------
+
+
+@pytest.mark.parametrize(
+    ("data", "label"),
+    [
+        (b"alpha\n", "content_kind=text;byte_size=tiny"),
+        (b"\x00\x01", "content_kind=binary;byte_size=tiny"),
+        (b"a" * 4_097, "content_kind=text;byte_size=small"),
+        (b"\xff" * 65_537, "content_kind=binary;byte_size=medium"),
+    ],
+)
+def test_the_result_names_the_bucket_its_bytes_measure_into(data: bytes, label: str) -> None:
+    """Nothing classifies the input any more; the label is derived from the bytes alone."""
+
+    result = run(payload(data))
+    assert result.status == "ok"
+    assert result.output is not None
+    assert result.output["input_bucket"] == label
+
+
+def test_more_than_one_mebibyte_refuses_typed() -> None:
+    """Admission used to hold these back; the adapter refuses them itself now."""
+
+    from cruxible_provider_workspace.file import MAX_STRUCTURED_BYTES
+
+    assert run(payload(b"a" * MAX_STRUCTURED_BYTES)).status == "ok"
+    result = run(payload(b"a" * (MAX_STRUCTURED_BYTES + 1)))
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.code == PROVIDER_DECLINED
+    assert result.refusal.detail == {
+        "byte_length": MAX_STRUCTURED_BYTES + 1,
+        "max_bytes": MAX_STRUCTURED_BYTES,
+    }

@@ -12,9 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import cruxible_provider_docs
 import pytest
 import yaml
-from cruxible_provider_docs.interfaces import registrations
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
 from cruxible_provider_runtime.backends import ContainerBackend, LocalEnvBackend
 from cruxible_provider_runtime.binding import BindRequest, bind
@@ -22,7 +22,7 @@ from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.manifest import BackendKind, load_manifest, manifest_digest
 from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_runtime.resolution import environment_pin_key
-from cruxible_provider_runtime.testing import FakeContainerDriver
+from cruxible_provider_runtime.testing import FakeContainerDriver, register_package
 
 from .conftest import MARKDOWN_EXTRAS, MARKER_ENVIRONMENT, PROVIDER_ID
 
@@ -30,13 +30,13 @@ from .conftest import MARKDOWN_EXTRAS, MARKER_ENVIRONMENT, PROVIDER_ID
 def _request(
     manifest_path: Path,
     lock_path: Path | None,
-    interface_id: str = "doc.to_markdown",
+    operation: str = "doc.to_markdown",
     backend_kind: BackendKind = "local_env",
     **overrides: Any,
 ) -> BindRequest:
     fields: dict[str, Any] = {
         "provider_id": PROVIDER_ID,
-        "interface_id": interface_id,
+        "operation": operation,
         "backend_kind": backend_kind,
         "manifest_path": manifest_path,
         "lock_path": lock_path,
@@ -57,9 +57,7 @@ def _edited(manifest_path: Path, tmp_path: Path, edit: Any) -> Path:
 
 def _registry_for(payload: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
-    stub.register_provider(payload)
+    register_package(stub, payload, cruxible_provider_docs.PACKAGE_ROOT)
     return stub
 
 
@@ -116,37 +114,16 @@ def test_unknown_manifest_field_refuses(
     assert exc.value.code is RefusalCode.UNKNOWN_MANIFEST_FIELD
 
 
-def test_undeclared_interface_refuses(
+def test_undeclared_operation_refuses(
     registry: StubRegistry, manifest_path: Path, lock_path: Path, local_backend: LocalEnvBackend
 ) -> None:
     with pytest.raises(RefusalError) as exc:
         bind(
             registry,
-            _request(manifest_path, lock_path, interface_id="doc.to_pdf"),
+            _request(manifest_path, lock_path, operation="doc.to_pdf"),
             local_backend=local_backend,
         )
-    assert exc.value.code is RefusalCode.UNDECLARED_INTERFACE
-
-
-def test_interface_digest_mismatch_refuses(
-    accepted_artifact: ProviderArtifactPayload,
-    manifest_path: Path,
-    lock_path: Path,
-    tmp_path: Path,
-    local_backend: LocalEnvBackend,
-) -> None:
-    def edit(document: dict[str, Any]) -> None:
-        document["implementations"][0]["interface_digest"] = "sha256:" + "ab" * 32
-
-    edited = _edited(manifest_path, tmp_path, edit)
-    payload = _reaccepted(accepted_artifact, edited)
-    stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
-    stub.providers[payload.provider_id] = payload
-    with pytest.raises(RefusalError) as exc:
-        bind(stub, _request(edited, lock_path), local_backend=local_backend)
-    assert exc.value.code is RefusalCode.INTERFACE_DIGEST_MISMATCH
+    assert exc.value.code is RefusalCode.UNDECLARED_OPERATION
 
 
 def test_unsupported_protocol_refuses(
@@ -157,7 +134,7 @@ def test_unsupported_protocol_refuses(
     local_backend: LocalEnvBackend,
 ) -> None:
     def edit(document: dict[str, Any]) -> None:
-        document["supported_protocol_majors"] = [2]
+        document["supported_protocol_majors"] = [3]
 
     edited = _edited(manifest_path, tmp_path, edit)
     registry = _registry_for(_reaccepted(accepted_artifact, edited))
@@ -191,20 +168,18 @@ def test_unsupported_backend_refuses(
     assert exc.value.code is RefusalCode.UNSUPPORTED_BACKEND
 
 
-def test_bucket_fixture_missing_refuses_at_registration(
-    accepted_artifact: ProviderArtifactPayload, manifest_path: Path, tmp_path: Path
+def test_an_operation_naming_an_undeclared_entrypoint_refuses_at_registration(
+    accepted_artifact: ProviderArtifactPayload,
 ) -> None:
-    def edit(document: dict[str, Any]) -> None:
-        document["implementations"][0]["bucket_conformance"] = {}
+    """Registration and manifest are two declarations; they must name one entrypoint."""
 
-    edited = _edited(manifest_path, tmp_path, edit)
-    payload = _reaccepted(accepted_artifact, edited)
-    stub = StubRegistry()
-    for registration in registrations():
-        stub.register_interface(registration)
+    from cruxible_provider_runtime.registration import load_registration
+
+    operations = load_registration(cruxible_provider_docs.PACKAGE_ROOT).operations
+    moved = operations[0].model_copy(update={"entrypoint": "cruxible_provider_docs.ocr:Other"})
     with pytest.raises(RefusalError) as exc:
-        stub.register_provider(payload)
-    assert exc.value.code is RefusalCode.BUCKET_FIXTURE_MISSING
+        StubRegistry().register_provider(accepted_artifact, (moved, *operations[1:]))
+    assert exc.value.code is RefusalCode.MANIFEST_DIVERGENCE
 
 
 def test_a_lock_that_is_not_the_pinned_one_refuses_on_its_bytes(

@@ -1,16 +1,32 @@
 """Read package-owned registration data without importing provider code.
 
+A provider package ships one ``registration.json`` (schema 2)::
+
+    {
+      "schema_version": 2,
+      "manifest": {"path": "manifest.yaml", "digest": "sha256:..."},
+      "operations": [
+        {"name": "web.fetch", "in": "web.fetch.request@1", "out": "web.fetch.result@1",
+         "effect": "external_read",
+         "refusals": {"invalid_parameter": {
+             "contract": "web.fetch.refusal.invalid_parameter@1", "absorbable": true}},
+         "entrypoint": "cruxible_provider_web.fetch:WebFetch"}
+      ],
+      "runtime_requirements": []
+    }
+
 This is a proposal source, not acceptance authority or an installer. The host
-pins the distribution bytes before trusting executable entry points. Inspecting
-metadata never imports them. Core remains responsible for validating operation
-contracts and accepting the definitions under its versioned laws.
+pins the distribution bytes before trusting executable entry points; reading
+metadata never imports them. Core pins each Contract an operation names to the
+version accepted at the install base and accepts the definitions under its own
+laws. Only schema 2 is read: a schema-1 registration exported interfaces,
+bucket vocabularies and classifiers, and is refused as such.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.metadata import Distribution
 from pathlib import Path, PurePosixPath
@@ -19,18 +35,35 @@ from typing import Any, Literal
 from packaging.utils import canonicalize_name
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .buckets import BucketSelector, BucketVocabulary, parse_bucket_id
-from .canonical import SHA256_RE, domain_digest
-from .manifest import ProviderManifest, load_manifest
-from .registry import load_bucket_vocabulary
+from .canonical import SHA256_RE
+from .manifest import ENTRYPOINT_GROUP, ProviderManifest, load_manifest
+from .operations import ProviderOperation, validate_operations
+
+__all__ = [
+    "REGISTRATION_FILE",
+    "PackageRegistration",
+    "RegistrationBundle",
+    "ResourceRef",
+    "RuntimeRequirement",
+    "callable_path",
+    "load_registration",
+    "registration_from_distribution",
+]
 
 REGISTRATION_FILE = "registration.json"
-INTERFACE_DOMAIN = "cruxible.interface.stub.v1"
-"""Retained digest domain; replacing its name would invalidate existing pins."""
 
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+def callable_path(value: str) -> str:
+    """``module:callable`` with identifier parts only, or ``ValueError``."""
+
+    module, sep, member = value.partition(":")
+    if not sep or not member.isidentifier() or not all(p.isidentifier() for p in module.split(".")):
+        raise ValueError("entrypoint must be module:callable")
+    return value
 
 
 class ResourceRef(_Strict):
@@ -70,52 +103,13 @@ class ResourceRef(_Strict):
         return data
 
 
-def read_interface_definition(root: Path, identity: str) -> dict[str, Any]:
-    """Read the same bundled definition used by package registration."""
-    if not identity or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789._-" for c in identity):
-        raise ValueError("invalid interface identity")
-    value = json.loads((root / "contracts" / f"{identity}.json").read_bytes())
-    if not isinstance(value, dict) or value.get("interface_id") != identity:
-        raise ValueError("interface identity differs from definition")
-    return value
-
-
-class ClassifierExport(_Strict):
-    identity: str
-    version: int = Field(ge=1)
-    entrypoint: str
-    source: ResourceRef
-
-    @field_validator("entrypoint")
-    @classmethod
-    def callable_path(cls, value: str) -> str:
-        module, sep, member = value.partition(":")
-        if (
-            not sep
-            or not member.isidentifier()
-            or not all(p.isidentifier() for p in module.split("."))
-        ):
-            raise ValueError("classifier entrypoint must be module:callable")
-        return value
-
-
-class InterfaceHistory(_Strict):
-    definition: ResourceRef
-    interface_digest: str
-
-
-class InterfaceExport(_Strict):
-    interface_id: str
-    interface_digest: str
-    definition: ResourceRef
-    vocabulary: ResourceRef
-    classifier: ClassifierExport
-    fixtures: ResourceRef
-    predecessors: tuple[InterfaceHistory, ...] = ()
-
-
 class RuntimeRequirement(_Strict):
-    interface_id: str
+    """Something an implementation's environment needs beyond its lock.
+
+    Keyed by the manifest implementation it belongs to: its ``entrypoint``.
+    """
+
+    entrypoint: str
     kind: Literal["python_extra", "runtime_resource"]
     name: str
     description: str
@@ -126,23 +120,24 @@ class RuntimeRequirement(_Strict):
         if self.kind == "runtime_resource":
             if self.probe_entrypoint is None:
                 raise ValueError("runtime resources require a package readiness probe")
-            ClassifierExport.callable_path(self.probe_entrypoint)
+            callable_path(self.probe_entrypoint)
         elif self.probe_entrypoint is not None:
             raise ValueError("Python extras do not use resource probes")
         return self
 
 
 class PackageRegistration(_Strict):
-    schema_version: Literal[1] = 1
+    """``registration.json``, schema 2."""
+
+    schema_version: Literal[2]
     manifest: ResourceRef
-    interfaces: tuple[InterfaceExport, ...] = Field(min_length=1)
+    operations: tuple[ProviderOperation, ...] = Field(min_length=1)
     runtime_requirements: tuple[RuntimeRequirement, ...] = ()
 
-
-class ClassificationFixture(_Strict):
-    fixture_id: str
-    canonical_input: dict[str, Any]
-    measured_bucket_id: str
+    @field_validator("operations")
+    @classmethod
+    def _sorted_unique(cls, value: tuple[ProviderOperation, ...]) -> tuple[ProviderOperation, ...]:
+        return validate_operations(value)
 
 
 @dataclass(frozen=True)
@@ -152,142 +147,100 @@ class RegistrationBundle:
     root: Path
     descriptor: PackageRegistration
     manifest: ProviderManifest
-    definitions: Mapping[str, dict[str, Any]]
-    vocabularies: Mapping[str, BucketVocabulary]
-    fixtures: Mapping[str, tuple[ClassificationFixture, ...]]
+
+    @property
+    def operations(self) -> tuple[ProviderOperation, ...]:
+        return self.descriptor.operations
+
+    def operation(self, name: str) -> ProviderOperation:
+        for item in self.descriptor.operations:
+            if item.name == name:
+                return item
+        raise KeyError(name)
+
+    def entry_points(self) -> dict[str, str]:
+        """The ``cruxible.providers`` entry points the distribution must declare.
+
+        One per operation, named by the operation, valued by its entrypoint.
+        """
+
+        return {item.name: item.entrypoint for item in self.descriptor.operations}
 
     def export_document(self) -> dict[str, Any]:
         """Return verified data for host lowering, without paths or imported code.
 
-        This document describes the package; it is not an accepted artifact or
-        evidence that classifiers have executed successfully. Installation must
-        independently bind it to the exact distribution it inspected.
+        This document describes the package; it is not an accepted artifact.
+        Installation must independently bind it to the exact distribution it
+        inspected, and pin every Contract it names.
         """
+
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "manifest": self.manifest.model_dump(mode="json"),
-            "interfaces": [
-                {
-                    "interface_id": item.interface_id,
-                    "interface_digest": item.interface_digest,
-                    "definition": self.definitions[item.interface_id],
-                    "vocabulary": self.vocabularies[item.interface_id].model_dump(mode="json"),
-                    "classifier_identity": item.classifier.identity,
-                    "classifier_version": item.classifier.version,
-                    "classifier_code": {
-                        "entrypoint": item.classifier.entrypoint,
-                        "source_digest": item.classifier.source.digest,
-                    },
-                    "fixtures": [
-                        row.model_dump(mode="json") for row in self.fixtures[item.interface_id]
-                    ],
-                }
-                for item in sorted(self.descriptor.interfaces, key=lambda row: row.interface_id)
-            ],
+            "operations": [item.wire() for item in self.descriptor.operations],
             "runtime_requirements": [
                 item.model_dump(mode="json") for item in self.descriptor.runtime_requirements
             ],
         }
 
 
-def load_registration(root: Path) -> RegistrationBundle:
-    """Verify all references and cross-links; execute no package entry points.
+def _descriptor(raw: bytes) -> PackageRegistration:
+    try:
+        document = json.loads(raw)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("registration.json is not a JSON object") from exc
+    if not isinstance(document, dict):
+        raise ValueError("registration.json is not a JSON object")
+    if document.get("schema_version") != 2:
+        raise ValueError(
+            f"registration.json schema {document.get('schema_version')!r} is not read; "
+            "schema 2 declares the package's typed operations (schema 1 exported "
+            "interfaces, vocabularies and classifiers, which no longer exist)"
+        )
+    return PackageRegistration.model_validate(document)
 
-    Exact wheel hashing, dependency resolution, classifier execution, operation
-    schema checks and acceptance are the installer's responsibility. No result
-    from this reader claims that an environment is installed or authorized.
+
+def load_registration(root: Path) -> RegistrationBundle:
+    """Verify the descriptor, its manifest and their cross-links; execute nothing.
+
+    Every operation's entrypoint is one manifest implementation's, and every
+    manifest implementation serves at least one operation. A runtime
+    requirement belongs to a declared implementation, and a Python extra it
+    names is one that implementation requires.
     """
-    descriptor = PackageRegistration.model_validate_json((root / REGISTRATION_FILE).read_bytes())
+
+    descriptor = _descriptor((root / REGISTRATION_FILE).read_bytes())
     descriptor.manifest.read(root)
     manifest = load_manifest(root / descriptor.manifest.path)
-    exports = {item.interface_id: item for item in descriptor.interfaces}
-    if len(exports) != len(descriptor.interfaces):
-        raise ValueError("duplicate interface exports")
-    if set(exports) != {item.interface_id for item in manifest.implementations}:
-        raise ValueError("registration must export every and only implemented interface")
-    definitions: dict[str, dict[str, Any]] = {}
-    vocabularies: dict[str, BucketVocabulary] = {}
-    fixtures: dict[str, tuple[ClassificationFixture, ...]] = {}
-    for identity, item in exports.items():
-        definition = json.loads(item.definition.read(root))
-        if not isinstance(definition, dict) or definition.get("interface_id") != identity:
-            raise ValueError("interface identity differs from export")
-        if domain_digest(INTERFACE_DOMAIN, definition) != item.interface_digest:
-            raise ValueError("interface digest differs from definition")
-        implementation = manifest.implementation(identity)
-        if implementation.interface_digest != item.interface_digest:
-            raise ValueError("manifest pins a different interface digest")
-        if definition.get("effect_class") not in {"pure", "external_read", "external_mutation"}:
-            raise ValueError("interface must declare its effect class")
-        if implementation.side_effects != (definition["effect_class"] == "external_mutation"):
-            raise ValueError("manifest and interface effects disagree")
-        contracts = definition.get("contracts")
-        if (
-            not isinstance(contracts, dict)
-            or not {"input", "output"}.issubset(contracts)
-            or set(contracts) - {"input", "output", "material"}
-        ):
-            raise ValueError("interface must export shared input/output contracts")
-        if "material" in contracts and (
-            contracts["output"] != "playbill-provider-result-to-external-capture-v1"
-            or not isinstance(contracts["material"], dict)
-        ):
-            raise ValueError("captured material schema requires an acquisition interface")
-        revision = definition.get("version")
-        if type(revision) is not int or revision < 1:
-            raise ValueError("interface version must be a positive integer")
-        seen_predecessors: set[str] = set()
-        for previous in item.predecessors:
-            old = json.loads(previous.definition.read(root))
-            if (
-                not isinstance(old, dict)
-                or old.get("interface_id") != identity
-                or type(old.get("version")) is not int
-                or not 0 < old["version"] < revision
-                or domain_digest(INTERFACE_DOMAIN, old) != previous.interface_digest
-                or previous.interface_digest in seen_predecessors
-            ):
-                raise ValueError("invalid interface predecessor")
-            seen_predecessors.add(previous.interface_digest)
-        item.vocabulary.read(root)
-        vocabulary = load_bucket_vocabulary(root / item.vocabulary.path)
-        if vocabulary.interface_id != identity:
-            raise ValueError("vocabulary belongs to another interface")
-        item.classifier.source.read(root)
-        rows = tuple(
-            ClassificationFixture.model_validate(row)
-            for row in json.loads(item.fixtures.read(root))
+    implementations = {item.entrypoint: item for item in manifest.implementations}
+    served: set[str] = set()
+    for operation in descriptor.operations:
+        if operation.entrypoint not in implementations:
+            raise ValueError(
+                f"operation {operation.name!r} names entrypoint {operation.entrypoint!r}, "
+                "which the manifest does not declare"
+            )
+        served.add(operation.entrypoint)
+    if served != set(implementations):
+        raise ValueError(
+            "every manifest implementation serves at least one operation; unserved: "
+            f"{sorted(set(implementations) - served)}"
         )
-        by_id = {row.fixture_id: row for row in rows}
-        if len(by_id) != len(rows):
-            raise ValueError("duplicate classification fixture")
-        for row in rows:
-            assignment = parse_bucket_id(vocabulary, row.measured_bucket_id)
-            if vocabulary.bucket_id(assignment) != row.measured_bucket_id:
-                raise ValueError("fixture bucket must use canonical dimension order")
-        if set(implementation.bucket_conformance) != set(implementation.declared_input_buckets):
-            raise ValueError("each declared input selector must name a fixture")
-        for selector, fixture_id in implementation.bucket_conformance.items():
-            fixture = by_id.get(fixture_id)
-            if fixture is None or not BucketSelector.parse(selector, vocabulary).matches(
-                fixture.measured_bucket_id
-            ):
-                raise ValueError("classification fixture does not cover declared selector")
-        definitions[identity] = definition
-        vocabularies[identity] = vocabulary
-        fixtures[identity] = rows
     for requirement in descriptor.runtime_requirements:
-        implementation = manifest.implementation(requirement.interface_id)
+        implementation = implementations.get(requirement.entrypoint)
+        if implementation is None:
+            raise ValueError("runtime requirement names an undeclared implementation")
         if (
             requirement.kind == "python_extra"
             and requirement.name not in implementation.requires_extras
         ):
             raise ValueError("runtime requirement names an undeclared extra")
-    return RegistrationBundle(root, descriptor, manifest, definitions, vocabularies, fixtures)
+    return RegistrationBundle(root, descriptor, manifest)
 
 
 def registration_from_distribution(distribution: Distribution) -> RegistrationBundle:
     """Locate the descriptor using installed wheel metadata, without imports."""
+
     files = distribution.files or ()
     matches = [path for path in files if path.name == REGISTRATION_FILE]
     if len(matches) != 1:
@@ -298,11 +251,10 @@ def registration_from_distribution(distribution: Distribution) -> RegistrationBu
         raise ValueError("distribution name differs from manifest")
     if distribution.version != bundle.manifest.distribution.version:
         raise ValueError("distribution version differs from manifest")
-    expected = {item.interface_id: item.entrypoint for item in bundle.manifest.implementations}
-    entries = [ep for ep in distribution.entry_points if ep.group == "cruxible.providers"]
+    entries = [ep for ep in distribution.entry_points if ep.group == ENTRYPOINT_GROUP]
     actual = {ep.name: ep.value for ep in entries}
-    if len(actual) != len(entries) or actual != expected:
-        raise ValueError("distribution entry points differ from manifest")
+    if len(actual) != len(entries) or actual != bundle.entry_points():
+        raise ValueError("distribution entry points differ from the registered operations")
     extras = set(distribution.metadata.get_all("Provides-Extra") or ())
     for implementation in bundle.manifest.implementations:
         if not set(implementation.requires_extras) <= extras:

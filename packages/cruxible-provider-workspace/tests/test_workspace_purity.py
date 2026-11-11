@@ -16,9 +16,8 @@ from types import ModuleType
 
 import pytest
 from cruxible_provider_workspace import file as file_module
-from cruxible_provider_workspace import interface as interface_module
 
-ADAPTER_MODULES = [file_module, interface_module]
+ADAPTER_MODULES = [file_module]
 
 ALLOWED_IMPORTS = {
     "__future__",
@@ -26,12 +25,8 @@ ALLOWED_IMPORTS = {
     "hashlib",
     "collections.abc",
     "typing",
-    "cruxible_provider_runtime.buckets",
     "cruxible_provider_runtime.canonical",
-    "cruxible_provider_runtime.errors",
     "cruxible_provider_runtime.provider_api",
-    "cruxible_provider_runtime.registry",
-    "cruxible_provider_workspace.interface",
 }
 
 FORBIDDEN_NAMES = {
@@ -62,12 +57,7 @@ def _imports(module: ModuleType) -> set[str]:
 
 @pytest.mark.parametrize("module", ADAPTER_MODULES, ids=lambda module: module.__name__)
 def test_every_import_is_on_the_allowlist(module: ModuleType) -> None:
-    allowed = ALLOWED_IMPORTS
-    if module.__name__ == "cruxible_provider_workspace.interface":
-        # Load bundled definitions at import time; the adapter still cannot read
-        # arbitrary workspace files during classification or invocation.
-        allowed = allowed | {"pathlib", "cruxible_provider_runtime.registration"}
-    assert _imports(module) <= allowed, _imports(module) - allowed
+    assert _imports(module) <= ALLOWED_IMPORTS, _imports(module) - ALLOWED_IMPORTS
 
 
 @pytest.mark.parametrize("module", ADAPTER_MODULES, ids=lambda module: module.__name__)

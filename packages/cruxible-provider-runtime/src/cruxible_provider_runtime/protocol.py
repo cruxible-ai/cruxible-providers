@@ -1,13 +1,24 @@
 """The invocation protocol: run context in, result envelope out.
 
 ``protocol_version`` is ``major.minor`` and governs the transport *envelope*.
-The interface digest governs a slot's input/output/refusal *schema*. They are
-independent axes and neither is derivable from the other.
+The operation's Contracts govern its input, output and refusal *schema*, and
+the run context names them only by the operation and its signature digest. The
+two are independent axes and neither is derivable from the other.
+
+Protocol 2.0 runs one **operation** of one provider **build**. The run context
+names the operation (``operation``), the exact ``{in, out, effect}`` signature
+it was bound under (``operation_signature_digest``) and the accepted build
+(``build_digest``); the entrypoint it dispatches to serves that operation. There
+is no interface and no input bucket in 2.0, and a 1.x context is refused.
 
 Versioning rules:
 
 * the manifest declares the protocol majors it supports;
 * bind refuses an unsupported or absent major (``unsupported_protocol``);
+* a run context or result envelope at any other major refuses
+  ``unsupported_protocol`` before anything else in it is read, so a 1.x
+  context is reported as the version mismatch it is, never as a pile of
+  unknown fields;
 * minor is additive-only — a provider ignores unknown additive run-context
   fields within its major, and refuses unknown fields outside the additive
   region (``unknown_run_context_field``).
@@ -29,14 +40,17 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Iterator, Mapping
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from .canonical import SHA256_RE
 from .errors import ProviderErrorPayload, Refusal, RefusalCode, refuse
 
 __all__ = [
+    "OPERATION_NAME_RE",
     "PROTOCOL_VERSION",
     "Budgets",
     "ProtocolVersion",
@@ -45,12 +59,37 @@ __all__ = [
     "SecretChannelSpec",
     "SecretRef",
     "Trace",
+    "Unencodable",
     "parse_result_envelope",
     "parse_run_context",
     "reject_non_finite",
+    "require_supported_major",
 ]
 
+OPERATION_NAME_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,255}$")
+"""An operation name: the spelling core's ``ProviderOperation`` accepts."""
+
 _MAX_REPORTED_PATHS = 10
+
+
+class Unencodable:
+    """Stands in for a value no JSON type holds, copied out of provider code.
+
+    The child harness copies a provider's result into plain JSON types before
+    any check reads it, so that no provider-defined method runs outside the
+    guard around provider code. A value it cannot copy is replaced by this,
+    carrying only the original type's name, and refused here exactly as the
+    original would have been.
+    """
+
+    __slots__ = ("type_name",)
+
+    def __init__(self, type_name: str) -> None:
+        self.type_name = type_name
+
+
+def _type_name(value: Any) -> str:
+    return value.type_name if type(value) is Unencodable else type(value).__name__
 
 
 def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
@@ -78,7 +117,7 @@ def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
         for index, (key, item) in enumerate(value.items()):
             if not isinstance(key, str):
                 prefix = f"{path}." if path else ""
-                yield ("non_string_key", f"{prefix}<key[{index}]> ({type(key).__name__})")
+                yield ("non_string_key", f"{prefix}<key[{index}]> ({_type_name(key)})")
                 yield from _walk(item, f"{prefix}<value[{index}]>")
                 continue
             yield from _walk(item, f"{path}.{key}" if path else key)
@@ -87,7 +126,7 @@ def _walk(value: Any, path: str) -> Iterator[tuple[str, str]]:
         for index, item in enumerate(value):
             yield from _walk(item, f"{path}[{index}]")
         return
-    yield ("unsupported", f"{path or '<root>'} ({type(value).__name__})")
+    yield ("unsupported", f"{path or '<root>'} ({_type_name(value)})")
 
 
 def reject_non_finite(value: Any, *, where: str) -> None:
@@ -163,8 +202,22 @@ class ProtocolVersion(BaseModel):
         return f"{self.major}.{self.minor}"
 
 
-PROTOCOL_VERSION = ProtocolVersion(major=1, minor=0)
+PROTOCOL_VERSION = ProtocolVersion(major=2, minor=0)
 """The protocol version this runtime speaks."""
+
+
+def require_supported_major(value: str, *, where: str) -> ProtocolVersion:
+    """Parse ``value`` and refuse any major other than :data:`PROTOCOL_VERSION`'s."""
+
+    requested = ProtocolVersion.parse(value)
+    if requested.major != PROTOCOL_VERSION.major:
+        raise refuse(
+            RefusalCode.UNSUPPORTED_PROTOCOL,
+            f"{where} is protocol {value}; this runtime speaks {PROTOCOL_VERSION.render()}",
+            supported_major=PROTOCOL_VERSION.major,
+            requested=value,
+        )
+    return requested
 
 
 class Budgets(BaseModel):
@@ -226,20 +279,33 @@ class SecretChannelSpec(BaseModel):
         return value
 
 
+def _sha256(value: str) -> str:
+    if not SHA256_RE.match(value):
+        raise ValueError(f"expected a sha256:<hex> digest, got {value!r}")
+    return value
+
+
 class RunContext(BaseModel):
-    """Everything the executor passes into a provider process."""
+    """Everything the executor passes into a provider process.
+
+    ``operation`` is the one operation this run executes, by name;
+    ``operation_signature_digest`` is the exact ``{in, out, effect}`` signature
+    the Line bound it under; ``build_digest`` is the accepted provider build.
+    ``entrypoint`` is the object the child dispatches to, and it must declare
+    ``operation`` among the operations it serves.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     protocol_version: str
     run_id: str
-    interface_id: str
-    interface_digest: str
+    operation: str
+    operation_signature_digest: str
+    build_digest: str
     implementation_digest: str
     entrypoint: str
     coordinates: dict[str, Any] = Field(default_factory=dict)
     input: dict[str, Any] = Field(default_factory=dict)
-    input_bucket: str
     capture_contract: str | None = None
     budgets: Budgets
     declared_endpoints: tuple[str, ...] = ()
@@ -255,9 +321,20 @@ class RunContext(BaseModel):
         _reject_non_string_keys(value, where="provider run context")
         return value
 
+    _digests = field_validator(
+        "operation_signature_digest", "build_digest", "implementation_digest"
+    )(_sha256)
+
+    @field_validator("operation")
+    @classmethod
+    def _operation_name(cls, value: str) -> str:
+        if not OPERATION_NAME_RE.fullmatch(value):
+            raise ValueError(f"operation {value!r} is not a canonical operation name")
+        return value
+
     @model_validator(mode="after")
     def _version_shape(self) -> Self:
-        ProtocolVersion.parse(self.protocol_version)
+        require_supported_major(self.protocol_version, where="the run context")
         return self
 
     def to_json(self) -> bytes:
@@ -290,6 +367,17 @@ class ResultEnvelope(BaseModel):
     run_id: str
     status: Literal["ok", "refused", "error"]
     output: dict[str, Any] | None = None
+    # The provider's own word that ``output`` is missing members: it names
+    # out-Contract ``list<capture<...>>`` fields the provider could not fill
+    # whole (a page it failed to fetch, say). Core treats each named field
+    # exactly as a list it dropped a member from itself (D-R37 a4): the call
+    # is incomplete, and absence over it never retires. It is generic: core
+    # reads no provider- or operation-specific field to learn it. Only an ok
+    # result carries it, and it is omitted when empty -- so existing vectors
+    # round-trip byte-exactly. Kept off the class docstring deliberately: a
+    # docstring becomes the JSON schema's "description" and core's vendored
+    # fixture predates this explanation.
+    incomplete_captures: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
     refusal: Refusal | None = None
     error: ProviderErrorPayload | None = None
     trace: Trace = Field(default_factory=Trace)
@@ -310,7 +398,9 @@ class ResultEnvelope(BaseModel):
             raise ValueError("an error result must carry an error")
         if self.status != "ok" and self.output is not None:
             raise ValueError("only an ok result may carry output")
-        ProtocolVersion.parse(self.protocol_version)
+        if self.status != "ok" and self.incomplete_captures:
+            raise ValueError("only an ok result may name incomplete captures")
+        require_supported_major(self.protocol_version, where="the result envelope")
         # A typed refusal rather than a ValueError, and therefore not wrapped
         # into a validation error: this is the runtime declining under a named
         # rule, and it must arrive at both ends -- the child cannot build such an
@@ -339,6 +429,20 @@ def _extra_fields(exc: ValidationError) -> list[str]:
     ]
 
 
+def _version_first(document: Any, *, where: str) -> None:
+    """Refuse another major before the strict schema reads anything else.
+
+    A 1.x run context carries ``interface_id`` and ``input_bucket``; read
+    against the 2.0 schema those are unknown fields, which is true and beside
+    the point. The version is the fault, so it is the refusal.
+    """
+
+    if isinstance(document, Mapping):
+        version = document.get("protocol_version")
+        if isinstance(version, str):
+            require_supported_major(version, where=where)
+
+
 def parse_run_context(raw: bytes) -> RunContext:
     """Parse a run context on the provider side, failing closed on unknown fields."""
 
@@ -349,6 +453,7 @@ def parse_run_context(raw: bytes) -> RunContext:
             RefusalCode.PROVIDER_PROTOCOL_VIOLATION,
             "run context is not valid UTF-8 JSON",
         ) from exc
+    _version_first(document, where="the run context")
     try:
         return RunContext.model_validate(document)
     except ValidationError as exc:
@@ -377,6 +482,7 @@ def parse_result_envelope(raw: bytes) -> ResultEnvelope:
             "provider did not return valid UTF-8 JSON",
             head=raw[:200].decode("utf-8", "replace"),
         ) from exc
+    _version_first(document, where="the result envelope")
     try:
         return ResultEnvelope.model_validate(document)
     except ValidationError as exc:

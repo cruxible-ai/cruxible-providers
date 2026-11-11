@@ -31,7 +31,6 @@ from cruxible_provider_runtime.egress import (
     DYNAMIC_TARGET_FROM_RUN_INPUT,
     no_network,
 )
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.execute import invoke, observed_vs_declared
 from cruxible_provider_runtime.manifest import BackendKind, ProviderManifest
 from cruxible_provider_runtime.protocol import Budgets
@@ -68,7 +67,7 @@ def guard_the_child(
 
 
 def _bind(
-    interface_id: str,
+    operation: str,
     backend_kind: BackendKind,
     registry: StubRegistry,
     manifest_path: Path,
@@ -80,7 +79,7 @@ def _bind(
         registry,
         BindRequest(
             provider_id=PROVIDER_ID,
-            interface_id=interface_id,
+            operation=operation,
             backend_kind=backend_kind,
             manifest_path=manifest_path,
             lock_path=lock_path,
@@ -95,12 +94,22 @@ def _bind(
 def test_the_manifest_declares_what_each_implementation_actually_needs(
     manifest: ProviderManifest,
 ) -> None:
-    assert manifest.implementation("web.fetch").declared_endpoints == (
+    assert manifest.implementation("cruxible_provider_web.fetch:WebFetch").declared_endpoints == (
         DYNAMIC_TARGET_FROM_RUN_INPUT,
     )
-    assert manifest.implementation("search.web").declared_endpoints == (
-        DYNAMIC_TARGET_FROM_CONFIGURATION,
+    assert manifest.implementation(
+        "cruxible_provider_web.pages:WebFetchPages"
+    ).declared_endpoints == (DYNAMIC_TARGET_FROM_RUN_INPUT,)
+    # A derive contacts nothing; a browser contacts what the page it is sent to pulls.
+    assert (
+        manifest.implementation("cruxible_provider_web.render:WebRender").declared_endpoints == ()
     )
+    assert manifest.implementation("cruxible_provider_web.dom:WebRenderDom").declared_endpoints == (
+        DYNAMIC_TARGET_FROM_RUN_INPUT,
+    )
+    assert manifest.implementation(
+        "cruxible_provider_web.search:SearxngSearch"
+    ).declared_endpoints == (DYNAMIC_TARGET_FROM_CONFIGURATION,)
 
 
 @pytest.mark.parametrize("backend_kind", BACKENDS)
@@ -163,6 +172,46 @@ def test_fetch_records_its_target_under_a_dynamic_declaration(
         local_backend=local_backend,
         container_backend=container_backend,
     )
+    comparison = observed_vs_declared(binding, outcome.envelope)
+    assert comparison.observed == ("https://fixture.invalid",)
+    assert comparison.dynamic_forms == (DYNAMIC_TARGET_FROM_RUN_INPUT,)
+    assert comparison.conformant
+
+
+@pytest.mark.parametrize("backend_kind", BACKENDS)
+def test_pages_record_every_page_target_under_a_dynamic_declaration(
+    backend_kind: BackendKind,
+    registry: StubRegistry,
+    manifest_path: Path,
+    lock_path: Path,
+    local_backend: LocalEnvBackend,
+    container_backend: ContainerBackend,
+) -> None:
+    binding = _bind(
+        "web.fetch.pages",
+        backend_kind,
+        registry,
+        manifest_path,
+        lock_path,
+        local_backend,
+        container_backend,
+    )
+    outcome = invoke(
+        binding,
+        registry=registry,
+        payload={
+            "url": ARTICLE_URL,
+            "query": [{"name": "id", "values": [f"v{index}" for index in range(8)]}],
+            "page_param": "id",
+            "max_url_chars": len(ARTICLE_URL) + 12,
+        },
+        budgets=BUDGETS,
+        local_backend=local_backend,
+        container_backend=container_backend,
+    )
+    assert outcome.status == "ok", outcome.envelope.error
+    assert outcome.envelope.output is not None
+    assert len(outcome.envelope.output["captures"]) > 1
     comparison = observed_vs_declared(binding, outcome.envelope)
     assert comparison.observed == ("https://fixture.invalid",)
     assert comparison.dynamic_forms == (DYNAMIC_TARGET_FROM_RUN_INPUT,)
@@ -236,5 +285,5 @@ def test_a_missing_instance_binding_refuses_before_the_request(
     )
     assert outcome.status == "refused"
     assert outcome.envelope.refusal is not None
-    assert outcome.envelope.refusal.code is RefusalCode.PROVIDER_DECLINED
+    assert outcome.envelope.refusal.code == "provider_declined"
     assert outcome.egress.observed == ()

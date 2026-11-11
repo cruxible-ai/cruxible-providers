@@ -1,14 +1,55 @@
 # cruxible-provider-docs
 
-Cruxible provider adapters for the document plane. Apache-2.0.
+**Status: not yet released.** No kit uses this package yet and it ships no Contracts, so an instance cannot install it; it will be released when a kit uses it.
 
-| Interface | Entrypoint | Engine | Extra |
+## In plain terms
+
+This package turns documents you already have into text Cruxible can work
+with. It is a **provider**, an add-on package that does one kind of work for
+Cruxible, and each task it offers is an **operation**. It downloads nothing:
+the document comes in with the request.
+
+| Operation | What it does | Network | Needs |
+|---|---|---|---|
+| `doc.to_markdown` | You give it a document (for example a PDF, or plain text, Markdown or CSV). It returns the document's content as Markdown, with a note of what was converted (file name, type, size, hash). | no | the `docling` extra |
+| `ocr.extract` | You give it page images. It returns the text read off each page, with the OCR engine's own per-page confidence where the engine reports one. | no | the `paddleocr` extra, and the engine's model weights, which the operator downloads |
+
+What gets installed: the base package depends only on
+`cruxible-provider-runtime` and carries no conversion engine. The extras add
+the engines: `docling` adds Docling (document conversion) and `paddleocr` adds
+PaddleOCR with PaddlePaddle (text recognition). Both are large. Plain text,
+Markdown and CSV are converted without running Docling, but `doc.to_markdown`
+still installs with the `docling` extra, because one operation gets one
+environment.
+
+The package names the **Contracts** its operations use (a Contract is the
+declared shape of an input or output) but does not ship them; they must already
+be accepted in Cruxible, for example from a kit, before the package installs.
+
+You do not need this package if your documents are already text you can pass
+on as they are.
+
+## Reference
+
+Cruxible provider adapters for the document plane (the document family of
+operations). Apache-2.0.
+
+| Operation | Entrypoint | Engine | Extra |
 |---|---|---|---|
 | `doc.to_markdown` | `cruxible_provider_docs.to_markdown:DoclingToMarkdown` | Docling; already-linear documents are converted by the adapter itself | `docling` |
 | `ocr.extract` | `cruxible_provider_docs.ocr:PaddleOcrExtract` | PaddleOCR | `paddleocr` |
 
+Each operation is declared in `registration.json` (schema 2): input
+`<operation>.request@1`, output `<operation>.result@1`, effect `pure`, and two
+declared refusals: `provider_declined` (absorbable) and `engine_unavailable`
+(the environment lacks the engine's extra; not absorbable), each with detail
+Contract `<operation>.refusal.<code>@1`. The Contracts are named,
+not shipped; an install pins each to the version accepted at its base.
+
 Operators install it into a daemon by name, through a governed install:
-`cruxible provider install cruxible-provider-docs`. The umbrella
+`cruxible provider install cruxible-provider-docs` (add `--extra docling` or
+`--extra paddleocr` for the engine the operation needs). An unpublished version
+installs from a checkout instead; see the repository README. The umbrella
 `cruxible-providers[docs]` exists for developers.
 
 ## Nothing here is observed
@@ -17,7 +58,7 @@ The document arrives in the run input. This plane retrieves nothing, so there is
 no observed-shaped material to be had and the output shape says so: a `document`
 block identifying what was converted (filename, media type, byte count, sha256,
 origin) and a `derived` block holding the conversion or the reading. Both
-CaptureContract families are derived families. An OCR reading in particular is a
+Contracts are derived. An OCR reading in particular is a
 model's opinion about marks on a page, and the per-page number the engine reports
 travels as *the engine's* confidence under the engine's name — this system has no
 generic confidence score and this adapter does not invent one.
@@ -27,8 +68,8 @@ generic confidence score and this adapter does not invent one.
 Docling drags a tensor stack; PaddleOCR drags PaddlePaddle. Both live behind
 per-engine extras, each declared by the implementation that needs it, and the
 default lane installs neither. What the base distribution carries is the adapter
-logic, the schemas, the bucket classifiers, the packaged documents, and the
-recorded engine responses the conformance fixtures replay.
+logic, the packaged documents, and the recorded engine responses the
+conformance suite replays.
 
 `doc.to_markdown` also carries a genuinely engine-free path: an already-linear
 document — text, Markdown, CSV — is converted by the adapter itself, because
@@ -37,11 +78,10 @@ nothing. That path is what gives this plane a success case that runs end to end
 through a real child process in the default lane.
 
 **A cost worth naming.** An implementation binds *one* environment, so
-`requires_extras` is the union of what its claimed buckets need, and the
-engine-free plain-text bucket rides in an environment sized for the PDF bucket.
-Splitting them would mean two implementations of `doc.to_markdown`, which is a
-terminal `ambiguous_implementation` refusal — so this is a real cost of the
-one-implementation-per-interface rule, not an oversight.
+`requires_extras` is the union of what its inputs need, and the engine-free
+plain-text path rides in an environment sized for PDF conversion. Splitting them
+would mean a second operation served by a second entrypoint with its own
+environment — possible, and a separate declaration rather than an accident.
 
 ## Both engine environments pin
 
@@ -61,12 +101,12 @@ and a literal tag list does not name.
 `+docling` resolves now because the declared launch floors are glibc 2.28 and
 macOS 14.0, the floors its tensor stack requires. The re-baseline deliberately
 re-keyed every package's materialization digest before any Provider artifact was
-accepted; it did not change the document interfaces or their implementation
+accepted; it did not change the document operations or their implementation
 digests. The engine suite's shared `ENGINE_MARKER_ENVIRONMENT` now matches the
 Linux launch floor rather than standing in for a future one.
 
 **The base install remains resolvable** for all three environments, so the
-default lane, the digest-scope gate and the closure report remain unimpaired —
+default lane, the closure-version check and the closure report remain unimpaired —
 and the engine-free plain-text path stays bindable.
 
 ## Why PaddleOCR rather than Surya
@@ -82,8 +122,9 @@ by the operator, into the operator's environment, under the engine's own terms.
 
 ## Replay, and what keeps it honest
 
-A conformance fixture for an engine adapter needs an engine, and the base install
-has none. Fixtures therefore replay recorded engine responses, under three rules:
+A conformance run of an engine adapter needs an engine, and the base install
+has none. The suite therefore replays recorded engine responses, under three
+rules:
 
 1. **A recorded response is served only for a packaged document.** The input's
    `source.kind` is either `inline` — a caller's document, which only a real
@@ -98,12 +139,11 @@ has none. Fixtures therefore replay recorded engine responses, under three rules
 
 ## Declarations are checked, not trusted
 
-Page count, scan quality, and layout are the caller's description of a document
-nobody has opened yet, so the classifier reads them from the input and the
-adapter then checks them: a document that opens to a different page-count class
-than the bucket the run was admitted into refuses, and a conversion that recovers
-no text from a document declared born-digital refuses rather than returning an
-empty Markdown file that looks complete.
+The page count is the caller's description of a document nobody has opened
+yet, so the adapter checks it: a document that opens to a different page-count
+class than the run declared refuses, and a conversion that recovers no text from
+a document declared born-digital refuses rather than returning an empty Markdown
+file that looks complete.
 
 ## Running the tests
 

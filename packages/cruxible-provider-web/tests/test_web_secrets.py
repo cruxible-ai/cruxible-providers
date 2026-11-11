@@ -10,16 +10,20 @@ query string, where it would end up in the instance's access log.
 from __future__ import annotations
 
 import base64
-import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderRunContext
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.http import HttpResponse, RecordingClient
+from cruxible_provider_web.operations import (
+    CREDENTIAL_UNAVAILABLE,
+    PROVIDER_DECLINED,
+    UNDECLARED_INSTANCE,
+)
 from cruxible_provider_web.search import CREDENTIAL_REF, SearxngSearch
 
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=1_000_000)
@@ -54,13 +58,13 @@ class _CapturingClient:
         )
 
 
-def _context(interface_id: str, **overrides: Any) -> ProviderRunContext:
+def _context(operation: str, **overrides: Any) -> ProviderRunContext:
     fields: dict[str, Any] = {
         "run_id": "run-secrets",
-        "interface_id": interface_id,
-        "interface_digest": "sha256:" + "aa" * 32,
+        "operation": operation,
+        "operation_signature_digest": "sha256:" + "aa" * 32,
+        "build_digest": "sha256:" + "cc" * 32,
         "implementation_digest": "sha256:" + "bb" * 32,
-        "input_bucket": "query_form=keyword;recency=any_time;result_depth=shallow",
         "input": {},
         "coordinates": {},
         "budgets": BUDGETS,
@@ -93,8 +97,8 @@ def test_the_instance_credential_travels_as_a_header_and_not_in_the_query() -> N
 def test_a_run_served_by_a_real_transport_is_not_labelled_as_a_replay() -> None:
     """The negative half of the replay label, on a path that actually succeeds.
 
-    The full-loop suite asserts the label is present in the output *and* on the
-    trace whenever a packaged recording served a run. This is the other
+    The full-loop suite asserts the label is present in the coordinate *and* on
+    the trace whenever a packaged recording served a run. This is the other
     direction, and it needs a non-replayed run that still reaches ``ok``: the
     capturing client is one, because it answers from a canned body without being
     a packaged recording. A label emitted unconditionally rather than tracking
@@ -112,10 +116,7 @@ def test_a_run_served_by_a_real_transport_is_not_labelled_as_a_replay() -> None:
     )
     assert result.status == "ok"
     assert result.output is not None
-    assert (
-        json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"]["source"]
-        == "network"
-    )
+    assert result.output["coordinate"]["source"] == "network"
     assert not [event for event in result.events if event.get("kind") == "packaged_recording"]
 
 
@@ -147,104 +148,63 @@ def test_explicit_static_declaration_still_refuses_a_different_service() -> None
     result = provider(context)
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.UNDECLARED_EGRESS
+    assert result.refusal.code == UNDECLARED_INSTANCE
     assert not client.urls
 
 
-def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
-    """The receipt's parameter block must not be a hopeful reconstruction."""
-
-    client = _CapturingClient(INSTANCE_ANSWER, "application/json")
-    provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]
-    result = provider(
-        _context(
-            "search.web",
-            input={"query": "tide gauge", "max_age_hours": 48},
-            coordinates={"instance_url": "https://instance.example"},
-        )
-    )
-    assert result.output is not None
-    parameters = json.loads(base64.b64decode(result.output["content_base64"]))["retrieved"][
-        "parameters"
-    ]
-    for key, value in parameters.items():
-        assert f"{key}={value}".replace(" ", "+") in client.urls[0].replace("%20", "+")
-
-
 @pytest.mark.parametrize(
-    "fields,reason",
-    [
-        ({"max_age_hours": 1}, "realtime_recency"),
-        ({"max_age_hours": 24}, "realtime_recency"),
-        ({"limit": 51}, "deep_result_limit"),
-        ({"limit": 51, "max_age_hours": 100_000}, "deep_result_limit"),
-        ({"limit": 11, "max_age_hours": 25}, "recent_standard_depth"),
-        ({"limit": 50, "max_age_hours": 2160}, "recent_standard_depth"),
-    ],
+    "coordinates",
+    [{}, {"instance_url": "https://other.example"}],
+    ids=["no-instance", "undeclared-instance"],
 )
-def test_unserved_depths_and_freshness_are_declined_before_contact(
-    fields: dict[str, Any], reason: str
+def test_an_unserved_input_is_declined_before_the_instance_is_looked_at(
+    coordinates: dict[str, Any],
 ) -> None:
+    """What the adapter declines for the input alone it declines whatever the deployment
+    configures: the input's own decline is the answer, with or without an instance."""
+
+    result = SearxngSearch()(
+        _context("search.web", input={"query": "x", "time_range": "week"}, coordinates=coordinates)
+    )
+    assert result.status == "refused"
+    assert result.refusal is not None
+    assert result.refusal.code == PROVIDER_DECLINED
+    assert result.refusal.message == "time_range must be day, month or year"
+
+
+def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
+    """The coordinate's request URL must not be a hopeful reconstruction."""
+
     client = _CapturingClient(INSTANCE_ANSWER, "application/json")
     provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]
     result = provider(
         _context(
             "search.web",
-            input={"query": "tide gauge", **fields},
+            input={"query": "tide gauge", "time_range": "day"},
             coordinates={"instance_url": "https://instance.example"},
         )
     )
-    assert result.status == "refused"
-    assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.PROVIDER_DECLINED
-    assert result.refusal.detail["reason"] == reason
-    assert client.urls == []
-
-
-def test_an_unserved_input_is_declined_before_the_instance_is_looked_at() -> None:
-    result = SearxngSearch()(_context("search.web", input={"query": "x", "max_age_hours": 6}))
-    assert result.status == "refused"
-    assert result.refusal is not None
-    assert result.refusal.detail["reason"] == "realtime_recency"
-
-
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {"limit": 50},
-        {"limit": 10, "max_age_hours": 25},
-        {"limit": 10, "max_age_hours": 2160},
-        {"limit": 50, "max_age_hours": 2161},
-    ],
-)
-def test_served_depths_and_freshness_reach_the_instance(fields: dict[str, Any]) -> None:
-    client = _CapturingClient(INSTANCE_ANSWER, "application/json")
-    provider = SearxngSearch(client_factory=lambda recorder, *, url, timeout_seconds: client)  # type: ignore[arg-type,return-value]
-    result = provider(
-        _context(
-            "search.web",
-            input={"query": "tide gauge", **fields},
-            coordinates={"instance_url": "https://instance.example"},
-        )
-    )
-    assert result.status == "ok", result
     assert result.output is not None
-    assert "input_bucket" not in json.loads(base64.b64decode(result.output["content_base64"]))
+    assert result.output["coordinate"]["url"] == client.urls[0]
+    assert "time_range=day" in client.urls[0]
 
 
 def test_a_fetch_naming_an_undelivered_credential_refuses() -> None:
-    """A run that says it is authenticated does not silently go out anonymous."""
+    """A run that says it is authenticated does not silently go out anonymous.
+
+    It refuses under the operation's declared ``credential_unavailable``: a
+    runtime code is the runtime machinery's to produce, never provider code's.
+    """
 
     result = WebFetch()(
         _context(
             "web.fetch",
             input={"url": "https://fixture.invalid/page", "credential_ref": "web.token"},
-            input_bucket="source_kind=static_html;access=authenticated;page_weight=light",
         )
     )
     assert result.status == "refused"
     assert result.refusal is not None
-    assert result.refusal.code is RefusalCode.UNRESOLVED_SECRET_REF
+    assert result.refusal.code == CREDENTIAL_UNAVAILABLE
 
 
 def test_the_client_never_puts_credentials_in_its_own_repr() -> None:
@@ -257,14 +217,37 @@ def test_the_client_never_puts_credentials_in_its_own_repr() -> None:
         client.close()
 
 
-@pytest.mark.parametrize("interface_id", ["web.fetch", "search.web"])
-def test_no_credential_material_is_named_in_the_manifest(interface_id: str, manifest: Any) -> None:
+@pytest.mark.parametrize(
+    "entrypoint",
+    ["cruxible_provider_web.fetch:WebFetch", "cruxible_provider_web.search:SearxngSearch"],
+)
+def test_no_credential_material_is_named_in_the_manifest(entrypoint: str, manifest: Any) -> None:
     """Secret-refs name credentials; manifests carry neither refs' values nor keys."""
 
-    implementation = manifest.implementation(interface_id)
+    implementation = manifest.implementation(entrypoint)
     rendered = implementation.model_dump_json()
     assert "token" not in rendered.lower()
     assert "password" not in rendered.lower()
+
+
+def test_a_missing_browser_is_the_operations_declared_refusal() -> None:
+    """Only this adapter can see its engine is absent, so the refusal is its own."""
+
+    import importlib.util
+
+    from cruxible_provider_runtime.egress import EgressRecorder
+    from cruxible_provider_runtime.errors import Declined
+    from cruxible_provider_web.browser import PlaywrightRenderer
+    from cruxible_provider_web.operations import ENGINE_UNAVAILABLE
+
+    if importlib.util.find_spec("playwright") is not None:
+        pytest.skip("the browser extra is installed here")
+    with pytest.raises(Declined) as exc:
+        PlaywrightRenderer().render(
+            "https://fixture.invalid/", timeout_seconds=1.0, recorder=EgressRecorder()
+        )
+    assert exc.value.code == ENGINE_UNAVAILABLE
+    assert exc.value.refusal.detail["required_extra"] == "browser"
 
 
 def test_the_user_agent_names_the_installed_version() -> None:
@@ -276,3 +259,12 @@ def test_the_user_agent_names_the_installed_version() -> None:
 
     expected = f"cruxible-provider-web/{version('cruxible-provider-web')} (+https://cruxible.ai)"
     assert expected == USER_AGENT
+
+
+def test_the_browser_sends_the_same_user_agent() -> None:
+    """``web.render.dom``'s browser names the same installed version, not a literal."""
+
+    from cruxible_provider_web import browser, http
+
+    assert browser.USER_AGENT is http.USER_AGENT
+    assert "cruxible-provider-web/0.5 " not in Path(browser.__file__).read_text(encoding="utf-8")

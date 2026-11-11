@@ -25,6 +25,12 @@ ARG PROVIDER_ARTIFACT_DIGEST
 ARG MATERIALIZATION_DIGEST
 ARG BUILDER_IDENTITY
 
+# The browser extra is NOT installed in this image by default. A deployment that
+# serves web.render.dom builds with `--build-arg PROVIDER_EXTRAS=browser`,
+# which also pulls the browser binaries in the build stage; the resulting image
+# is a different image with a different digest, which is correct -- an image with
+# a browser in it is not the image without one.
+ARG PROVIDER_EXTRAS=""
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -38,7 +44,7 @@ WORKDIR /opt/provider
 COPY --from=uv /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 COPY src ./src
-RUN uv sync --locked --no-dev
+RUN uv sync --locked --no-dev ${PROVIDER_EXTRAS:+--extra ${PROVIDER_EXTRAS}}
 
 FROM python:3.12-slim@${BASE_IMAGE_DIGEST}
 

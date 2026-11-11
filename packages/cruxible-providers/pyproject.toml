@@ -9,7 +9,7 @@
 # release would re-digest every provider in the fleet.
 [project]
 name = "cruxible-providers"
-version = "0.1.0"
+version = "0.2.0"
 description = "Umbrella meta-package for the Cruxible provider planes. Dependencies only, no code."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,19 +35,25 @@ dependencies = []
 # umbrella somebody installed.
 #
 #   pip install "cruxible-providers[web]"
-#   pip install "cruxible-provider-docs[docling]"  <- the engine, from the plane
-web = ["cruxible-provider-web"]
-docs = ["cruxible-provider-docs"]
-quant = ["cruxible-provider-quant"]
-workspace = ["cruxible-provider-workspace"]
-# `all` is the union of every plane, and only ever the full union — wired the
-# moment the last plane landed, never earlier: an `all` that means "all but
-# one" is worse than no `all` at all.
+#   pip install "cruxible-provider-web[browser]"   <- the engine, from the plane
+#
+# Each plane is floored at its provider-runtime protocol 2.0 release (0.3.0):
+# an umbrella that could resolve a protocol-1.x plane would install a provider
+# no current runtime can run.
+#
+# cruxible-provider-workspace is deliberately not here. It is the package core's
+# built-in workspace.file was ported from; it stays in this repository for its
+# tests, it is not published, and nothing installed through the umbrella pulls
+# it in.
+web = ["cruxible-provider-web>=0.3.0"]
+docs = ["cruxible-provider-docs>=0.3.0"]
+quant = ["cruxible-provider-quant>=0.3.0"]
+# `all` is the union of every plane extra above, and only ever the full union:
+# an `all` that means "all but one" is worse than no `all` at all.
 all = [
-  "cruxible-provider-web",
-  "cruxible-provider-docs",
-  "cruxible-provider-quant",
-  "cruxible-provider-workspace",
+  "cruxible-provider-web>=0.3.0",
+  "cruxible-provider-docs>=0.3.0",
+  "cruxible-provider-quant>=0.3.0",
 ]
 
 [dependency-groups]
@@ -67,15 +73,14 @@ dev = [
 cruxible-provider-web = { path = "../cruxible-provider-web", editable = true }
 cruxible-provider-docs = { path = "../cruxible-provider-docs", editable = true }
 cruxible-provider-quant = { path = "../cruxible-provider-quant", editable = true }
-cruxible-provider-workspace = { path = "../cruxible-provider-workspace", editable = true }
 
 [tool.cruxible]
-# Exempt from the one-package-one-digest-change gate, and it has to be: this
-# package's whole content is other packages, so its dependency closure moves
-# whenever ANY plane's does. The gate exists to stop a bump in one provider from
-# re-pinning another provider's environment; the umbrella pins no environment,
-# carries no implementation digest, and appears in no track record, so its
-# closure moving is information about the planes rather than about it.
+# Out of the dependency-closure measurement (scripts/check_closure_moves_are_versioned.py),
+# and it has to be: this package's whole content is other packages, so its
+# dependency closure moves whenever ANY plane's does. The umbrella pins no
+# environment, carries no implementation digest, and appears in no track
+# record, so its closure moving is information about the planes rather than
+# about it.
 digest_scope = "exempt"
 role = "umbrella"
 

@@ -1,23 +1,32 @@
 """Implementation template for a plane provider.
 
-A provider is a callable resolved from ``module:object``. It receives a
-ProviderRunContext and returns a ProviderResult. It never parses JSON, never
+A provider entrypoint is a callable resolved from ``module:object``. It
+declares the operations it serves, receives a ProviderRunContext naming the one
+this run executes, and returns a ProviderResult. It never parses JSON, never
 opens the secret channel itself, and never enforces its own budgets — those are
 the executor's job, and a provider doing them itself would be self-certifying.
 """
 
 from __future__ import annotations
 
-from cruxible_provider_runtime.errors import RefusalCode
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
+
+OPERATION = "PLANE.operation"
+
+PROVIDER_DECLINED = "provider_declined"
+"""A refusal this operation declares in registration.json, with its detail Contract."""
 
 
 class Implementation:
-    """One implementation of one interface."""
+    """One entrypoint, serving the operations it names."""
 
-    interface_id = "PLANE.operation"
+    operations = (OPERATION,)
 
     def __call__(self, context: ProviderRunContext) -> ProviderResult:
+        # context.operation is the operation this run executes; an entrypoint
+        # serving several reads it to tell them apart. The harness has already
+        # refused a run for an operation not in ``operations``.
+        #
         # Credentials arrive already resolved, by ref:
         #     token = context.secrets["PLANE.api_key"]
         #
@@ -26,14 +35,33 @@ class Implementation:
         #     context.egress.record("https://api.example/v1/thing")
         #
         # Return one of three things, and nothing else:
-        #     ProviderResult.ok({...})                      an answer
-        #     ProviderResult.refused(RefusalCode.X, "...")  a declined answer
-        #     ProviderResult.failed("Kind", "...")          a failed attempt
+        #     ProviderResult.ok({...})                       an answer
+        #     ProviderResult.refused(DECLARED_CODE, "...")   a declined answer
+        #     ProviderResult.failed("Kind", "...")           a failed attempt
         #
-        # Output is never world-state truth. It enters a Capture under the
-        # declared CaptureContract with a contract-governed grade.
+        # A refusal code is one the operation declares; its detail must be its
+        # declared Contract. From deep in a call, `raise decline(code, ...)`
+        # (cruxible_provider_runtime.errors) does the same. The runtime's own
+        # codes (RefusalCode, refuse) are produced by runtime machinery only;
+        # raised or returned here, the harness reports a protocol violation. A
+        # condition only this provider can see -- an engine its environment
+        # lacks -- is a refusal the operation declares (`engine_unavailable`).
+        #
+        # Output is never world-state truth. It enters core as the operation's
+        # declared output Contract.
+        #
+        # Captures (cruxible_provider_runtime.acquisition). A Capture's bytes are
+        # one document, verbatim; how it was obtained goes in its coordinate.
+        #   one:    return the whole output as external_capture_result(content, ...)
+        #   many:   an out field `docs: list<capture<*>>{max_items: N}` holds
+        #           external_capture_results([(content, coordinate), ...], ...),
+        #           one member per request, each with its own coordinate
+        #           (reference: cruxible-provider-noop's noop.captures)
+        #   derive: an in field `source: capture<*>` arrives as Capture wire;
+        #           `content, coordinate, coordinate_type = capture_input(...)`
+        #           reads it. A derive declares effect: pure, contacts nothing,
+        #           and stamps its result with capture_observed_at(source), never
+        #           the clock (reference: cruxible-provider-web's web.render).
         if not context.input:
-            return ProviderResult.refused(
-                RefusalCode.PROVIDER_DECLINED, "no input was supplied"
-            )
-        return ProviderResult.ok({"result": None, "input_bucket": context.input_bucket})
+            return ProviderResult.refused(PROVIDER_DECLINED, "no input was supplied")
+        return ProviderResult.ok({"result": None})
