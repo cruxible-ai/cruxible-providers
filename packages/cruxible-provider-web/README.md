@@ -46,8 +46,19 @@ plane (the web family of operations). Apache-2.0.
 Operators install it into a daemon by name, through a governed install:
 `cruxible provider install cruxible-provider-web` (add `--extra browser` for
 `web.render.dom`). An unpublished version installs from a checkout instead; see
-the repository README. The umbrella `cruxible-providers[web]` exists for
+[*Installing from a checkout*](https://github.com/cruxible-ai/cruxible-providers/blob/main/README.md#installing-from-a-checkout)
+in the repository README. The umbrella `cruxible-providers[web]` exists for
 developers.
+
+**Installing by name works only where this package's Contracts are already
+accepted.** Each operation uses Contracts (the declared shapes of its input,
+output and refusals), and an instance must have accepted every one of them
+before it will install the package; a kit that uses web accepts them. So the
+usual way to get this package is to add a kit that uses it (`cruxible kit add`),
+and the kit installs it. On an instance without them, the install refuses with
+"cruxible-provider-web cannot be installed here yet: N of the M Contract
+versions its operations use are not accepted on this instance", and names the
+same remedy: add a kit that uses this provider.
 
 ## The base install is light
 
@@ -73,7 +84,7 @@ a real extraction.
 ### The browser environment pins
 
 Resolved against the committed lock and the three launch marker environments in
-`ci/marker-environments.json`:
+[`ci/marker-environments.json`](https://github.com/cruxible-ai/cruxible-providers/blob/main/ci/marker-environments.json):
 
 | Extras | linux-cp311 | linux-cp312 | macos-arm-cp312 |
 |---|---|---|---|
@@ -89,7 +100,9 @@ binary artifacts an installer on those floors would prefer.
 by exact string membership. Playwright publishes `py3-none-manylinux1_x86_64`,
 `py3-none-macosx_11_0_universal2` and friends — none of them among the three
 literal tags a launch environment lists, and every one of them installable on
-the environment those tags describe. `docs/packaging.md` carries the rule.
+the environment those tags describe.
+[`docs/packaging.md`](https://github.com/cruxible-ai/cruxible-providers/blob/main/docs/packaging.md)
+carries the rule.
 
 ## A Capture is the payload, verbatim
 
@@ -324,10 +337,12 @@ Contracts they pin (`web.capture.coordinate@1` with `web.capture.headers@1` and
 `web.capture.page@1`, the zero-field `web.capture.selector@1`,
 `web.capture.source_effective_time@1`, `web.fetch.query_param@1`, and
 `web.fetch.pages.failure@1`), under
-`src/cruxible_provider_web/contracts/<name>/v1.json`. Each file is the exact
+[`src/cruxible_provider_web/contracts/<name>/v1.json`](https://github.com/cruxible-ai/cruxible-providers/tree/main/packages/cruxible-provider-web/src/cruxible_provider_web/contracts).
+Each file is the exact
 member Core accepts at `contracts/<name>/v1.json`; accept
 `cruxible_provider_web.contract_members()` before installing the package.
-`scripts/render_web_contracts.py` renders them from definitions derived from the
+[`scripts/render_web_contracts.py`](https://github.com/cruxible-ai/cruxible-providers/blob/main/scripts/render_web_contracts.py)
+renders them from definitions derived from the
 adapters' code, with Core's Contract model. Optional fields are absent keys,
 never `null`: the shared result omits `source_effective_time` when the adapter
 states no validity window, and a refusal detail omits what it cannot name.
@@ -341,13 +356,16 @@ come from the runtime's machinery only; provider code never raises one.
 Weight is declared by the caller and *checked* rather than trusted: a response
 heavier than the run's `max_bytes` refuses.
 
-`tests/test_web_capture_conformance.py` holds the payload rule for every
+[`tests/test_web_capture_conformance.py`](https://github.com/cruxible-ai/cruxible-providers/blob/main/packages/cruxible-provider-web/tests/test_web_capture_conformance.py)
+holds the payload rule for every
 Capture-producing operation the registration declares, in every form Core reads
 (the whole result, a `capture<K>` field, each member of a `list<capture<K>>`
 field): against every recorded exchange, each member's stored bytes are the
 origin bytes (digest equality), carry no wrapper keys and have their own
 coordinate, and a derived document's coordinate cites the bytes it read. The
-repository's `tests/test_pure_operations.py` runs `web.render` (like every
+repository's
+[`tests/test_pure_operations.py`](https://github.com/cruxible-ai/cruxible-providers/blob/main/tests/test_pure_operations.py)
+runs `web.render` (like every
 `effect: pure` operation) twice with the network blocked and requires
 byte-identical output.
 

@@ -289,8 +289,9 @@ portable delivery.
 Governance. The Provider build artifact, the Contracts an operation names, and
 the Line that binds a slot to one exact `{build, operation}` live in core;
 `registry.StubRegistry` exists so that this repository's conformance suite has
-something to bind against, and `docs/core-integration-seam.md` specifies what
-replaces it.
+something to bind against, and
+[`docs/core-integration-seam.md`](https://github.com/cruxible-ai/cruxible-providers/blob/main/docs/core-integration-seam.md)
+specifies what replaces it.
 
 ## Honest boundaries
 

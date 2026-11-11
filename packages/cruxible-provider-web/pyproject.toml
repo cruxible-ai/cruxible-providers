@@ -50,6 +50,8 @@ browser = ["playwright>=1.44"]
 
 [project.urls]
 Homepage = "https://github.com/cruxible-ai/cruxible-providers"
+Documentation = "https://github.com/cruxible-ai/cruxible-providers/blob/main/packages/cruxible-provider-web/README.md"
+Source = "https://github.com/cruxible-ai/cruxible-providers/tree/main/packages/cruxible-provider-web"
 
 [project.entry-points."cruxible.providers"]
 "web.fetch" = "cruxible_provider_web.fetch:WebFetch"
