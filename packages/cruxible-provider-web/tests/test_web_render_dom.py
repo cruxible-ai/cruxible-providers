@@ -96,15 +96,43 @@ class _Event:
     url: str
 
 
+@dataclass(frozen=True, eq=False)
+class _FakeFrame:
+    """A frame; the main frame is the one with no parent. Compared by identity."""
+
+    parent_frame: _FakeFrame | None = None
+
+    __hash__ = object.__hash__
+
+
+MAIN_FRAME = _FakeFrame()
+
+
+@dataclass
+class _FakeRequest:
+    """The request a response answers: a navigation of some frame, or not."""
+
+    navigation: bool = True
+    frame: _FakeFrame = MAIN_FRAME
+
+    def is_navigation_request(self) -> bool:
+        return self.navigation
+
+
 @dataclass
 class _FakeResponse:
-    """The main-frame response surface, as a browser exposes it."""
+    """The main-frame response surface, as a browser exposes it.
+
+    By default it answers a main-frame navigation, which is what ``goto``
+    returns and what the page emits on ``response`` when the document arrives.
+    """
 
     url: str
     status: int
     headers: dict[str, str] = field(default_factory=dict)
     server_address: str | None = PUBLIC_V4
     """What the browser reports it connected to; ``None`` when it does not say."""
+    request: _FakeRequest = field(default_factory=_FakeRequest)
 
     def all_headers(self) -> dict[str, str]:
         return dict(self.headers)
@@ -122,6 +150,12 @@ class _FakePage:
     pairs a browser would emit while loading -- the main frame, the redirect it
     followed, the script the markup names, the endpoint that script queries. It
     stands in for the sequence of events, not for a browser.
+
+    ``documents`` are the responses the page emits on ``response`` as documents
+    arrive (by default just ``response``, the one ``goto`` returns), and the main
+    frame's ``url`` ends on the last of them unless ``url_after`` says otherwise.
+    ``while_read`` runs inside ``content``: whatever the page does while it is
+    being serialized.
     """
 
     def __init__(
@@ -130,11 +164,21 @@ class _FakePage:
         html: str = ASSEMBLED,
         contacts: Sequence[tuple[str, str]] = (),
         response: _FakeResponse | None = None,
+        documents: Sequence[_FakeResponse] | None = None,
+        url_after: str | None = None,
+        while_read: Callable[[_FakePage], None] | None = None,
     ) -> None:
         self._html = html
         self._contacts = list(contacts)
         self._handlers: dict[str, list[Callable[[Any], None]]] = {}
         self._response = response
+        self._documents = (
+            list(documents)
+            if documents is not None
+            else ([response] if response is not None else [])
+        )
+        self._url_after = url_after
+        self._while_read = while_read
         self.url = "about:blank"
         self.order: list[str] = []
 
@@ -144,16 +188,27 @@ class _FakePage:
         self.order.append(event)
         self._handlers.setdefault(event, []).append(handler)
 
+    def emit(self, event: str, payload: Any) -> None:
+        for handler in self._handlers.get(event, []):
+            handler(payload)
+
     def goto(self, url: str, *, wait_until: str, timeout: float) -> _FakeResponse | None:
         del wait_until, timeout
         self.order.append("goto")
         self.url = url
         for event, contacted in [("request", url), *self._contacts]:
-            for handler in self._handlers.get(event, []):
-                handler(_Event(contacted))
+            self.emit(event, _Event(contacted))
+        for document in self._documents:
+            self.emit("response", document)
+            if document.request.navigation and document.request.frame.parent_frame is None:
+                self.url = document.url
+        if self._url_after is not None:
+            self.url = self._url_after
         return self._response
 
     def content(self) -> str:
+        if self._while_read is not None:
+            self._while_read(self)
         return self._html
 
 
@@ -296,7 +351,8 @@ def test_without_the_websocket_hook_the_endpoint_is_missing(
         engine="playwright",
         guard=_guard(),
     )
-    assert recorder.observed() == ["https://first.example"]
+    # The requested URL and the main-frame document's response; no stream.
+    assert recorder.observed() == ["https://first.example", "https://second.example"]
 
 
 def test_every_origin_the_page_contacts_reaches_the_recorder() -> None:
@@ -337,6 +393,110 @@ def test_a_main_frame_outside_2xx_is_a_failed_attempt() -> None:
     assert result.status == "error" and result.error is not None
     assert result.error.kind == "HttpStatus"
     assert result.error.detail["status_code"] == 503
+
+
+# -- one document: the DOM and the response it was served under ---------------
+
+FIRST_DOC = "https://second.example/first"
+SECOND_DOC = "https://second.example/second"
+SECOND_DOM = "<html><body><main>Second document</main></body></html>"
+
+
+def _document(url: str, etag: str, **changes: Any) -> _FakeResponse:
+    return _FakeResponse(
+        url=url, status=200, headers={"content-type": "text/html", "etag": etag}, **changes
+    )
+
+
+def _declined_unpaired(result: ProviderResult) -> None:
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PROVIDER_DECLINED
+    assert result.refusal.detail == {"url": REQUESTED, "engine": "playwright"}
+    assert result.output is None
+
+
+def test_a_second_same_origin_document_is_not_paired_with_the_first_response() -> None:
+    """``goto`` returns the first document's response; the page is on the second.
+
+    Without the pairing check the Capture held the second document's DOM under
+    the first one's URL, validator and checked address.
+    """
+
+    first = _document(FIRST_DOC, '"first"')
+    page = _page(
+        response=first,
+        documents=[first, _document(SECOND_DOC, '"second"')],
+        html=SECOND_DOM,
+    )
+    result, _ = _run(page)
+    _declined_unpaired(result)
+
+
+def test_a_later_document_from_a_private_address_is_never_read() -> None:
+    first = _document(FIRST_DOC, '"first"')
+    read: list[str] = []
+    page = _page(
+        response=first,
+        documents=[first, _document(SECOND_DOC, '"second"', server_address="10.0.0.9")],
+        html=SECOND_DOM,
+        while_read=lambda page: read.append(page.url),
+    )
+    result, _ = _run(page)
+    _declined_unpaired(result)
+    assert read == []
+
+
+def test_a_navigation_to_a_document_without_a_response_is_not_paired() -> None:
+    """``about:blank`` (or a ``blob:`` URL) replaces the document with no response."""
+
+    first = _document(FIRST_DOC, '"first"')
+    for after in ("about:blank", "blob:https://second.example/4b1d"):
+        result, _ = _run(_page(response=first, url_after=after))
+        _declined_unpaired(result)
+
+
+def test_a_main_frame_that_changes_while_it_is_read_is_declined() -> None:
+    first = _document(FIRST_DOC, '"first"')
+
+    def navigates(page: _FakePage) -> None:
+        page.emit("response", _document(SECOND_DOC, '"second"'))
+        page.url = SECOND_DOC
+
+    result, _ = _run(_page(response=first, while_read=navigates))
+    assert result.status == "refused" and result.refusal is not None
+    assert result.refusal.code == PROVIDER_DECLINED
+    assert "while the page was being read" in result.refusal.message
+
+
+def test_the_capture_describes_the_one_document_it_holds() -> None:
+    """The ordinary case, with what is allowed around it.
+
+    A redirect hop before the document, a frame's own navigation, a subresource,
+    and a same-origin ``pushState`` keep the pairing: the Capture's bytes, URL
+    and validator are the settled document's.
+    """
+
+    redirect = _FakeResponse(url="https://first.example/report", status=302)
+    settled = _document(FIRST_DOC, '"first"')
+    framed = _FakeResponse(
+        url="https://ads.example/frame",
+        status=200,
+        request=_FakeRequest(frame=_FakeFrame(parent_frame=MAIN_FRAME)),
+    )
+    subresource = _FakeResponse(
+        url="https://second.example/data.json", status=200, request=_FakeRequest(navigation=False)
+    )
+    page = _page(
+        response=settled,
+        documents=[redirect, settled, framed, subresource],
+        url_after="https://second.example/route/2?tab=gauges",
+    )
+    result, _ = _run(page)
+    assert result.status == "ok", result
+    assert base64.b64decode(result.output["content_base64"]) == ASSEMBLED.encode("utf-8")
+    coordinate = result.output["coordinate"]
+    assert coordinate["final_url"] == FIRST_DOC
+    assert coordinate["headers"] == {"etag": '"first"'}
 
 
 def test_a_navigation_without_a_response_assembled_nothing_to_capture() -> None:

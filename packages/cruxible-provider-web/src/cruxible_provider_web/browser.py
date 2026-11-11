@@ -24,7 +24,10 @@ loopback, link-local or local-only target is refused and the browser is never
 sent there), and the address the browser reports for the main-frame response is
 judged before the assembled page is returned (a page served from a private
 address -- after a redirect, or a name re-pointed between the check and the
-browser's own lookup -- is refused rather than captured). It does **not** stop
+browser's own lookup -- is refused rather than captured). That response is the
+one the captured DOM belongs to: a page whose main frame moved on to another
+document, before or while it was read, is declined (:func:`drive_page`). It
+does **not** stop
 the browser from sending requests to private addresses along the way: redirect
 hops before the final one, the subresources, fetches and WebSockets a page
 opens, and a navigation a script starts after the page loaded are sent by the
@@ -76,10 +79,18 @@ class RenderedPage:
 
 
 class MainFrameResponse(Protocol):
-    """The slice of a browser's navigation response this plane reads."""
+    """The slice of a browser's navigation response this plane reads.
+
+    ``request`` is the Playwright ``Request`` the response answers; its
+    ``is_navigation_request()`` and ``frame.parent_frame`` say whether the
+    response is a main-frame document.
+    """
 
     url: str
     status: int
+
+    @property
+    def request(self) -> Any: ...
 
     def all_headers(self) -> dict[str, str]: ...
 
@@ -94,7 +105,7 @@ class BrowserPage(Protocol):
 
     Written down as a protocol rather than left implicit so that the wiring can
     be exercised without a browser. The engine-marked lane is what asserts a real
-    Playwright page satisfies it.
+    Playwright page satisfies it. ``url`` is the main frame's current URL.
     """
 
     url: str
@@ -184,6 +195,18 @@ def drive_page(
     does not cover): ``url`` is vetted before anything is attached or navigated,
     and the main-frame response's server address is judged before the page's
     content is read.
+
+    **The response and the DOM describe one document.** ``goto`` returns the
+    response of the navigation it started, but the page can move on to another
+    document before its wait ends -- a script navigating, a refresh -- and the
+    DOM read afterwards would then be that other document's, under the first
+    one's URL, status, validators and checked address. So every main-frame
+    document response is tracked as it arrives, and the page is read only when
+    the response ``goto`` returned is still the latest of them and the main frame
+    is still on that response's origin (a same-origin ``pushState`` keeps the
+    document; a navigation to ``about:blank`` or a ``blob:`` URL does not). The
+    same two facts are taken again after the read, and a page whose main frame
+    changed while it was read is declined rather than captured.
     """
 
     guard.vet(url)
@@ -191,8 +214,15 @@ def drive_page(
     def contacted(event: Any) -> None:
         _record_contact(recorder, event.url)
 
+    documents: list[Any] = []
+
+    def document_response(response: Any) -> None:
+        if _is_main_frame_document(response):
+            documents.append(response)
+
     for name in PAGE_CONTACT_EVENTS:
         page.on(name, contacted)
+    page.on("response", document_response)
     response = page.goto(url, wait_until="networkidle", timeout=timeout_seconds * 1000)
     if response is None:
         # A navigation the browser answered without a response (a same-document
@@ -203,8 +233,24 @@ def drive_page(
             url=url,
             engine=engine,
         )
+    if not (documents and documents[-1] is response and _same_origin(page.url, response.url)):
+        raise decline(
+            PROVIDER_DECLINED,
+            "the page moved on to another document after the navigation it was opened "
+            "for, so the page and the response it was served under cannot be paired",
+            url=url,
+            engine=engine,
+        )
     _judge_served(guard, response, url=url, engine=engine)
+    before = (len(documents), page.url)
     html = page.content()
+    if (len(documents), page.url) != before:
+        raise decline(
+            PROVIDER_DECLINED,
+            "the page's main frame changed while the page was being read",
+            url=url,
+            engine=engine,
+        )
     return RenderedPage(
         engine=engine,
         html=html,
@@ -212,6 +258,39 @@ def drive_page(
         status_code=response.status,
         headers={key.lower(): value for key, value in response.all_headers().items()},
     )
+
+
+def _is_main_frame_document(response: Any) -> bool:
+    """Whether ``response`` answers a navigation of the page's main frame.
+
+    Redirect responses of that navigation count too, so the last one is the
+    document the frame settled on. Anything that cannot say -- a contact
+    double, a request without a frame -- is not a main-frame document.
+    """
+
+    try:
+        request = response.request
+        return bool(request.is_navigation_request()) and request.frame.parent_frame is None
+    except Exception:
+        return False
+
+
+def _same_origin(current: str, served: str) -> bool:
+    """Whether the main frame's ``current`` URL is still on ``served``'s http(s) origin."""
+
+    def origin(value: str) -> tuple[str, str, int] | None:
+        parts = urlsplit(value)
+        scheme = parts.scheme.lower()
+        if scheme not in {"http", "https"} or not parts.hostname:
+            return None
+        try:
+            port = parts.port
+        except ValueError:
+            return None
+        return scheme, parts.hostname.lower(), port or (443 if scheme == "https" else 80)
+
+    here = origin(current)
+    return here is not None and here == origin(served)
 
 
 def _judge_served(

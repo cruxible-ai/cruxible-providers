@@ -30,7 +30,7 @@ from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_web.addresses import AddressGuard, IPAddress
 from cruxible_provider_web.browser import PlaywrightRenderer
-from cruxible_provider_web.operations import PRIVATE_OR_INTERNAL_ADDRESS
+from cruxible_provider_web.operations import PRIVATE_OR_INTERNAL_ADDRESS, PROVIDER_DECLINED
 
 pytestmark = pytest.mark.engine
 
@@ -64,19 +64,39 @@ STREAMING_PAGE = b"""<!DOCTYPE html>
 """
 
 
+#: A page that sends its main frame to a second document on the same origin
+#: shortly after it loads, while ``goto`` is still waiting for the network to
+#: settle. ``goto`` returns the first document's response; the DOM a later read
+#: sees is the second's.
+MOVING_PAGE = b"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>First document</title></head>
+<body><main>First document</main>
+<script>setTimeout(() => { location.href = "/second"; }, 50);</script>
+</body></html>
+"""
+SECOND_PAGE = b"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Second document</title></head>
+<body><main>Second document</main></body></html>
+"""
+
+
 @pytest.fixture()
 def page_url() -> Iterator[str]:
     """The assembling page, served from a loopback server for the test's duration.
 
-    ``/stream`` on the same server is the page that opens a WebSocket.
+    ``/stream`` on the same server is the page that opens a WebSocket, and
+    ``/moving`` the page that moves on to ``/second``.
     """
+
+    bodies = {"/stream": STREAMING_PAGE, "/moving": MOVING_PAGE, "/second": SECOND_PAGE}
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            body = STREAMING_PAGE if self.path == "/stream" else PAGE
+            body = bodies.get(self.path, PAGE)
             self.send_response(200)
             self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(body)))
+            self.send_header("etag", f'"{self.path}"')
             self.end_headers()
             self.wfile.write(body)
 
@@ -229,3 +249,20 @@ def test_a_real_browser_reports_the_address_that_served_the_main_frame(page_url:
     rendered = _render(page_url)
 
     assert rendered.status_code == 200
+
+
+@pytest.mark.usefixtures("browser_available")
+def test_a_page_that_moves_on_to_another_document_is_not_captured(page_url: str) -> None:
+    """The second document's DOM never travels under the first one's response.
+
+    ``goto`` returns ``/moving``'s response while the main frame settles on
+    ``/second``; pairing that response with the DOM read afterwards would claim
+    the first document's URL and validator for the second's bytes.
+    """
+
+    origin = page_url.removesuffix("/dashboard")
+    with pytest.raises(Declined) as refused:
+        _render(f"{origin}/moving")
+
+    assert refused.value.code == PROVIDER_DECLINED
+    assert "another document" in refused.value.refusal.message
