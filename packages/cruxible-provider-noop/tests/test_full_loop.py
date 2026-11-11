@@ -335,7 +335,7 @@ def test_no_closure_digest_ever_reaches_a_snapshot_or_a_receipt(
 ) -> None:
     """Only two digests are identity; the third is a packaging-gate instrument.
 
-    The closure digest exists so the one-package-one-change gate can measure
+    The closure digest exists so the closure-version check can measure
     dependency movement without the root distribution sha256 drowning out the
     signal. It is not an identity and must never be pinned to a track record, so
     its value is asserted absent from everything that gets recorded -- keys and

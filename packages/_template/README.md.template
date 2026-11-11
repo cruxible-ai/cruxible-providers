@@ -35,8 +35,8 @@ The umbrella `cruxible-providers[PLANE]` remains a development convenience.
     directory carries **no `__init__.py`** -- two packages both exporting a
     `tests` package collide at collection -- and real-engine tests are marked
     `engine`, which the default run excludes.
-7.  Confirm `uv run python scripts/check_single_package_digest_change.py` still
-    reports at most one changed package.
+7.  Before releasing, confirm `uv run python scripts/check_closure_moves_are_versioned.py`
+    passes: a released package whose dependency closure moved needs a new version.
 
 ## What this package must never do
 

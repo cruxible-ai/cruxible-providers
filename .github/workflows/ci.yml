@@ -144,11 +144,13 @@ jobs:
               uv lock --check --directory "$package"
             fi
           done
-      - name: Assert a change moves at most one package's dependency closure
-        # No --allow-missing-base: an unresolvable base fails the gate rather
+      - name: Assert every released package whose dependency closure moved has a new version
+        # A wheel embeds its lock, so a released version is one environment.
+        # "Released" is the PUBLISHABLE set in publish.yml (base or head).
+        # No --allow-missing-base: an unresolvable base fails the check rather
         # than reporting green on a comparison that never ran.
         run: |
-          uv run python scripts/check_single_package_digest_change.py \
+          uv run python scripts/check_closure_moves_are_versioned.py \
             --base "${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
       - name: Report the per-package dependency-closure digests
         run: uv run python scripts/dependency_closure_digests.py

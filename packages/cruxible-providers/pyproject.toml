@@ -75,12 +75,12 @@ cruxible-provider-docs = { path = "../cruxible-provider-docs", editable = true }
 cruxible-provider-quant = { path = "../cruxible-provider-quant", editable = true }
 
 [tool.cruxible]
-# Exempt from the one-package-one-digest-change gate, and it has to be: this
-# package's whole content is other packages, so its dependency closure moves
-# whenever ANY plane's does. The gate exists to stop a bump in one provider from
-# re-pinning another provider's environment; the umbrella pins no environment,
-# carries no implementation digest, and appears in no track record, so its
-# closure moving is information about the planes rather than about it.
+# Out of the dependency-closure measurement (scripts/check_closure_moves_are_versioned.py),
+# and it has to be: this package's whole content is other packages, so its
+# dependency closure moves whenever ANY plane's does. The umbrella pins no
+# environment, carries no implementation digest, and appears in no track
+# record, so its closure moving is information about the planes rather than
+# about it.
 digest_scope = "exempt"
 role = "umbrella"
 

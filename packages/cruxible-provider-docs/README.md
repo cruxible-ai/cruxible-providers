@@ -106,7 +106,7 @@ digests. The engine suite's shared `ENGINE_MARKER_ENVIRONMENT` now matches the
 Linux launch floor rather than standing in for a future one.
 
 **The base install remains resolvable** for all three environments, so the
-default lane, the digest-scope gate and the closure report remain unimpaired —
+default lane, the closure-version check and the closure report remain unimpaired —
 and the engine-free plain-text path stays bindable.
 
 ## Why PaddleOCR rather than Surya

@@ -19,14 +19,13 @@ providers into a daemon explicitly and through governance (`cruxible provider
 install`); nothing is fetched implicitly when a Procedure binds. The umbrella
 serves developers.
 
-Because its entire content is other packages, the umbrella declares itself exempt
-from the one-package-one-digest-change gate (`[tool.cruxible] digest_scope =
-"exempt"`). Its closure moves whenever any plane's does, so measuring it would
-report two changed packages for every one-package change; and it pins no
-environment, carries no implementation digest, and appears on no track record, so
-there is nothing the gate would be protecting. The exemption is a written field
-rather than a name the script recognises, and a repository test asserts it is the
-only one.
+Because its entire content is other packages, the umbrella declares itself out of
+the dependency-closure measurement (`[tool.cruxible] digest_scope = "exempt"`).
+Its closure moves whenever any plane's does, so measuring it would report a move
+for every plane change; and it pins no environment, carries no implementation
+digest, and appears on no track record, so there is nothing the closure-version
+check (below) would be protecting. The exemption is a written field rather than
+a name the script recognises, and a repository test asserts it is the only one.
 
 ## Per-engine extras, and the environment pin key
 
@@ -161,20 +160,34 @@ every package's resolved set move whenever any dependency anywhere moves. Every
 provider would be re-pinned, re-verified, re-materialised, and — in the cloud
 backend — re-attested, because of a change in a package it does not depend on.
 
-This is enforced, not merely documented:
+The layout is held by `tests/test_repo_layout.py` (the root is not a uv
+workspace, and every package has its own lock). What CI checks on every change
+is the release consequence of a lock moving:
 
 ```sh
-uv run python scripts/check_single_package_digest_change.py --base origin/main
+uv run python scripts/check_closure_moves_are_versioned.py --base origin/main
 ```
 
-The check computes each package's **dependency-closure** digests at the base
-revision and in the working tree, and fails if more than one package moved. A
-change that genuinely needs to move two packages should be two commits.
+A wheel embeds its package's lock, and an install by name builds the
+environment from it, so a released version is one dependency closure. The check
+computes each package's **dependency-closure** digests at the base revision and
+in the working tree and prints, per package, whether it moved, its version at
+both, and whether it is released. It fails when a **released** package's closure
+moved and its version did not: the next release would otherwise publish a
+second environment under a version an operator may already have pinned. Moving
+several packages in one change is fine as long as each released one gets a new
+version.
+
+**Released** is decided from the repository, with no network: a package is
+released when `.github/workflows/publish.yml` names it in its `PUBLISHABLE` set
+at the base or at the head, because that set is the only way a package reaches
+the index. A package that has never been on it may move without a version
+change. Packages added or removed by the change are reported and not judged.
 
 Closure digest, not materialization digest, and the distinction is not
 pedantry. A materialization digest also pins the root distribution's sha256,
 which does not exist until the package is built and which moves on every release
-by construction — it would drown out the signal the gate is looking for. The
+by construction — it would drown out the signal the check is looking for. The
 closure digest covers the root's *name*, the marker environment, and the
 resolved dependency set: exactly what a dependency bump moves.
 
@@ -194,7 +207,7 @@ cover part of the environment.
 `allow_editable_dev_sources` is a development-only escape hatch, false
 everywhere by default. It admits local sources under a path-derived identity so
 that this monorepo can bind its own in-tree packages before they are published,
-and so that the digest-scope gate can see cross-package edges. A binding
+and so that the closure-version check can see cross-package edges. A binding
 computed with it set records `dev_sources_permitted` in its snapshot, so a
 receipt shows it.
 
@@ -223,7 +236,7 @@ environment from whatever interpreter happened to run would produce a digest
 that cannot be reproduced anywhere else, which is not an identity.
 
 Changing that file re-pins every package at once. That is why it is a committed
-artifact rather than a runtime default, and why the digest-scope check holds the
+artifact rather than a runtime default, and why the closure-version check holds the
 environment list fixed across revisions: re-pinning the environments is a
 deliberate, separate act.
 

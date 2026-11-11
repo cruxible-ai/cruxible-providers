@@ -98,7 +98,7 @@ def test_the_exemption_allowlist_holds() -> None:
 def test_an_exempt_package_ships_no_code(package: Path) -> None:
     """The property the exemption rests on, checked per exempt package.
 
-    A package skips the digest-scope gate because it *is* nothing but
+    A package skips the closure-version check because it *is* nothing but
     dependencies: its closure moves whenever any package it names does, and it
     pins no environment, carries no implementation digest, and appears on no
     track record. That argument holds only for a distribution with no code in it
@@ -112,7 +112,7 @@ def test_an_exempt_package_ships_no_code(package: Path) -> None:
     """
 
     assert _is_umbrella(package), (
-        f"{package.name} is exempt from the digest-scope gate without declaring the role "
+        f"{package.name} is exempt from the closure-version check without declaring the role "
         "that justifies it"
     )
     assert not (package / "src").exists(), f"{package.name} is exempt and ships a src/ tree"
