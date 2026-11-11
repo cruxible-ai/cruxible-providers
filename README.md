@@ -15,12 +15,17 @@ Supported platforms: Linux on x86-64 and macOS on Apple silicon, with Python
 | Package | What it is for | Operations |
 |---|---|---|
 | `cruxible-provider-web` | Fetching web pages and searching the web, then turning a fetched page into readable text | `web.fetch`, `web.fetch.pages`, `search.web`, `web.render`, `web.render.dom` |
-| `cruxible-provider-docs` | Turning documents (PDF, text, CSV) into Markdown, and reading text out of page images (OCR) | `doc.to_markdown`, `ocr.extract` |
-| `cruxible-provider-quant` | Standard numeric methods: totals and averages, forecasts, anomaly checks, statistical tests, ranking, record matching, checking how well past predictions held up | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
+| `cruxible-provider-docs` | **Not yet released.** Turning documents (PDF, text, CSV) into Markdown, and reading text out of page images (OCR) | `doc.to_markdown`, `ocr.extract` |
+| `cruxible-provider-quant` | **Not yet released.** Standard numeric methods: totals and averages, forecasts, anomaly checks, statistical tests, ranking, record matching, checking how well past predictions held up | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
 | `cruxible-provider-workspace` | Turning a file's bytes into a structured text or binary body. Core already has this built in; the package is kept for testing | `workspace.file` |
 | `cruxible-provider-noop` | A test package that does nothing useful on purpose; it checks that the provider rules hold | `noop.echo`, `noop.captures` |
 | `cruxible-provider-runtime` | The shared library every provider package depends on. You install it directly only if you write a provider | none |
 | `cruxible-providers` | A convenience package with no code that pulls in the web, docs and quant packages, for development | none |
+
+`cruxible-provider-docs` and `cruxible-provider-quant` are not yet released: no
+kit uses them yet and they ship no Contracts, so an instance cannot install
+them. They will be released when a kit uses them. Their code and tests are here
+and run in this repository.
 
 To install a provider into a running Cruxible daemon, an operator with `admin`
 permission runs, for example:

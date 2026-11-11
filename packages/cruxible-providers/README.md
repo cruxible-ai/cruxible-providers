@@ -11,9 +11,14 @@ own.
 | Extra | Installs | Operations it brings |
 |---|---|---|
 | `web` | `cruxible-provider-web` | `web.fetch`, `web.fetch.pages`, `search.web`, `web.render`, `web.render.dom` |
-| `docs` | `cruxible-provider-docs` | `doc.to_markdown`, `ocr.extract` |
-| `quant` | `cruxible-provider-quant` | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
+| `docs` | `cruxible-provider-docs` (not yet released) | `doc.to_markdown`, `ocr.extract` |
+| `quant` | `cruxible-provider-quant` (not yet released) | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
 | `all` | all three of the above | all of the above |
+
+`cruxible-provider-docs` and `cruxible-provider-quant` are not yet released: no
+kit uses them yet and they ship no Contracts, so an instance cannot install
+them, and the `docs`, `quant` and `all` extras resolve only in a checkout of
+this repository. They will be released when a kit uses them.
 
 `cruxible-provider-workspace` is not offered here: core has `workspace.file`
 built in, and that package stays in the repository only to test the built-in

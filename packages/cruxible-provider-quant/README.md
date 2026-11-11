@@ -1,5 +1,7 @@
 # cruxible-provider-quant
 
+**Status: not yet released.** No kit uses this package yet and it ships no Contracts, so an instance cannot install it; it will be released when a kit uses it.
+
 ## In plain terms
 
 This package does standard number work for Cruxible: totals and averages,
