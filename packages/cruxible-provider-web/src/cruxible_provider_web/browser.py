@@ -204,9 +204,12 @@ def drive_page(
     document response is tracked as it arrives, and the page is read only when
     the response ``goto`` returned is still the latest of them and the main frame
     is still on that response's origin (a same-origin ``pushState`` keeps the
-    document; a navigation to ``about:blank`` or a ``blob:`` URL does not). The
-    same two facts are taken again after the read, and a page whose main frame
-    changed while it was read is declined rather than captured.
+    document; a navigation to ``about:blank`` or a ``blob:`` URL does not). That
+    state is recorded before any further call into the browser and checked
+    again after the served address is looked up and after the read, so a
+    document arriving during either call -- the binding delivers events while a
+    call is in flight -- is a change, and the page is declined rather than
+    captured.
     """
 
     guard.vet(url)
@@ -233,7 +236,21 @@ def drive_page(
             url=url,
             engine=engine,
         )
-    if not (documents and documents[-1] is response and _same_origin(page.url, response.url)):
+    # The pairing baseline is taken before any further call into the browser:
+    # the sync binding dispatches events while a call is in flight, so a
+    # document arriving during the address lookup or the read must be seen as a
+    # change against this, never become the baseline itself.
+    baseline = (len(documents), page.url)
+
+    def paired() -> bool:
+        return (
+            bool(documents)
+            and documents[-1] is response
+            and _same_origin(page.url, response.url)
+            and (len(documents), page.url) == baseline
+        )
+
+    if not paired():
         raise decline(
             PROVIDER_DECLINED,
             "the page moved on to another document after the navigation it was opened "
@@ -242,9 +259,16 @@ def drive_page(
             engine=engine,
         )
     _judge_served(guard, response, url=url, engine=engine)
-    before = (len(documents), page.url)
+    if not paired():
+        raise decline(
+            PROVIDER_DECLINED,
+            "the page moved on to another document after the navigation it was opened "
+            "for, so the page and the response it was served under cannot be paired",
+            url=url,
+            engine=engine,
+        )
     html = page.content()
-    if (len(documents), page.url) != before:
+    if not paired():
         raise decline(
             PROVIDER_DECLINED,
             "the page's main frame changed while the page was being read",

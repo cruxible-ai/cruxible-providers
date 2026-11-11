@@ -133,11 +133,16 @@ class _FakeResponse:
     server_address: str | None = PUBLIC_V4
     """What the browser reports it connected to; ``None`` when it does not say."""
     request: _FakeRequest = field(default_factory=_FakeRequest)
+    while_asked: Callable[[], None] | None = None
+    """Runs inside ``server_addr``: the sync binding delivers page events during
+    the call, so whatever the page does meanwhile arrives here."""
 
     def all_headers(self) -> dict[str, str]:
         return dict(self.headers)
 
     def server_addr(self) -> dict[str, Any] | None:
+        if self.while_asked is not None:
+            self.while_asked()
         if self.server_address is None:
             return None
         return {"ipAddress": self.server_address, "port": 443}
@@ -466,6 +471,31 @@ def test_a_main_frame_that_changes_while_it_is_read_is_declined() -> None:
     assert result.status == "refused" and result.refusal is not None
     assert result.refusal.code == PROVIDER_DECLINED
     assert "while the page was being read" in result.refusal.message
+
+
+def test_a_document_arriving_during_the_address_lookup_is_declined_before_the_read() -> None:
+    """The address lookup is a call into the browser, and events arrive during it.
+
+    A second same-origin document delivered inside ``server_addr`` must count as
+    a change against the state taken before the lookup; taken after it, it would
+    be the baseline, and the read would pair the second document's DOM with the
+    first one's URL and validator.
+    """
+
+    first = _document(FIRST_DOC, '"first"')
+    read: list[str] = []
+    page = _page(response=first, html=SECOND_DOM, while_read=lambda page: read.append(page.url))
+
+    def second_arrives() -> None:
+        page.emit("response", _document(SECOND_DOC, '"second"'))
+        page.url = SECOND_DOC
+
+    first.while_asked = second_arrives
+    result, _ = _run(page)
+    _declined_unpaired(result)
+    assert "another document" in result.refusal.message
+    # Declined before serialization: the page's content was never read.
+    assert read == []
 
 
 def test_the_capture_describes_the_one_document_it_holds() -> None:
