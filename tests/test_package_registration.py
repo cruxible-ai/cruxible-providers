@@ -32,6 +32,7 @@ from cruxible_provider_runtime.registration import (
     declared_closure,
     load_registration,
     render_registration,
+    write_registration,
 )
 from cruxible_provider_runtime.wheels import wheel_registration
 
@@ -374,6 +375,57 @@ def test_built_wheels_are_discoverable_without_imports() -> None:
 
 # -- parity with core's model ------------------------------------------------------------------
 
+
+def _core_python() -> str:
+    """The interpreter with core's model; required in CI, optional on a workstation.
+
+    CI's ``core-parity`` lane checks core out at a pinned commit and sets
+    ``CRUXIBLE_CORE_PYTHON``. When ``CI`` is set and the variable is not, the
+    lane lost its prerequisite, and that is a failure rather than a skip.
+    """
+
+    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
+    if core_python:
+        return core_python
+    message = "set CRUXIBLE_CORE_PYTHON to an interpreter with core's model (cruxible_client)"
+    if os.environ.get("CI"):
+        pytest.fail(f"{message}: CI runs the core-parity checks and must not skip them")
+    pytest.skip(message)
+
+
+def test_ci_runs_the_core_parity_lane_against_a_pinned_core() -> None:
+    """The lane exists, pins core by full commit, sets the interpreter, and runs the marker."""
+
+    import re
+
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert re.fullmatch(r"[0-9a-f]{40}", workflow["env"]["CORE_COMMIT"])
+    steps = workflow["jobs"]["core-parity"]["steps"]
+    checkout = next(step for step in steps if step.get("with", {}).get("path") == "core")
+    assert checkout["with"] == {
+        "repository": "cruxible-ai/cruxible",
+        "ref": "${{ env.CORE_COMMIT }}",
+        "path": "core",
+    }
+    runs = "\n".join(str(step.get("run", "")) for step in steps)
+    assert "CRUXIBLE_CORE_PYTHON=" in runs and "core/packages/cruxible-client" in runs
+    assert "-m core_parity tests/test_package_registration.py" in runs
+    default = "\n".join(str(step.get("run", "")) for step in workflow["jobs"]["test"]["steps"])
+    assert "not core_parity" in default
+
+
+def _core_report(roots: list[str]) -> dict[str, Any]:
+    result = subprocess.run(
+        [_core_python(), "-c", _CORE_PARITY], input=canonical_json(roots), capture_output=True
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    report: dict[str, Any] = json.loads(result.stdout)
+    assert sorted(report) == sorted(roots)
+    return report
+
+
 _CORE_PARITY = """
 import json, sys
 from pathlib import Path
@@ -432,6 +484,7 @@ def test_the_template_filled_in_is_a_schema_3_package(tmp_path: Path) -> None:
     assert [item.serves for item in bundle.operations] == [("sample.capability",)]
 
 
+@pytest.mark.core_parity
 def test_every_registration_is_valid_under_cores_model(tmp_path: Path) -> None:
     """Core's own schema-3 model and registration law, in core's interpreter.
 
@@ -444,16 +497,8 @@ def test_every_registration_is_valid_under_cores_model(tmp_path: Path) -> None:
     equals this runtime's. The package template, filled in, is held to the same.
     """
 
-    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
-    if not core_python:
-        pytest.skip("set CRUXIBLE_CORE_PYTHON to an interpreter with core for the parity check")
     roots = [str(path.parent) for path in MOVED] + [str(_filled_template(tmp_path))]
-    result = subprocess.run(
-        [core_python, "-c", _CORE_PARITY], input=canonical_json(roots), capture_output=True
-    )
-    assert result.returncode == 0, result.stderr.decode()
-    report = json.loads(result.stdout)
-    assert sorted(report) == sorted(roots)
+    report = _core_report(roots)
     for root, found in report.items():
         assert found["problems"] == [], (root, found["problems"])
         bundle = load_registration(Path(root))
@@ -465,14 +510,68 @@ def test_every_registration_is_valid_under_cores_model(tmp_path: Path) -> None:
             )
 
 
+@pytest.mark.core_parity
 @pytest.mark.parametrize("script", ["render_web_contracts.py", "render_noop_contracts.py"])
 def test_the_carried_contracts_are_what_the_renderers_write(script: str) -> None:
     """The renderers build each copy with core's Contract model; the files hold their output."""
 
-    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
-    if not core_python:
-        pytest.skip("set CRUXIBLE_CORE_PYTHON to an interpreter with core for the renderers")
     check = subprocess.run(
-        [core_python, str(ROOT / "scripts" / script), "--check"], capture_output=True
+        [_core_python(), str(ROOT / "scripts" / script), "--check"], capture_output=True
     )
     assert check.returncode == 0, check.stderr.decode()
+
+
+@pytest.mark.core_parity
+def test_the_writer_output_for_a_spaced_layout_type_passes_cores_law(tmp_path: Path) -> None:
+    """A layout rule typed ``demo.dep @ 1`` (legal whitespace): the writer carries ``demo.dep``.
+
+    The noop package with one more request field, ``document: capture<demo.rows>``,
+    and the kind ``demo.rows`` whose header names ``demo.dep @ 1``. The runtime
+    loads what the writer wrote, and core's model and law accept the same file.
+    """
+
+    root = _copy(tmp_path, "cruxible_provider_noop")
+    document = _document(root)
+    contracts = list(document["declares"]["contracts"])
+    for index, item in enumerate(contracts):
+        if item["name"] == "noop.captures.request":
+            fields = {
+                **item["fields"],
+                "document": {
+                    "optional": True,
+                    "type": {"kind": "capture", "capture_kind": "demo.rows"},
+                },
+            }
+            contracts[index] = {**item, "fields": fields}
+    contracts += [
+        {"artifact_format": "cruxible-contract-v1", "name": "demo.dep", "version": 1, "fields": {}},
+        {
+            "artifact_format": "cruxible-contract-v1",
+            "name": "demo.row",
+            "version": 1,
+            "fields": {"value": {"type": {"kind": "string"}}},
+        },
+    ]
+    kind = {
+        "name": "demo.rows",
+        "decoding": {
+            "format": "json",
+            "encoding": "identity",
+            "limits": {"decoded_bytes": 1024, "depth": 8, "records": 100},
+        },
+        "layout": {
+            "header": {"extra": {"at": "/extra", "type": "demo.dep @ 1"}},
+            "records": {
+                "rows": {
+                    "at": "/rows/*",
+                    "row": {"name": "demo.row", "version": 1},
+                    "fields": {"value": {"at": "value", "type": "string"}},
+                }
+            },
+        },
+    }
+    write_registration(root, contracts=contracts, capture_kinds=[kind])
+    bundle = load_registration(root)
+    assert {"demo.dep", "demo.row"} <= {item.name for item in bundle.declares.contracts}
+    report = _core_report([str(root)])
+    assert report[str(root)]["problems"] == []

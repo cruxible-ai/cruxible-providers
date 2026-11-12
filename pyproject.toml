@@ -67,6 +67,7 @@ addopts = "-ra --strict-markers --import-mode=importlib -m 'not engine'"
 markers = [
   "egress_conformance: runs with outbound sockets blocked; asserts declared == observed",
   "engine: needs a real heavy engine from a per-engine extra; excluded from the default run",
+  "core_parity: needs core's model (CRUXIBLE_CORE_PYTHON); runs in CI's core-parity lane",
 ]
 
 [tool.ruff]

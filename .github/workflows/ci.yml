@@ -12,6 +12,10 @@ on:
 
 env:
   UV_VERSION: "0.8.13"
+  # The core commit whose registration model the core-parity lane checks every
+  # schema-3 registration against: rc/0.5.0's head when the lane was added.
+  # The 0.5.0 release cut moves this to the core release tag's commit.
+  CORE_COMMIT: "3950f1204ecc6c70c5c26dcf9482e5d07110677f"
 
 jobs:
   test:
@@ -33,7 +37,36 @@ jobs:
         # and the default options exclude the `engine` marker. A default lane
         # that downloaded a browser and a tensor stack would have given up the
         # whole point of the heavy-engine split.
-        run: uv run --python ${{ matrix.python-version }} pytest -q
+        # core_parity tests need core's model; the core-parity lane runs them.
+        run: uv run --python ${{ matrix.python-version }} pytest -q -m "not engine and not core_parity"
+
+  core-parity:
+    name: parity with core's registration model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out core at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: cruxible-ai/cruxible
+          ref: ${{ env.CORE_COMMIT }}
+          path: core
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync
+      - name: Give core's model an interpreter of its own
+        # Core's client package carries the models (no daemon, no core server);
+        # the runtime is there for the renderers, which write through it.
+        run: |
+          uv venv "$RUNNER_TEMP/core-venv" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/core-venv" \
+            core/packages/cruxible-client packages/cruxible-provider-runtime
+          echo "CRUXIBLE_CORE_PYTHON=$RUNNER_TEMP/core-venv/bin/python" >> "$GITHUB_ENV"
+      - name: Hold every schema-3 registration to core's model and law
+        # With CI set, a missing CRUXIBLE_CORE_PYTHON fails these tests rather
+        # than skipping them, so the lane cannot go green without running them.
+        run: uv run pytest -q -m core_parity tests/test_package_registration.py
 
   engine-collect:
     name: engine lane collects without engines

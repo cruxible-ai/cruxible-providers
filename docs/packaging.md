@@ -315,7 +315,10 @@ The cross-repository check accepts `CRUXIBLE_CORE_PYTHON`; the built-wheel check
 accepts `CRUXIBLE_PROVIDER_WHEEL_DIR`. These are explicit test inputs, not developer
 paths. Run `tests/test_package_registration.py` with them to hold every schema-3
 registration to core's own model and registration law, and to read descriptors
-from built distributions.
+from built distributions. CI's `core-parity` lane checks core out at the
+commit `CORE_COMMIT` names in `.github/workflows/ci.yml`, sets
+`CRUXIBLE_CORE_PYTHON` and runs the `core_parity` tests; with `CI` set, a
+missing `CRUXIBLE_CORE_PYTHON` fails those tests instead of skipping them.
 
 ### Test packages carry no `__init__.py`
 
