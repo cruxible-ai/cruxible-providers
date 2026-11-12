@@ -23,9 +23,10 @@ Supported platforms: Linux on x86-64 and macOS on Apple silicon, with Python
 | `cruxible-providers` | A convenience package with no code that pulls in the web, docs and quant packages, for development | none |
 
 `cruxible-provider-docs` and `cruxible-provider-quant` are not yet released: no
-kit uses them yet and they ship no Contracts, so an instance cannot install
-them. They will be released when a kit uses them. Their code and tests are here
-and run in this repository.
+kit uses them yet and they carry no Contracts, so their registrations are not
+on schema 3 and an instance cannot install them. They will be released when a
+kit uses them. Their code and tests are here; the tests that bind through the
+registration run as expected failures until it moves.
 
 To install a provider into a running Cruxible daemon, an operator with `admin`
 permission runs, for example:
@@ -61,12 +62,15 @@ build fills each slot. A **refusal** is a typed "no" an operation returns
 instead of a result, with a code saying why.
 
 A provider is pure computation behind shared Contracts. Its package declares
-typed operations in `registration.json`: a name, an input and an output
-Contract (`name@N`), an effect (`pure`, `external_read` or
+typed operations in `registration.json` (schema 3): a name, a description of
+what it does, where its code is, the **capabilities** it serves (by name), an
+input and an output Contract (`name@N`), an effect (`pure`, `external_read` or
 `external_mutation`), the refusal codes it may return, and the entrypoint that
-serves it. A Procedure never names a provider; it names a slot by signature, and
-any installed build whose operation has exactly that signature fits the slot. A
-Line binds each slot to one exact `{build, operation}` when it is accepted.
+serves it; and it carries a copy of every Contract and CaptureKind those reach,
+so it installs with no kit present. A Procedure never names a provider; each of
+its slots names a capability, and an installed operation that serves that
+capability and whose Contracts fit it can fill the slot. A Line binds each slot
+to one exact `{build, operation}` when it is accepted.
 
 Core never fetches a provider when a Procedure binds. An operator installs one
 explicitly, with `admin` permission:
@@ -81,9 +85,9 @@ the operator configures `provider_index_urls`). The wheel must match the hash th
 index publishes, and the environment is built from the `uv.lock` the wheel
 embeds. The install then proposes the Provider build as an ordinary change: it
 lands at once when the approval policy requires no approval, and otherwise waits
-for approval. It refuses an operation whose Contracts are not already accepted
-on the instance; a kit that needs a provider accepts those Contracts first.
-Installing grants no permission to run anything.
+for approval. The operations' Contracts come from the package itself, so no kit
+needs to be installed first; whether an operation fits a slot is checked when a
+Line is accepted. Installing grants no permission to run anything.
 
 Every new instance already has `workspace.file` built in; it needs no install
 (see `packages/cruxible-provider-workspace/README.md`).

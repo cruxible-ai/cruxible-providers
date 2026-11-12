@@ -20,16 +20,27 @@ The umbrella `cruxible-providers[PLANE]` remains a development convenience.
     named by the operation it serves (one entry per operation).
 3.  Add the implementation row to `src/cruxible_provider_PLANE/manifest.yaml`:
     one row per entrypoint, with its backends, endpoints and extras.
-4.  Declare the operation in `registration.json` (schema 2): its name, its
-    input and output Contracts as `name@N`, its effect (`pure`,
-    `external_read` or `external_mutation`), each refusal code it may return
-    with that refusal's detail Contract, and the entrypoint that serves it.
-    Refresh the manifest's digest there: `sha256:` followed by the hex sha256
-    of `manifest.yaml`'s bytes. The Contracts themselves must be accepted on
-    the instance before install (a kit ships them, or the package ships their
-    bodies under `src/cruxible_provider_PLANE/contracts/`, as the web and noop
-    packages do); the registration only names them. Declare any non-Python
-    runtime resources under `runtime_requirements`.
+4.  Declare the operation in `registration.json` (schema 3): its name; a
+    `description` that leads with what it does; its `source` (the module's path
+    from the repository root, and the repository); `serves`, the capability
+    names it implements (sorted, at most 16, never a `workspace.` name, which
+    only core serves); its input and output Contracts as `name@N`; its effect
+    (`pure`, `external_read` or `external_mutation`); `may_truncate: true` if it
+    can return a truncated listing; each refusal code it may return with that
+    refusal's detail Contract; and the entrypoint that serves it. Under
+    `declares`, carry a copy of every Contract the operation reaches (its
+    input, output and refusal Contracts and every Contract they pin, nested
+    pins with their digests), every CaptureKind a `capture<K>` names with its
+    decoding and layout, and, in `built_against`, the capability and kind
+    versions the copies came from. Copy a capability's Contracts byte for byte
+    when the operation accepts and returns exactly what it promises. An install
+    reads the copies from the package and needs no kit; core checks that each
+    operation fits the capability a slot names when a Line binds it.
+    `cruxible_provider_runtime.registration.write_registration` rewrites
+    `declares` to exactly that closure and refreshes the manifest's digest
+    (`sha256:` followed by the hex sha256 of `manifest.yaml`'s bytes); the web
+    and noop packages call it from `scripts/render_*_contracts.py`. Declare any
+    non-Python runtime resources under `runtime_requirements`.
 5.  Implement the callable in `provider.py`.
 6.  Write the conformance suite (see `tests/test_conformance.py`). The test
     directory carries **no `__init__.py`** -- two packages both exporting a

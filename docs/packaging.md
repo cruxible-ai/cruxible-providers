@@ -247,52 +247,75 @@ deliberate, separate act.
 | `pyproject.toml` | Distribution metadata, dependencies, `cruxible.providers` entry points |
 | `uv.lock` | The identity source. Committed, and compared byte-for-byte at bind against what the accepted artifact pinned. |
 | `src/<module>/manifest.yaml` | The package-side manifest. A transcription source, **never** authority. |
-| `src/<module>/registration.json` | The registration descriptor (schema 2): the manifest by path and digest, the package's typed operations (each `{name, in, out, effect, refusals, entrypoint}`, Contracts named `name@N`), and runtime requirements keyed by entrypoint |
+| `src/<module>/registration.json` | The registration descriptor (schema 3): the manifest by path and digest; the package's operations (each `{name, description, source, serves, in, out, effect, may_truncate?, refusals, entrypoint}`, Contracts named `name@N`); `declares`, the copies of every Contract and CaptureKind the operations reach, with `built_against`; and runtime requirements keyed by entrypoint |
 | `src/<module>/py.typed` | Typing marker |
 | `LICENSE`, `NOTICE` | Apache-2.0, per package |
 | `container/Dockerfile` | The container backend's build, when the package declares that backend |
 | `container/provenance.md` | The four provenance fields the executor checks |
 | `src/<module>/recordings/` | Recorded exchanges or engine responses the default lane replays |
-| `src/<module>/contracts/` | Optional: the bodies of the Contracts the operations pin, as accepted-tree members |
 | `tests/` | The conformance suite, which every plane package inherits. No `__init__.py` |
 
 ### Reading registration metadata
 
 `cruxible_provider_runtime.registration.load_registration(package_root)` reads
-`registration.json` (schema 2 only; a schema-1 descriptor is refused whole),
+`registration.json` (schema 3 only; any other schema is refused whole),
 verifies the manifest's package-relative path and digest, and checks the
 cross-links without importing provider code: every operation names an
 entrypoint the manifest declares, every manifest implementation serves at least
 one operation, operations are sorted and named once, no operation declares one
-of the runtime's reserved refusal codes, and every runtime requirement belongs
-to a declared implementation. `registration_from_distribution(distribution)`
+of the runtime's reserved refusal codes or serves a `workspace.` capability,
+every runtime requirement belongs to a declared implementation, and `declares`
+is exactly the closure the operations reach (below). `registration_from_distribution(distribution)`
 locates the descriptor through installed wheel metadata and additionally checks
 the package name, version, extras, and that the `cruxible.providers` entry
 points are exactly the registered operations (one per operation, named by it).
 Neither function installs, authorizes, or accepts a provider.
 
-The registration names Contracts by `name@N` and carries no digests: the
-install pins each to the version accepted at its base, and a Line binds one
-exact `{build, operation}`. The bodies travel either with a kit or with the
-package itself: a package that ships them puts each under
-`src/<module>/contracts/<name>/v<N>.json` as the exact accepted-tree member Core
-stores at `contracts/<name>/v<N>.json` (canonical JSON, every nested pin
-carrying its digest), and the operator accepts them as ordinary members before
-installing. `cruxible-provider-web` ships all of its Contracts this way
-(`cruxible_provider_web.contract_members()`, rendered by
-`scripts/render_web_contracts.py`). An operation's
+Each operation says what it does (`description`, leading with the verb), where
+its code is (`source`: the module's path from the repository root and the
+repository; a build may add the full commit id as `revision`), and which
+capabilities it implements (`serves`: capability names, no versions, sorted, at
+most 16). A capability is the stored, versioned promise a Procedure slot names;
+core binds a slot to an operation that serves the capability's name and whose
+own Contracts fit it, checked when a Line is accepted. Capabilities under
+`workspace.` are served only by core's builtin, and a package naming one is
+refused. `may_truncate: true` says the operation may return a truncated
+listing, so it binds only a slot that allows that.
+
+The registration names Contracts by `name@N` and carries their bodies itself:
+`declares.contracts` holds a full `cruxible-contract-v1` document for every
+Contract the operations reach (their input, output and refusal Contracts and,
+transitively, every Contract those pin, each nested pin with its digest);
+`declares.capture_kinds` holds every CaptureKind a `capture<K>` names, with its
+decoding and layout (and the Contracts a layout's rows and rule types name);
+`declares.built_against` records which capability and kind versions the copies
+were made from. Nothing more is carried, and nothing is installed as instance
+state: an install reads the copies from the package and needs no kit.
+`write_registration(package_root, contracts=..., capture_kinds=...,
+built_against=...)` rewrites `declares` to exactly that closure and refreshes
+the manifest digest; `scripts/render_web_contracts.py` and
+`scripts/render_noop_contracts.py` build their packages' Contracts with Core's
+own model and write them this way (`--check` reports drift). An operation's
 `refusals` are its whole refusal vocabulary, each with a detail Contract; there
 is no shared decline vocabulary, and the runtime's own closed codes are
 reserved for runtime conditions. An operation's `effect` (`pure`,
-`external_read`, `external_mutation`) is declared once, there; the manifest no
-longer repeats it. Runtime resource requirements, such as Playwright's browser
+`external_read`, `external_mutation`) is declared once, there; the manifest
+does not repeat it. Runtime resource requirements, such as Playwright's browser
 executable, are declared separately from Python extras and must not be reported
 ready merely because a wheel exists.
 
+Three packages are not on schema 3 yet: `cruxible-provider-docs` and
+`cruxible-provider-quant` name Contracts that exist nowhere (they are outside
+the release set until their Contracts are written), and
+`cruxible-provider-workspace` serves only `workspace.file`, which core's builtin
+serves. The runtime refuses their registrations, and their suites run as
+expected failures until they move.
+
 The cross-repository check accepts `CRUXIBLE_CORE_PYTHON`; the built-wheel check
 accepts `CRUXIBLE_PROVIDER_WHEEL_DIR`. These are explicit test inputs, not developer
-paths. Run `tests/test_package_registration.py` with them to read every package
-through Core's own schema-2 reader and descriptors from built distributions.
+paths. Run `tests/test_package_registration.py` with them to hold every schema-3
+registration to core's own model and registration law, and to read descriptors
+from built distributions.
 
 ### Test packages carry no `__init__.py`
 
