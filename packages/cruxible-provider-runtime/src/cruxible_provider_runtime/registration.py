@@ -105,10 +105,32 @@ _FIELD_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _KIND_NAME_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,255}$")
 #: Field types that pin one Contract under ``contract``.
 _PINNING_TYPES = frozenset({"contract", "record", "result", "refusal"})
-#: In a layout rule's type spelling: quoted text (skipped), ``name@N`` and ``capture<K>``.
-_QUOTED_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
-_SPELLED_REF_RE = re.compile(r"(?<![A-Za-z0-9_.-])([a-z][a-z0-9_.-]{0,127})@([1-9][0-9]{0,8})")
-_SPELLED_KIND_RE = re.compile(r"capture<\s*([a-z][a-z0-9_.-]{0,255})\s*>")
+#: Core's type-spelling tokens (``cruxible_client.contracts.shapes._Spelling``), whitespace
+#: between tokens included: a quoted string, a number, ``..``, a name, or a symbol.
+_TYPE_TOKEN_RE = re.compile(
+    r'\s*(?:(?P<str>"(?:[^"\\]|\\.)*")|(?P<num>-?[0-9]+(?:\.[0-9]+)?)'
+    r"|(?P<range>\.\.)|(?P<name>[A-Za-z_][A-Za-z0-9_.\-]*)|(?P<sym>[<>{}\[\],:@?|=*]))"
+)
+#: Core's limit on how deeply one type spelling nests.
+MAX_TYPE_DEPTH = 16
+#: Type names core refuses in a spelling (``shapes.REFUSED_TYPE_NAMES``).
+_REFUSED_TYPE_NAMES = frozenset(
+    {
+        "json",
+        "object",
+        "map",
+        "dict",
+        "any",
+        "claim",
+        "claims",
+        "claim_ref",
+        "statement",
+        "role",
+        "predicate",
+        "revises",
+        "retires",
+    }
+)
 
 
 class _Strict(BaseModel):
@@ -449,13 +471,186 @@ def _type_names(declared: Mapping[str, Any]) -> Iterator[ContractRef | str]:
             yield str(name)
 
 
-def _spelled_names(spelling: str) -> Iterator[ContractRef | str]:
-    """The ``name@N`` Contracts and ``capture<K>`` kinds a type spelling names."""
+class _TypeSpelling:
+    """Core's reader for one type spelling, collecting what it names.
 
-    bare = _QUOTED_RE.sub('""', spelling)
-    for name, version in _SPELLED_REF_RE.findall(bare):
-        yield ContractRef(name=name, version=int(version))
-    yield from _SPELLED_KIND_RE.findall(bare)
+    The same tokens and the same grammar as core's ``parse_type``, so legal
+    whitespace (``demo.dep @ 1``) reads as core reads it and a quoted string
+    names nothing. Only the Contracts (``name@N``) and CaptureKinds
+    (``capture<K>``) are kept; a spelling core cannot read is a ``ValueError``.
+    """
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.tokens: list[tuple[str, str]] = []
+        self.index = 0
+        self.names: list[ContractRef | str] = []
+        position = 0
+        while position < len(text):
+            match = _TYPE_TOKEN_RE.match(text, position)
+            if match is None or match.end() == position:
+                if text[position:].strip() == "":
+                    break
+                raise ValueError(f"cannot read the type {text!r} at {position}")
+            group = match.lastgroup
+            assert group is not None
+            self.tokens.append((group, match.group(group)))
+            position = match.end()
+
+    def peek(self) -> tuple[str, str] | None:
+        return self.tokens[self.index] if self.index < len(self.tokens) else None
+
+    def take(self, kind: str | None = None, value: str | None = None) -> tuple[str, str]:
+        token = self.peek()
+        if (
+            token is None
+            or (kind is not None and token[0] != kind)
+            or (value is not None and token[1] != value)
+        ):
+            raise ValueError(f"the type {self.text!r} expected {value or kind or 'a token'}")
+        self.index += 1
+        return token
+
+    def at(self, symbol: str) -> bool:
+        return self.peek() == ("sym", symbol)
+
+    def ref(self, name: str) -> None:
+        self.take("sym", "@")
+        _kind, version = self.take("num")
+        if not version.isdigit():
+            raise ValueError(f"a Contract version is a positive integer, not {version!r}")
+        self.names.append(ContractRef(name=name, version=int(version)))
+
+    def literal(self) -> None:
+        if self.take()[0] not in ("str", "name", "num"):
+            raise ValueError(f"the type {self.text!r} has an invalid enum member")
+
+    def refinement(self, keys: tuple[str, ...], *, numeric: bool, bare: bool = False) -> set[str]:
+        """Read one ``{...}`` refinement; return the keys it set."""
+
+        found: set[str] = set()
+        if not self.at("{"):
+            return found
+        self.take("sym", "{")
+        token = self.peek()
+        if numeric and token is not None and token[0] in ("num", "range"):
+            if bare:
+                self.take("num")
+                found.add(keys[0])
+            else:
+                if token[0] == "num":
+                    self.take("num")
+                    found.add("min")
+                self.take("range")
+                following = self.peek()
+                if following is not None and following[0] == "num":
+                    self.take("num")
+                    found.add("max")
+            self.take("sym", "}")
+            return found
+        while not self.at("}"):
+            _kind, key = self.take("name")
+            if key not in keys:
+                raise ValueError(f"the refinement {key!r} does not apply here")
+            if self.at(":"):
+                self.take("sym", ":")
+            else:
+                self.take("sym", "=")
+            if key == "pattern":
+                self.literal()
+            else:
+                self.take("num")
+            found.add(key)
+            if self.at(","):
+                self.take("sym", ",")
+        self.take("sym", "}")
+        return found
+
+    def read(self, depth: int = 0) -> None:
+        if depth > MAX_TYPE_DEPTH:
+            raise ValueError("a field type nests too deeply")
+        _kind, name = self.take("name")
+        if name.lower() in _REFUSED_TYPE_NAMES:
+            raise ValueError(f"the field type {name!r} is refused")
+        if self.at("@"):
+            self.ref(name)
+        elif name == "string":
+            self.refinement(("pattern", "min_len", "max_len"), numeric=False)
+        elif name in ("int", "decimal", "number"):
+            self.refinement(("min", "max"), numeric=True)
+        elif name in ("bool", "date", "datetime", "duration"):
+            pass
+        elif name == "enum":
+            self.take("sym", "[")
+            self.literal()
+            while self.at(","):
+                self.take("sym", ",")
+                self.literal()
+            self.take("sym", "]")
+        elif name == "enum_of":
+            if self.at(":"):
+                self.take("sym", ":")
+            self.take("name")
+        elif name == "list":
+            self.take("sym", "<")
+            self.read(depth + 1)
+            self.take("sym", ">")
+            if not self.at("{"):
+                raise ValueError("a list type requires max_items: list<T>{max_items: N}")
+            if "max_items" not in self.refinement(("max_items",), numeric=True, bare=True):
+                raise ValueError("a list type requires max_items")
+        elif name == "variant":
+            self.take("sym", "{")
+            while True:
+                self.take("name")
+                self.take("sym", ":")
+                self.ref(self.take("name")[1])
+                if not self.at(","):
+                    break
+                self.take("sym", ",")
+            self.take("sym", "}")
+        elif name == "key_part":
+            self.take("sym", "<")
+            self.take("name")
+            self.take("sym", ":")
+            self.take("name")
+            self.take("sym", ">")
+        elif name == "subject":
+            self.take("sym", "<")
+            self.take("name")
+            while self.at("|"):
+                self.take("sym", "|")
+                self.take("name")
+            self.take("sym", ">")
+        elif name in ("key", "capture"):
+            self.take("sym", "<")
+            if name == "capture" and self.at("*"):
+                self.take("sym", "*")
+            else:
+                target = self.take("name")[1]
+                if name == "capture":
+                    self.names.append(target)
+            self.take("sym", ">")
+        elif name == "field_result":
+            self.take("sym", "<")
+            self.read(depth + 1)
+            self.take("sym", ">")
+        elif name in ("record", "result", "refusal"):
+            self.take("sym", "<")
+            self.ref(self.take("name")[1])
+            self.take("sym", ">")
+        else:
+            raise ValueError(f"unknown field type {name!r}")
+
+
+def _spelled_names(spelling: str) -> list[ContractRef | str]:
+    """The Contracts and CaptureKinds one type spelling names, read as core reads it."""
+
+    reader = _TypeSpelling(spelling)
+    reader.read()
+    if reader.peek() is not None:
+        raise ValueError(f"the type {spelling!r} has trailing text")
+    return reader.names
 
 
 def _layout_rules(layout: Mapping[str, Any]) -> Iterator[tuple[str, Mapping[str, Any]]]:
@@ -826,7 +1021,12 @@ def write_registration(
             for item in document.get("runtime_requirements", ())
         ),
     )
+    # The emitted closure is read back with the same type reader the loader
+    # uses, so the writer never leaves a file its own loader would refuse.
+    check_declares(registration.operations, registration.declares)
     rendered = render_registration(registration)
+    reread = PackageRegistration.model_validate(json.loads(rendered))
+    check_declares(reread.operations, reread.declares)
     if rendered == current:
         return True
     if not check:

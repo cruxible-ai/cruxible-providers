@@ -125,6 +125,65 @@ def test_a_quoted_pattern_in_a_rule_type_names_nothing() -> None:
     assert all(item.name != "a" for item in declares.contracts)
 
 
+def _spaced_kind(header_type: str) -> dict[str, Any]:
+    """``KIND`` with one more header field whose type is ``header_type``."""
+
+    layout = {**KIND["layout"], "header": {**KIND["layout"]["header"]}}
+    layout["header"]["extra"] = {"at": "/extra", "type": header_type}
+    return {**KIND, "layout": layout}
+
+
+SPACED_POOL = [*POOL, _contract("demo.dep"), _contract("demo.other")]
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "demo.dep @ 1",
+        "demo.dep@ 1",
+        "  demo.dep  @1 ",
+        "list< demo.dep @ 1 >{ max_items : 4 }",
+        "variant{ a : demo.dep @ 1 }",
+        "field_result < record < demo.dep @ 1 > >",
+    ],
+)
+def test_legal_whitespace_in_a_rule_type_still_names_the_contract(spelling: str) -> None:
+    """Core's tokens allow whitespace between ``name``, ``@`` and ``N``; so does the reader."""
+
+    declares = declared_closure([_operation()], SPACED_POOL, [_spaced_kind(spelling)])
+    names = {item.name for item in declares.contracts}
+    assert "demo.dep" in names and "demo.other" not in names
+    assert declares_problems([_operation()], declares) == []
+
+
+def test_a_spaced_capture_kind_in_a_rule_type_is_named() -> None:
+    raw = {"name": "demo.raw", "decoding": KIND["decoding"]}
+    declares = declared_closure([_operation()], POOL, [_spaced_kind("capture < demo.raw >"), raw])
+    assert [item.name for item in declares.capture_kinds] == ["demo.raw", "sample.rows"]
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        'string{pattern: "demo.dep @ 1"}',
+        'string{pattern: "x@1 capture<demo.raw>"}',
+        'enum["demo.dep@1", "b"]',
+    ],
+)
+def test_a_quoted_string_that_looks_like_a_ref_names_nothing(spelling: str) -> None:
+    declares = declared_closure([_operation()], SPACED_POOL, [_spaced_kind(spelling)])
+    assert "demo.dep" not in {item.name for item in declares.contracts}
+    assert [item.name for item in declares.capture_kinds] == ["sample.rows"]
+
+
+@pytest.mark.parametrize(
+    "spelling", ["demo.dep @", "json", "list<string>", "string{min: 1}", "int{5}", "nope"]
+)
+def test_a_rule_type_core_cannot_read_refuses(spelling: str) -> None:
+    with pytest.raises(ValueError):
+        declared_closure([_operation()], SPACED_POOL, [_spaced_kind(spelling)])
+
+
 def test_a_reached_contract_the_pool_lacks_refuses() -> None:
     pool = [item for item in POOL if item["name"] != "sample.value"]
     with pytest.raises(ValueError, match=r"names sample.value@1, which declares does not carry"):
@@ -295,6 +354,22 @@ def test_the_writer_fills_declares_and_the_manifest_digest(tmp_path: Path) -> No
     ]
     exported = bundle.export_document()
     assert exported["declares"] == json.loads(raw)["declares"]
+
+
+def test_the_writer_carries_a_contract_named_with_spaces_and_loads_it(tmp_path: Path) -> None:
+    """The reviewer's input: ``demo.dep @ 1`` in a header type survives write and load."""
+
+    root = _package(tmp_path)
+    write_registration(root, contracts=SPACED_POOL, capture_kinds=[_spaced_kind("demo.dep @ 1")])
+    bundle = load_registration(root)
+    assert "demo.dep" in {item.name for item in bundle.declares.contracts}
+    document = json.loads((root / "registration.json").read_text())
+    document["declares"]["contracts"] = [
+        item for item in document["declares"]["contracts"] if item["name"] != "demo.dep"
+    ]
+    (root / "registration.json").write_text(json.dumps(document))
+    with pytest.raises(ValueError, match=r"header\.extra names demo\.dep@1"):
+        load_registration(root)
 
 
 def test_check_mode_reports_drift_and_writes_nothing(tmp_path: Path) -> None:
