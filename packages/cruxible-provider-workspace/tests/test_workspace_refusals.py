@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import cruxible_provider_workspace
 import pytest
 import yaml
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
@@ -18,9 +17,9 @@ from cruxible_provider_runtime.binding import BindRequest, bind
 from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.manifest import BackendKind, load_manifest, manifest_digest
 from cruxible_provider_runtime.registry import StubRegistry
-from cruxible_provider_runtime.testing import FakeContainerDriver, register_package
+from cruxible_provider_runtime.testing import FakeContainerDriver
 
-from .conftest import MARKER_ENVIRONMENT, OPERATION, PROVIDER_ID
+from .conftest import MARKER_ENVIRONMENT, OPERATION, PROVIDER_ID, register
 
 
 def _request(
@@ -52,7 +51,7 @@ def _edited(manifest_path: Path, tmp_path: Path, edit: Any) -> Path:
 
 def _registry_for(payload: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    register_package(stub, payload, cruxible_provider_workspace.PACKAGE_ROOT)
+    register(stub, payload)
     return stub
 
 

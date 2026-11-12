@@ -15,7 +15,6 @@ by the stub the way an install pins it at its base.
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -47,8 +46,8 @@ from cruxible_provider_runtime.manifest import (
 )
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
-from cruxible_provider_runtime.registration import load_registration
-from cruxible_provider_runtime.registry import StubRegistry
+from cruxible_provider_runtime.registration import RegistrationBundle, load_registration
+from cruxible_provider_runtime.registry import AcceptedBuild, StubRegistry
 from cruxible_provider_runtime.resolution import (
     MarkerEnvironment,
     ResolvedSet,
@@ -59,7 +58,6 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
-    register_package,
 )
 
 PACKAGE_DIR = Path(cruxible_provider_quant.__file__).resolve().parent.parent.parent
@@ -188,7 +186,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    register_package(stub, accepted_artifact, cruxible_provider_quant.PACKAGE_ROOT)
+    register(stub, accepted_artifact)
     return stub
 
 
@@ -307,7 +305,7 @@ def run_in_process(
 
     from cruxible_provider_quant import MANIFEST_PATH
 
-    declared = load_registration(cruxible_provider_quant.PACKAGE_ROOT).operation(operation)
+    declared = package_registration().operation(operation)
     implementation = load_manifest(MANIFEST_PATH).implementation(declared.entrypoint)
     context = ProviderRunContext(
         run_id="run-in-process",
@@ -358,28 +356,23 @@ REGISTRATION_PENDING = (
 )
 
 
-def _registration_pending() -> bool:
-    registration = cruxible_provider_quant.PACKAGE_ROOT / "registration.json"
-    return bool(json.loads(registration.read_bytes()).get("schema_version") != 3)
+def package_registration() -> RegistrationBundle:
+    """The package's registration, read the way an install reads it.
 
-
-#: These modules read the registration as they are imported.
-collect_ignore = (
-    ["test_registration_stability.py", "test_refusals.py"] if _registration_pending() else []
-)
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """While the registration is not schema 3, this package's tests are expected failures.
-
-    Nearly every test binds through the package's registration. The marker lifts
-    by itself once the registration moves to schema 3.
+    While it is still schema 2, which the runtime refuses, the test that needs
+    it is an expected failure for exactly that reason; any other problem fails.
+    Tests that never read the registration are not touched.
     """
 
-    if not _registration_pending():
-        return
-    here = Path(__file__).resolve().parent
-    marker = pytest.mark.xfail(reason=REGISTRATION_PENDING, strict=False)
-    for item in items:
-        if item.path.is_relative_to(here):
-            item.add_marker(marker)
+    try:
+        return load_registration(cruxible_provider_quant.PACKAGE_ROOT)
+    except ValueError as exc:
+        if "is not read; schema 3" in str(exc):
+            pytest.xfail(REGISTRATION_PENDING)
+        raise
+
+
+def register(registry: StubRegistry, payload: ProviderArtifactPayload) -> AcceptedBuild:
+    """``register_package`` through :func:`package_registration`."""
+
+    return registry.register_provider(payload, package_registration().operations)

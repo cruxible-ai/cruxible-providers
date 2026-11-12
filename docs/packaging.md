@@ -308,8 +308,9 @@ Three packages are not on schema 3 yet: `cruxible-provider-docs` and
 `cruxible-provider-quant` name Contracts that exist nowhere (they are outside
 the release set until their Contracts are written), and
 `cruxible-provider-workspace` serves only `workspace.file`, which core's builtin
-serves. The runtime refuses their registrations, and their suites run as
-expected failures until they move.
+serves. The runtime refuses their registrations; each suite reads it through one
+helper that marks a test an expected failure for exactly that refusal, and every
+test that does not read the registration runs as usual.
 
 The cross-repository check accepts `CRUXIBLE_CORE_PYTHON`; the built-wheel check
 accepts `CRUXIBLE_PROVIDER_WHEEL_DIR`. These are explicit test inputs, not developer

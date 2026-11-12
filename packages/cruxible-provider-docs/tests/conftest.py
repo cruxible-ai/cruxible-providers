@@ -18,7 +18,6 @@ Nothing here needs a network, a tensor stack, or a container engine.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import cruxible_provider_docs
@@ -37,7 +36,8 @@ from cruxible_provider_runtime.digests import materialization_digest
 from cruxible_provider_runtime.egress import write_child_guard
 from cruxible_provider_runtime.index import ArtifactFetcher, IndexConfig
 from cruxible_provider_runtime.manifest import ProviderManifest, load_manifest, manifest_digest
-from cruxible_provider_runtime.registry import StubRegistry
+from cruxible_provider_runtime.registration import RegistrationBundle, load_registration
+from cruxible_provider_runtime.registry import AcceptedBuild, StubRegistry
 from cruxible_provider_runtime.resolution import (
     ResolvedSet,
     environment_pin_key,
@@ -49,7 +49,6 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
-    register_package,
 )
 
 PACKAGE_DIR = Path(cruxible_provider_docs.__file__).resolve().parent.parent.parent
@@ -181,7 +180,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    register_package(stub, accepted_artifact, cruxible_provider_docs.PACKAGE_ROOT)
+    register(stub, accepted_artifact)
     return stub
 
 
@@ -241,22 +240,23 @@ REGISTRATION_PENDING = (
 )
 
 
-def _registration_pending() -> bool:
-    registration = cruxible_provider_docs.PACKAGE_ROOT / "registration.json"
-    return bool(json.loads(registration.read_bytes()).get("schema_version") != 3)
+def package_registration() -> RegistrationBundle:
+    """The package's registration, read the way an install reads it.
 
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """While the registration is not schema 3, this package's tests are expected failures.
-
-    Nearly every test binds through the package's registration. The marker lifts
-    by itself once the registration moves to schema 3.
+    While it is still schema 2, which the runtime refuses, the test that needs
+    it is an expected failure for exactly that reason; any other problem fails.
+    Tests that never read the registration are not touched.
     """
 
-    if not _registration_pending():
-        return
-    here = Path(__file__).resolve().parent
-    marker = pytest.mark.xfail(reason=REGISTRATION_PENDING, strict=False)
-    for item in items:
-        if item.path.is_relative_to(here):
-            item.add_marker(marker)
+    try:
+        return load_registration(cruxible_provider_docs.PACKAGE_ROOT)
+    except ValueError as exc:
+        if "is not read; schema 3" in str(exc):
+            pytest.xfail(REGISTRATION_PENDING)
+        raise
+
+
+def register(registry: StubRegistry, payload: ProviderArtifactPayload) -> AcceptedBuild:
+    """``register_package`` through :func:`package_registration`."""
+
+    return registry.register_provider(payload, package_registration().operations)

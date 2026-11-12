@@ -20,11 +20,9 @@ import pytest
 from cruxible_provider_quant import OPERATIONS
 from cruxible_provider_quant import refusals as refusals_module
 from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, ProviderManifest
-from cruxible_provider_runtime.registration import load_registration
 
-from .conftest import PACKAGE_DIR
+from .conftest import PACKAGE_DIR, package_registration
 
-BUNDLE = load_registration(cruxible_provider_quant.PACKAGE_ROOT)
 IDS = sorted(OPERATIONS)
 
 SHARED_REFUSALS = frozenset({"invalid_parameter", "non_finite_result"})
@@ -38,8 +36,8 @@ Every implementation runs under both.
 
 
 def test_the_registration_declares_exactly_these_operations() -> None:
-    assert [item.name for item in BUNDLE.operations] == IDS
-    assert BUNDLE.entry_points() == OPERATIONS
+    assert [item.name for item in package_registration().operations] == IDS
+    assert package_registration().entry_points() == OPERATIONS
 
 
 def test_the_manifest_version_tracks_the_package_version(manifest: ProviderManifest) -> None:
@@ -51,7 +49,7 @@ def test_the_entry_points_are_the_registered_operations() -> None:
 
     document = tomllib.loads((PACKAGE_DIR / "pyproject.toml").read_text(encoding="utf-8"))
     declared = document["project"]["entry-points"][ENTRYPOINT_GROUP]
-    assert declared == BUNDLE.entry_points()
+    assert declared == package_registration().entry_points()
 
 
 @pytest.mark.parametrize("operation", IDS)
@@ -60,7 +58,7 @@ def test_each_entrypoint_declares_the_operation_it_serves(
 ) -> None:
     """The check the child harness performs, performed here so it fails early."""
 
-    path = BUNDLE.operation(operation).entrypoint
+    path = package_registration().operation(operation).entrypoint
     assert manifest.implementation(path).entrypoint == path
     module_name, _, object_name = path.partition(":")
     target = getattr(importlib.import_module(module_name), object_name)()
@@ -70,7 +68,7 @@ def test_each_entrypoint_declares_the_operation_it_serves(
 
 @pytest.mark.parametrize("operation", IDS)
 def test_each_operation_is_pure(operation: str) -> None:
-    assert BUNDLE.operation(operation).effect == "pure"
+    assert package_registration().operation(operation).effect == "pure"
 
 
 @pytest.mark.parametrize("operation", IDS)
@@ -85,12 +83,12 @@ def test_each_operation_declares_exactly_the_refusals_its_implementation_returns
     ``decline(NAME, ...)`` call names its code.
     """
 
-    module_name = BUNDLE.operation(operation).entrypoint.partition(":")[0]
+    module_name = package_registration().operation(operation).entrypoint.partition(":")[0]
     source = Path(importlib.import_module(module_name).__file__ or "").read_text(encoding="utf-8")
     named = set(re.findall(r"decline\(\s*([A-Z_]+)", source))
     named |= set(re.findall(r"ProviderResult\.refused\(\s*([A-Z_]+)", source))
     returned = {getattr(refusals_module, name) for name in named} | SHARED_REFUSALS
-    declared = BUNDLE.operation(operation).refusals
+    declared = package_registration().operation(operation).refusals
     assert set(declared) == returned
     assert set(declared) <= set(refusals_module.QUANT_DECLINES) | set(
         refusals_module.INTEGRITY_REFUSALS
@@ -108,14 +106,14 @@ omit.
 
 @pytest.mark.parametrize("operation", IDS)
 def test_input_declines_are_absorbable_and_a_failed_computation_is_not(operation: str) -> None:
-    for code, refusal in BUNDLE.operation(operation).refusals.items():
+    for code, refusal in package_registration().operation(operation).refusals.items():
         assert refusal.absorbable is (code in ABSORBABLE), code
         assert refusal.contract.spelling == f"{operation}.refusal.{code}@1"
 
 
 @pytest.mark.parametrize("operation", IDS)
 def test_each_operation_names_its_contracts(operation: str) -> None:
-    declared = BUNDLE.operation(operation)
+    declared = package_registration().operation(operation)
     assert declared.in_.spelling == f"{operation}.request@1"
     assert declared.out.spelling == f"{operation}.result@1"
 

@@ -9,7 +9,8 @@ from pathlib import Path
 import cruxible_provider_docs
 from cruxible_provider_docs import DoclingToMarkdown, PaddleOcrExtract
 from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, ProviderManifest
-from cruxible_provider_runtime.registration import load_registration
+
+from .conftest import package_registration
 
 ENTRYPOINTS = {
     "doc.to_markdown": "cruxible_provider_docs.to_markdown:DoclingToMarkdown",
@@ -18,7 +19,7 @@ ENTRYPOINTS = {
 
 
 def _bundle():  # type: ignore[no-untyped-def]
-    return load_registration(cruxible_provider_docs.PACKAGE_ROOT)
+    return package_registration()
 
 
 def test_each_entrypoint_serves_the_operation_the_registration_names() -> None:

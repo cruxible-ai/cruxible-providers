@@ -7,16 +7,15 @@ from pathlib import Path
 
 import cruxible_provider_workspace
 from cruxible_provider_runtime.manifest import ENTRYPOINT_GROUP, load_manifest
-from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_workspace import file as adapter
 
-from .conftest import ENTRYPOINT, OPERATION, PACKAGE_DIR
+from .conftest import ENTRYPOINT, OPERATION, PACKAGE_DIR, package_registration
 
 
 def test_the_registration_declares_the_operation_core_seeds() -> None:
     """The same signature and refusals core's built-in port declares, by name."""
 
-    (operation,) = load_registration(cruxible_provider_workspace.PACKAGE_ROOT).operations
+    (operation,) = package_registration().operations
     assert operation.name == OPERATION
     assert operation.effect == "pure"
     assert operation.in_.spelling == "workspace.file.request@1"
@@ -41,7 +40,7 @@ def test_the_manifest_version_tracks_the_package_version(manifest_path: Path) ->
 def test_the_entry_points_are_the_registered_operations() -> None:
     pyproject = tomllib.loads((PACKAGE_DIR / "pyproject.toml").read_text(encoding="utf-8"))
     declared = pyproject["project"]["entry-points"][ENTRYPOINT_GROUP]
-    assert declared == load_registration(cruxible_provider_workspace.PACKAGE_ROOT).entry_points()
+    assert declared == package_registration().entry_points()
 
 
 def test_the_manifest_spells_the_pure_effect(manifest_path: Path) -> None:
