@@ -40,7 +40,6 @@ from cruxible_provider_runtime.digests import (  # noqa: E402
     materialization_digest,
 )
 from cruxible_provider_runtime.manifest import load_manifest, manifest_digest  # noqa: E402
-from cruxible_provider_runtime.registration import load_registration  # noqa: E402
 from cruxible_provider_runtime.resolution import (  # noqa: E402
     MarkerEnvironment,
     load_uv_lock,
@@ -64,14 +63,22 @@ def compute(repo: Path, package: str, wheel: Path) -> dict[str, Any]:
     lock = load_uv_lock(package_dir / "uv.lock")
     environments_path = repo / "ci" / "marker-environments.json"
 
-    operations = load_registration(manifest_path.parent).operations
+    # The operation names per entrypoint, read from the file rather than through
+    # load_registration: core's builtin port of the workspace package is this
+    # script's subject, and that package's registration is not schema 3 (it has
+    # no capability left to serve; ruling pending). The names are the same in
+    # every schema.
+    registration = json.loads((manifest_path.parent / "registration.json").read_bytes())
+    operations = [(item["name"], item["entrypoint"]) for item in registration["operations"]]
     implementations = []
     for implementation in manifest.implementations:
         implementations.append(
             {
                 "entrypoint": implementation.entrypoint,
                 "operations": [
-                    item.name for item in operations if item.entrypoint == implementation.entrypoint
+                    name
+                    for name, entrypoint in operations
+                    if entrypoint == implementation.entrypoint
                 ],
                 "requires_extras": list(implementation.requires_extras),
                 "implementation_digest": implementation_digest(
