@@ -32,6 +32,9 @@ MANIFEST: dict[str, Any] = {
 ECHO = ProviderOperation.model_validate(
     {
         "name": "sample.echo",
+        "description": "Echoes its input.",
+        "source": {"path": "src/sample_provider/impl.py"},
+        "serves": ["sample.echo"],
         "in": "sample.echo.request@1",
         "out": "sample.echo.result@1",
         "effect": "pure",

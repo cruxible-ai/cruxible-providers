@@ -28,7 +28,7 @@ dependencies = [
   # The runtime and nothing else. The adapter is a base64 decode, a UTF-8
   # decode, and a digest; a dependency here would be a dependency in the seed
   # bundle's materialization pin, for no work it does.
-  "cruxible-provider-runtime>=0.4.0",
+  "cruxible-provider-runtime>=0.5.0",
 ]
 
 [project.urls]

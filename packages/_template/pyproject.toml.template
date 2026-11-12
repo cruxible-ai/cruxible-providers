@@ -26,8 +26,8 @@ classifiers = [
 ]
 dependencies = [
   # The protocol-2.0 runtime. A lower one cannot read this package's schema-2
-  # manifest and registration or run its operations.
-  "cruxible-provider-runtime>=0.4.0",
+  # manifest and schema-3 registration or run its operations.
+  "cruxible-provider-runtime>=0.5.0",
   # Plane dependencies go here. Every one of them enters this package's
   # materialization digest and nothing else's. Keep this list LIGHT: it is what
   # the default conformance lane installs, and it must not contain an engine.

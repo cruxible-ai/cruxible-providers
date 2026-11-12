@@ -1,7 +1,8 @@
 """Support library for Cruxible provider packages.
 
 A provider is one Python package with its own committed lock, a package-side
-manifest, a registration declaring its typed operations, and one or more
+manifest, a registration declaring its typed operations (the capabilities each
+serves, and copies of the shapes each accepts and returns), and one or more
 entrypoints serving them. This library is what makes such a package bindable: it
 owns the manifest, registration and protocol schemas (protocol 2.0: a run names
 one operation of one build), both identity digests, lock resolution, the
@@ -10,8 +11,8 @@ with, the materialization cache, secret delivery, budget enforcement, egress
 instrumentation, and the runtime's own closed refusal codes that keep every path
 fail-closed.
 
-It does **not** own governance. The Provider build artifact, the Contracts an
-operation names, and Line bindings live in core; this package ships schemas and
+It does **not** own governance. The Provider build artifact, the capabilities,
+the fit of an operation to a slot, and Line bindings live in core; this package ships schemas and
 a conformance harness against a stub registry. See
 ``docs/core-integration-seam.md``.
 """
@@ -60,7 +61,12 @@ from .manifest import ProviderManifest, load_manifest, manifest_digest
 from .operations import ContractRef, ProviderOperation, operation_signature_digest
 from .protocol import PROTOCOL_VERSION, Budgets, ResultEnvelope, RunContext
 from .provider_api import Provider, ProviderResult, ProviderRunContext, ProviderStatus
-from .registration import RegistrationBundle, load_registration
+from .registration import (
+    ProviderDeclares,
+    RegistrationBundle,
+    load_registration,
+    write_registration,
+)
 from .registry import AcceptedBuild, StubRegistry
 from .resolution import (
     MarkerEnvironment,
@@ -73,7 +79,7 @@ from .resolution import (
 if TYPE_CHECKING:  # pragma: no cover - resolved lazily at runtime, see __getattr__
     from .container_entry import SECRET_CHANNEL_FD, container_secret_channel
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "DYNAMIC_ENDPOINT_FORMS",
@@ -98,6 +104,7 @@ __all__ = [
     "ProcessOutcome",
     "Provider",
     "ProviderArtifactPayload",
+    "ProviderDeclares",
     "ProviderErrorPayload",
     "ProviderManifest",
     "ProviderOperation",
@@ -137,6 +144,7 @@ __all__ = [
     "run_with_budget",
     "verify_environment",
     "write_child_guard",
+    "write_registration",
 ]
 
 _SHIM_EXPORTS = frozenset({"SECRET_CHANNEL_FD", "container_secret_channel"})

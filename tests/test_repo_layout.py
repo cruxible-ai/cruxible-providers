@@ -364,7 +364,7 @@ PROVIDER_PYPROJECTS = [
 def test_every_provider_requires_the_protocol_2_runtime(pyproject: Path) -> None:
     """A provider that admits an older runtime admits one that cannot run it.
 
-    The floor is the runtime's own minor line: a schema-2 registration and a
+    The floor is the runtime's own minor line: a schema-3 registration and a
     protocol-2.0 operation need exactly the runtime that reads them. The
     template is held to the same floor, because a package copied from it
     inherits the requirement.
