@@ -37,7 +37,7 @@ from cruxible_provider_runtime.testing import (
     assert_payload_verbatim,
     captured_members,
 )
-from cruxible_provider_web import PACKAGE_ROOT, contract_members
+from cruxible_provider_web import PACKAGE_ROOT
 from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.pages import WebFetchPages
@@ -48,8 +48,8 @@ from cruxible_provider_web.search import SearxngSearch
 from .test_web_secrets import _context
 
 SHIPPED = {
-    (document["name"], document["version"]): document
-    for document in (json.loads(body) for body in contract_members().values())
+    (item.name, item.version): item.model_dump(mode="json")
+    for item in load_registration(PACKAGE_ROOT).declares.contracts
 }
 
 

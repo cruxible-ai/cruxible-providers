@@ -1,18 +1,24 @@
 #!/usr/bin/env python
-"""Write the Contracts the web plane's operations pin, as Core accepts them.
+"""Write the Contracts the web plane's operations carry into its registration.
 
-``cruxible-provider-web`` ships the bodies of every Contract its registration
-names -- each operation's input and output, every declared refusal's detail --
-and of the nested Contracts those pin. Each file is the exact accepted-tree
-member Core stores at ``contracts/<name>/v<N>.json`` (canonical JSON, every
-nested pin carrying its digest), so an operator accepts them as ordinary members
-before installing the package, and the install pins its operations to them.
+``cruxible-provider-web`` carries a copy of every Contract its operations reach
+-- each operation's input and output, every declared refusal's detail, and the
+nested Contracts those pin -- in the ``declares`` block of its
+``registration.json`` (registration schema 3). Each copy is the full
+``cruxible-contract-v1`` document Core's own model renders (every nested pin
+carrying its digest). The copies are the package's own: an install reads them
+from the registration and needs no kit and no accepted instance Contract.
 
-Rendering uses Core's own Contract model, so this script runs in an interpreter
-that has ``cruxible_client`` (Core's environment)::
+Rendering uses Core's Contract model and writes through this repository's
+runtime (``write_registration``), so this script runs in an interpreter that has
+``cruxible_client`` (Core's environment)::
 
     "$CRUXIBLE_CORE_PYTHON" scripts/render_web_contracts.py          # rewrite
     "$CRUXIBLE_CORE_PYTHON" scripts/render_web_contracts.py --check  # exit 1 on drift
+
+The operations themselves (description, source, serves, refusals) are written
+by hand in ``registration.json``; this script owns only ``declares`` and the
+manifest digest.
 
 The definitions below are derived from the adapters' code: the request fields
 ``FetchRequest.parse`` / ``_query`` (fetch), ``pages._paging`` (fetch.pages),
@@ -21,18 +27,23 @@ The definitions below are derived from the adapters' code: the request fields
 shared acquisition result ``cruxible_provider_runtime.acquisition`` builds and
 the HTTP coordinate every operation passes it (``coordinate.http_coordinate``),
 and the detail keys of every refusal each operation raises. An optional field is an absent key;
-``null`` is never valid.
+``null`` is never valid. The results are today's wire shape (the whole result is
+Capture wire); the every-Capture-is-a-field change rewrites them.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TARGET = REPO_ROOT / "packages/cruxible-provider-web/src/cruxible_provider_web/contracts"
+#: This checkout's runtime, ahead of any installed copy (Core's environment may hold one).
+sys.path.insert(0, str(REPO_ROOT / "packages/cruxible-provider-runtime/src"))
+TARGET = REPO_ROOT / "packages/cruxible-provider-web/src/cruxible_provider_web"
+"""The package directory whose ``registration.json`` carries the Contracts."""
 
 SHA256 = 'string{pattern: "^sha256:[0-9a-f]{64}$"}'
 LOGICAL_NAME = 'string{pattern: "^[a-z][a-z0-9_.-]{0,255}$"}'
@@ -448,8 +459,8 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
 }
 
 
-def render(definitions: dict[str, dict[str, Any]] | None = None) -> dict[str, bytes]:
-    """Every Contract's relative path under ``contracts/`` to its canonical bytes.
+def render(definitions: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Every Contract as the document Core renders, nested pins digested.
 
     ``definitions`` defaults to the web plane's; another package's script passes
     its own (nested Contracts before the Contracts that pin them).
@@ -458,7 +469,6 @@ def render(definitions: dict[str, dict[str, Any]] | None = None) -> dict[str, by
     from cruxible_client.contracts.shapes import (
         Contract,
         contract_digest,
-        contract_path,
         pin_contract_refs,
         render_contract,
     )
@@ -471,48 +481,37 @@ def render(definitions: dict[str, dict[str, Any]] | None = None) -> dict[str, by
             raise SystemExit(f"{ref.spelling} is pinned before it is defined")
         return ref.model_copy(update={"digest": contract_digest(target).tagged})
 
-    files: dict[str, bytes] = {}
+    documents: list[dict[str, Any]] = []
     for name, definition in (DEFINITIONS if definitions is None else definitions).items():
         contract = pin_contract_refs(
             Contract.model_validate({"name": name, "version": 1, **definition}), pin
         )
         rendered[name] = contract
-        path = contract_path(name, 1)
-        files[path.removeprefix("contracts/")] = render_contract(contract)
-    return files
+        documents.append(json.loads(render_contract(contract)))
+    return documents
 
 
 def write(
-    target: Path,
-    files: dict[str, bytes],
+    package: Path,
+    contracts: list[dict[str, Any]],
     *,
     check: bool,
     script: str,
 ) -> int:
-    """Rewrite ``target`` to exactly ``files`` (or, with ``check``, report drift)."""
+    """Rewrite ``package``'s registration ``declares`` from ``contracts`` (or report drift)."""
 
-    present = {
-        str(path.relative_to(target)): path.read_bytes() for path in sorted(target.rglob("*.json"))
-    }
-    if check:
-        if present != files:
-            print(f"Contracts drifted under {target}; run {script}", file=sys.stderr)
-            return 1
-        return 0
-    for stale in set(present) - set(files):
-        (target / stale).unlink()
-        if not any((target / stale).parent.iterdir()):
-            (target / stale).parent.rmdir()
-    for relative, content in files.items():
-        path = target / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(content)
+    from cruxible_provider_runtime.registration import write_registration
+
+    current = write_registration(package, contracts=contracts, check=check)
+    if check and not current:
+        print(f"{package / 'registration.json'} drifted; run {script}", file=sys.stderr)
+        return 1
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true", help="exit 1 if the files drifted")
+    parser.add_argument("--check", action="store_true", help="exit 1 if the file drifted")
     args = parser.parse_args(argv)
     return write(TARGET, render(), check=args.check, script="scripts/render_web_contracts.py")
 

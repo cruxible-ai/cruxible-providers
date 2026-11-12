@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Write the Contracts the reference provider's operations pin, as Core accepts them.
+"""Write the Contracts the reference provider's operations carry into its registration.
 
-``cruxible-provider-noop`` ships the bodies of every Contract its registration
-names under ``contracts/`` (``contract_members``), as the web plane does, so the
-reference operations install from the package alone. ``noop.echo``'s four are
-exactly the ones Core's installer tests accept today (no descriptions), so their
-digests do not move; ``noop.captures``'s are new. Runs in Core's interpreter,
-like ``scripts/render_web_contracts.py``::
+``cruxible-provider-noop`` carries a copy of every Contract its operations reach
+in the ``declares`` block of its ``registration.json`` (registration schema 3),
+as the web plane does, so the reference operations install from the package
+alone. ``noop.echo``'s four are exactly the ones Core's installer tests use (no
+descriptions), so their digests do not move. Runs in Core's interpreter, like
+``scripts/render_web_contracts.py``::
 
     "$CRUXIBLE_CORE_PYTHON" scripts/render_noop_contracts.py          # rewrite
     "$CRUXIBLE_CORE_PYTHON" scripts/render_noop_contracts.py --check  # exit 1 on drift
@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.render_web_contracts import render, write  # noqa: E402
 
-TARGET = REPO_ROOT / "packages/cruxible-provider-noop/src/cruxible_provider_noop/contracts"
+TARGET = REPO_ROOT / "packages/cruxible-provider-noop/src/cruxible_provider_noop"
 
 #: ``captures.MAX_FILES``.
 MAX_FILES = 16
@@ -77,7 +77,7 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true", help="exit 1 if the files drifted")
+    parser.add_argument("--check", action="store_true", help="exit 1 if the file drifted")
     args = parser.parse_args(argv)
     return write(
         TARGET, render(DEFINITIONS), check=args.check, script="scripts/render_noop_contracts.py"

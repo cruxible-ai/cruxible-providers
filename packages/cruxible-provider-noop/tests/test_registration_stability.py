@@ -34,14 +34,29 @@ def test_the_registration_declares_what_each_entrypoint_serves() -> None:
     assert captures.entrypoint == "cruxible_provider_noop.captures:NoopCaptures"
 
 
-def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None:
+def test_the_package_carries_exactly_the_contracts_its_operations_name() -> None:
+    """No noop Contract pins another, so the closure is the seven the operations name."""
+
     bundle = load_registration(cruxible_provider_noop.PACKAGE_ROOT)
     named = {
-        f"contracts/{ref.name}/v{ref.version}.json"
+        (ref.name, ref.version)
         for operation in bundle.operations
         for ref in operation.contract_refs()
     }
-    assert set(cruxible_provider_noop.contract_members()) == named
+    assert {(item.name, item.version) for item in bundle.declares.contracts} == named
+    assert len(named) == 7
+    assert not bundle.declares.capture_kinds and not bundle.declares.built_against
+
+
+def test_each_operation_serves_its_own_capability_and_names_its_source() -> None:
+    bundle = load_registration(cruxible_provider_noop.PACKAGE_ROOT)
+    for operation in bundle.operations:
+        assert operation.serves == (operation.name,)
+        module = operation.entrypoint.split(":")[0]
+        assert operation.source.path == (
+            "packages/cruxible-provider-noop/src/" + module.replace(".", "/") + ".py"
+        )
+        assert operation.source.repository == "https://github.com/cruxible-ai/cruxible-providers"
 
 
 def test_the_manifest_version_tracks_the_package_version(manifest_path: Path) -> None:

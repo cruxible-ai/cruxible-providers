@@ -54,14 +54,14 @@ cannot — which is the only version of that property worth testing.
 
 ## The operations
 
-`registration.json` declares `noop.echo`: `noop.echo.request@1` in,
-`noop.echo.result@1` out, effect `pure`, and two refusals, `provider_declined`
-and `credential_missing`, each with its detail Contract (named `name@N`; the
-install pins them). The entrypoint `cruxible_provider_noop.provider:NoopEcho`
+`registration.json` (schema 3) declares `noop.echo`, serving the capability
+`noop.echo`: `noop.echo.request@1` in, `noop.echo.result@1` out, effect `pure`,
+and two refusals, `provider_declined` and `credential_missing`, each with its
+detail Contract (named `name@N`). The entrypoint `cruxible_provider_noop.provider:NoopEcho`
 declares `operations = ("noop.echo",)`, and the harness refuses a run naming any
 other operation (`undeclared_operation`).
 
-It also declares `noop.captures` (`noop.captures.request@1` in,
+It also declares `noop.captures` (serving `noop.captures`; `noop.captures.request@1` in,
 `noop.captures.result@1` out, effect `pure`, one refusal, `provider_declined`),
 served by `cruxible_provider_noop.captures:NoopCaptures`. It is the reference
 for the list-of-Captures form: the run names up to 16 of the files shipped in
@@ -69,9 +69,8 @@ for the list-of-Captures form: the run names up to 16 of the files shipped in
 field, with its own coordinate.
 
 The manifest has one row per entrypoint: both backends, zero declared
-endpoints, deterministic. The package ships the bodies of its Contracts under
-`src/cruxible_provider_noop/contracts/`, rendered by
-`scripts/render_noop_contracts.py`.
+endpoints, deterministic. The registration carries a copy of each of its seven
+Contracts in `declares`, written by `scripts/render_noop_contracts.py`.
 
 The implementation digest is `cruxible.provider.implementation.v2` over the
 entrypoint and the distribution's sha256; the run's operation, its signature

@@ -20,10 +20,11 @@ import httpx
 import pytest
 from cruxible_provider_runtime.egress import EgressRecorder
 from cruxible_provider_runtime.errors import Declined
+from cruxible_provider_runtime.operations import ContractRef
 from cruxible_provider_runtime.provider_api import ProviderResult
 from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_runtime.testing import assert_payload_verbatim, captured_members
-from cruxible_provider_web import PACKAGE_ROOT, contract_members
+from cruxible_provider_web import PACKAGE_ROOT
 from cruxible_provider_web.fetch import (
     MAX_URL_LENGTH,
     WebFetch,
@@ -43,10 +44,10 @@ EPSS = "https://api.first.org/data/v1/epss"
 #: once comma-joined.
 WATCHED = [f"CVE-{2000 + index // 100}-{10000 + index * 37:05d}" for index in range(600)]
 
-OUT = next(
-    json.loads(body)
-    for path, body in contract_members().items()
-    if path == "contracts/web.fetch.pages.result/v1.json"
+OUT = (
+    load_registration(PACKAGE_ROOT)
+    .contract(ContractRef.parse("web.fetch.pages.result@1"))
+    .model_dump(mode="json")
 )
 
 

@@ -1,11 +1,11 @@
-"""The Contracts this package ships are the ones its operations pin, and they hold.
+"""The Contracts this package carries are the ones its operations reach, and they hold.
 
-``registration.json`` names every Contract by ``name@N``; the package ships each
-body under ``contracts/`` as the exact member Core accepts. Three things are
-held here, in the default lane and without Core:
+``registration.json`` names every Contract by ``name@N`` and carries a copy of
+each in ``declares`` (registration schema 3). Three things are held here, in the
+default lane and without Core:
 
-* the set: every Contract the registration names is shipped, every nested pin
-  resolves to a shipped file by its exact digest, and nothing else is shipped;
+* the set: every Contract the operations name is carried, every nested pin
+  resolves to a carried copy by its exact digest, and nothing else is carried;
 * the outputs: what ``web.fetch``, ``web.fetch.pages``, ``search.web``,
   ``web.render`` and ``web.render.dom`` actually return, on the packaged
   recordings, is exactly their result Contract (a ``capture<K>`` input, or a
@@ -24,12 +24,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import re
 import sys
 from collections.abc import Mapping
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -37,8 +35,8 @@ import pytest
 from cruxible_provider_runtime.canonical import canonical_json
 from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_runtime.provider_api import ProviderResult
-from cruxible_provider_runtime.registration import load_registration
-from cruxible_provider_web import CONTRACTS_DIR, PACKAGE_ROOT, contract_members
+from cruxible_provider_runtime.registration import load_registration, render_registration
+from cruxible_provider_web import PACKAGE_ROOT
 from cruxible_provider_web.addresses import ADDRESS_CLASSES, AddressGuard
 from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.fetch import MAX_RESPONSE_BYTES, WebFetch
@@ -74,12 +72,10 @@ def _has_trafilatura() -> bool:
 
 
 def _contracts() -> dict[tuple[str, int], dict[str, Any]]:
-    found = {}
-    for path, content in contract_members().items():
-        document = json.loads(content)
-        assert path == f"contracts/{document['name']}/v{document['version']}.json"
-        found[(document["name"], document["version"])] = document
-    return found
+    return {
+        (item.name, item.version): item.model_dump(mode="json")
+        for item in load_registration(PACKAGE_ROOT).declares.contracts
+    }
 
 
 CONTRACTS = _contracts()
@@ -230,7 +226,7 @@ def _redirect(location: str) -> httpx.Response:
 # -- the set ---------------------------------------------------------------
 
 
-def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None:
+def test_the_package_carries_exactly_the_contracts_its_operations_reach() -> None:
     registration = load_registration(PACKAGE_ROOT)
     named = {
         (ref.name, ref.version)
@@ -261,17 +257,14 @@ def test_the_private_address_detail_names_every_class_the_guard_can_return(
     assert set(members) == set(ADDRESS_CLASSES)
 
 
-def test_every_shipped_file_is_canonical_and_lives_at_its_tree_path() -> None:
-    for path in CONTRACTS_DIR.rglob("*.json"):
-        content = path.read_bytes()
-        document = json.loads(content)
-        assert path.relative_to(CONTRACTS_DIR) == Path(
-            document["name"], f"v{document['version']}.json"
-        )
+def test_every_carried_copy_is_a_first_version_and_the_file_is_as_written() -> None:
+    for document in CONTRACTS.values():
         assert document["artifact_format"] == "cruxible-contract-v1"
         assert document["version"] == 1 and "predecessor_digest" not in document
-        rendered = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        assert content == rendered.encode("utf-8")
+    registration = load_registration(PACKAGE_ROOT)
+    assert (PACKAGE_ROOT / "registration.json").read_bytes() == render_registration(
+        registration.descriptor
+    )
 
 
 def test_the_empty_selector_and_detail_are_zero_field_contracts() -> None:

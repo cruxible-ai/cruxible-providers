@@ -12,10 +12,9 @@ engine — a browser — lives behind the ``browser`` extra, which the
 ``web.render.dom`` implementation's manifest row declares and the resolver
 materializes into that implementation's environment and no other.
 
-The package also ships the bodies of every Contract its operations pin, under
-``contracts/`` (``contract_members``): each file is the accepted-tree member an
-operator accepts before installing the package, and the install pins the
-operations to them.
+Each operation serves the base kit capability of its name (``search.web``
+serves ``web.search``), and the registration carries a copy of every Contract
+the operations reach (``declares``), so the package installs with no kit.
 """
 
 from __future__ import annotations
@@ -36,32 +35,14 @@ from .recordings import FIXTURE_HOST, load_recordings
 from .render import WebRender
 from .search import SearxngSearch
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = PACKAGE_ROOT / "manifest.yaml"
 CONTAINER_DIR = PACKAGE_ROOT.parent.parent / "container"
-CONTRACTS_DIR = PACKAGE_ROOT / "contracts"
-"""Each Contract at ``<name>/v<N>.json``, exactly as Core stores it under ``contracts/``."""
-
-
-def contract_members() -> dict[str, bytes]:
-    """The accepted-tree members of every Contract this package's operations pin.
-
-    Keyed by tree path (``contracts/<name>/v<N>.json``), valued by the exact
-    canonical bytes: an operator proposes these as members, unchanged, before
-    installing the package.
-    """
-
-    return {
-        f"contracts/{path.relative_to(CONTRACTS_DIR).as_posix()}": path.read_bytes()
-        for path in sorted(CONTRACTS_DIR.rglob("*.json"))
-    }
-
 
 __all__ = [
     "CONTAINER_DIR",
-    "CONTRACTS_DIR",
     "FETCH_OPERATION",
     "FETCH_PAGES_OPERATION",
     "FIXTURE_HOST",
@@ -76,6 +57,5 @@ __all__ = [
     "WebRender",
     "WebRenderDom",
     "__version__",
-    "contract_members",
     "load_recordings",
 ]

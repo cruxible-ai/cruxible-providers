@@ -9,7 +9,6 @@ byte-identical, and the whole loop runs through a real child on both backends.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import cruxible_provider_noop
@@ -26,6 +25,7 @@ from cruxible_provider_runtime.binding import BindRequest, bind
 from cruxible_provider_runtime.egress import EgressRecorder, no_network
 from cruxible_provider_runtime.execute import invoke
 from cruxible_provider_runtime.manifest import BackendKind
+from cruxible_provider_runtime.operations import ContractRef
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
 from cruxible_provider_runtime.registration import load_registration
@@ -36,8 +36,10 @@ from .conftest import MARKER_ENVIRONMENT
 
 BUDGETS = Budgets(wall_clock_seconds=30.0, output_bytes=4_000_000)
 FILES = ["gamma.txt", "alpha.json", "beta.csv"]
-OUT = json.loads(
-    cruxible_provider_noop.contract_members()["contracts/noop.captures.result/v1.json"]
+OUT = (
+    load_registration(cruxible_provider_noop.PACKAGE_ROOT)
+    .contract(ContractRef.parse("noop.captures.result@1"))
+    .model_dump(mode="json")
 )
 
 

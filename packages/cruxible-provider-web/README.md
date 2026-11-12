@@ -24,9 +24,9 @@ exactly what each one checks.
 What gets installed: the base package needs `httpx` and `httpcore` (to make
 requests) and `trafilatura` (to pull main text out of HTML). The one optional
 extra, `browser`, adds Playwright; it is only for `web.render.dom`, and the
-Chromium browser itself is a separate download. The package also ships the 38
-**Contract** files its operations use; a Contract is the declared shape of an
-input or output, and Cruxible must accept these before the package installs.
+Chromium browser itself is a separate download. The package also carries the
+38 **Contracts** its operations use (a Contract is the declared shape of an
+input or output) inside its registration, so it installs without a kit.
 
 You do not need this package if nothing you run reads from the web.
 
@@ -50,15 +50,11 @@ Operators install it into a daemon by name, through a governed install:
 in the repository README. The umbrella `cruxible-providers[web]` exists for
 developers.
 
-**Installing by name works only where this package's Contracts are already
-accepted.** Each operation uses Contracts (the declared shapes of its input,
-output and refusals), and an instance must have accepted every one of them
-before it will install the package; a kit that uses web accepts them. So the
-usual way to get this package is to add a kit that uses it (`cruxible kit add`),
-and the kit installs it. On an instance without them, the install refuses with
-"cruxible-provider-web cannot be installed here yet: N of the M Contract
-versions its operations use are not accepted on this instance", and names the
-same remedy: add a kit that uses this provider.
+**The package carries its own Contracts.** Each operation's Contracts (the
+declared shapes of its input, output and refusals) travel in the package's
+registration, so it installs on an instance with no kit. Each operation serves
+the base kit capability of the same name (`search.web` serves `web.search`);
+whether it fits a Procedure's slot is checked when a Line binds it.
 
 ## The base install is light
 
@@ -319,31 +315,32 @@ it.
 
 ## Operations and their refusals
 
-`registration.json` declares all five operations (runtime protocol 2.0). Each names
-its input and output Contracts by `name@N` — the install pins them to the
-versions accepted at its base — and declares the typed refusals it may return,
-each with a detail Contract:
+`registration.json` (schema 3) declares all five operations (runtime protocol
+2.0). Each says what it does and where its code is, names the base kit
+capability it serves, names its input and output Contracts by `name@N`, and
+declares the typed refusals it may return, each with a detail Contract:
 
-| Operation | In | Out | Effect | Refusals |
-|---|---|---|---|---|
-| `search.web` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
-| `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `private_or_internal_address` |
-| `web.fetch.pages` | `web.fetch.pages.request@1` | `web.fetch.pages.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `private_or_internal_address` |
-| `web.render` | `web.render.request@1` | `web.render.result@1` | `pure` | `provider_declined` (absorbable) |
-| `web.render.dom` | `web.render.dom.request@1` | `web.render.dom.result@1` | `external_read` | `provider_declined` (absorbable), `engine_unavailable`, `private_or_internal_address` |
+| Operation | Serves | In | Out | Effect | Refusals |
+|---|---|---|---|---|---|
+| `search.web` | `web.search` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
+| `web.fetch` | `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `private_or_internal_address` |
+| `web.fetch.pages` | `web.fetch.pages` | `web.fetch.pages.request@1` | `web.fetch.pages.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `private_or_internal_address` |
+| `web.render` | `web.render` | `web.render.request@1` | `web.render.result@1` | `pure` | `provider_declined` (absorbable) |
+| `web.render.dom` | `web.render.dom` | `web.render.dom.request@1` | `web.render.dom.result@1` | `external_read` | `provider_declined` (absorbable), `engine_unavailable`, `private_or_internal_address` |
 
-This package ships the bodies of all thirty-one, and of the seven nested
+The registration carries a copy of all thirty-one, and of the seven nested
 Contracts they pin (`web.capture.coordinate@1` with `web.capture.headers@1` and
 `web.capture.page@1`, the zero-field `web.capture.selector@1`,
 `web.capture.source_effective_time@1`, `web.fetch.query_param@1`, and
-`web.fetch.pages.failure@1`), under
-[`src/cruxible_provider_web/contracts/<name>/v1.json`](https://github.com/cruxible-ai/cruxible-providers/tree/main/packages/cruxible-provider-web/src/cruxible_provider_web/contracts).
-Each file is the exact
-member Core accepts at `contracts/<name>/v1.json`; accept
-`cruxible_provider_web.contract_members()` before installing the package.
+`web.fetch.pages.failure@1`), in its `declares` block. An install reads them
+from the package; no kit and no accepted instance Contract is needed. The
+results are still today's wire shape (the whole result is Capture wire); they
+become a `capture` field per Capture before release, and then they fit the base
+kit's capabilities.
 [`scripts/render_web_contracts.py`](https://github.com/cruxible-ai/cruxible-providers/blob/main/scripts/render_web_contracts.py)
 renders them from definitions derived from the
-adapters' code, with Core's Contract model. Optional fields are absent keys,
+adapters' code, with Core's Contract model, and writes them into the
+registration. Optional fields are absent keys,
 never `null`: the shared result omits `source_effective_time` when the adapter
 states no validity window, and a refusal detail omits what it cannot name.
 
