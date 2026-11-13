@@ -8,7 +8,7 @@ name: publish
 #
 # Only the packages in PUBLISHABLE below can be published, by tag or by hand.
 # The others are held back: docs and quant do not ship their Contracts yet,
-# workspace is built into Cruxible, noop is a test package, and the umbrella
+# noop is a test package, and the umbrella
 # waits for the packages it names. Add a name to both lists to release it.
 #
 # Wheels only. An install by name materializes the exact wheel and the lock it

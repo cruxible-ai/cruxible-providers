@@ -22,12 +22,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from cruxible_provider_quant import OPERATIONS, PACKAGE_ROOT
+from cruxible_provider_quant import OPERATIONS
 from cruxible_provider_runtime.canonical import canonical_json
 from cruxible_provider_runtime.manifest import ProviderManifest
-from cruxible_provider_runtime.registration import load_registration
 
-from .conftest import run_in_process
+from .conftest import package_registration, run_in_process
 from .fixtures import FIXTURES
 
 IDS = [fixture.fixture_id for fixture in FIXTURES]
@@ -209,7 +208,7 @@ def test_every_implementation_declares_itself_deterministic_and_pure(
     assert {impl.entrypoint for impl in manifest.implementations} == set(OPERATIONS.values())
     for implementation in manifest.implementations:
         assert implementation.deterministic is True
-    for operation in load_registration(PACKAGE_ROOT).operations:
+    for operation in package_registration().operations:
         assert operation.effect == "pure", operation.name
 
 

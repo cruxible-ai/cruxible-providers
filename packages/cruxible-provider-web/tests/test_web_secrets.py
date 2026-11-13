@@ -116,7 +116,7 @@ def test_a_run_served_by_a_real_transport_is_not_labelled_as_a_replay() -> None:
     )
     assert result.status == "ok"
     assert result.output is not None
-    assert result.output["coordinate"]["source"] == "network"
+    assert result.output["response"]["coordinate"]["source"] == "network"
     assert not [event for event in result.events if event.get("kind") == "packaged_recording"]
 
 
@@ -134,7 +134,7 @@ def test_the_credential_reaches_neither_the_output_nor_the_trace() -> None:
     rendered = repr(result.output) + repr(result.events) + repr(result.metrics)
     assert CREDENTIAL not in rendered
     assert result.output is not None
-    assert CREDENTIAL.encode() not in base64.b64decode(result.output["content_base64"])
+    assert CREDENTIAL.encode() not in base64.b64decode(result.output["response"]["content_base64"])
 
 
 def test_explicit_static_declaration_still_refuses_a_different_service() -> None:
@@ -185,7 +185,7 @@ def test_the_recorded_parameters_are_the_ones_actually_submitted() -> None:
         )
     )
     assert result.output is not None
-    assert result.output["coordinate"]["url"] == client.urls[0]
+    assert result.output["response"]["coordinate"]["url"] == client.urls[0]
     assert "time_range=day" in client.urls[0]
 
 

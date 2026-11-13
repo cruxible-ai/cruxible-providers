@@ -1,16 +1,16 @@
-"""The Contracts this package ships are the ones its operations pin, and they hold.
+"""The Contracts this package carries are the ones its operations reach, and they hold.
 
-``registration.json`` names every Contract by ``name@N``; the package ships each
-body under ``contracts/`` as the exact member Core accepts. Three things are
-held here, in the default lane and without Core:
+``registration.json`` names every Contract by ``name@N`` and carries a copy of
+each in ``declares`` (registration schema 3). Three things are held here, in the
+default lane and without Core:
 
-* the set: every Contract the registration names is shipped, every nested pin
-  resolves to a shipped file by its exact digest, and nothing else is shipped;
+* the set: every Contract the operations name is carried, every nested pin
+  resolves to a carried copy by its exact digest, and nothing else is carried;
 * the outputs: what ``web.fetch``, ``web.fetch.pages``, ``search.web``,
   ``web.render`` and ``web.render.dom`` actually return, on the packaged
-  recordings, is exactly their result Contract (a ``capture<K>`` input, or a
-  ``list<capture<K>>`` member, is checked in the digest form the Contract types;
-  the Capture wire itself travels outside it);
+  recordings, is exactly their result Contract (every Capture is a named
+  ``capture<K>`` field or a ``list<capture<K>>`` member, checked in the digest
+  form the Contract types; the Capture's wire travels in that field);
 * the refusals: every refusal each operation declares, produced by driving the
   adapter into it, carries a detail that is exactly its detail Contract.
 
@@ -24,12 +24,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import re
 import sys
 from collections.abc import Mapping
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -37,8 +35,8 @@ import pytest
 from cruxible_provider_runtime.canonical import canonical_json
 from cruxible_provider_runtime.errors import Declined
 from cruxible_provider_runtime.provider_api import ProviderResult
-from cruxible_provider_runtime.registration import load_registration
-from cruxible_provider_web import CONTRACTS_DIR, PACKAGE_ROOT, contract_members
+from cruxible_provider_runtime.registration import load_registration, render_registration
+from cruxible_provider_web import PACKAGE_ROOT
 from cruxible_provider_web.addresses import ADDRESS_CLASSES, AddressGuard
 from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.fetch import MAX_RESPONSE_BYTES, WebFetch
@@ -74,12 +72,10 @@ def _has_trafilatura() -> bool:
 
 
 def _contracts() -> dict[tuple[str, int], dict[str, Any]]:
-    found = {}
-    for path, content in contract_members().items():
-        document = json.loads(content)
-        assert path == f"contracts/{document['name']}/v{document['version']}.json"
-        found[(document["name"], document["version"])] = document
-    return found
+    return {
+        (item.name, item.version): item.model_dump(mode="json")
+        for item in load_registration(PACKAGE_ROOT).declares.contracts
+    }
 
 
 CONTRACTS = _contracts()
@@ -230,7 +226,7 @@ def _redirect(location: str) -> httpx.Response:
 # -- the set ---------------------------------------------------------------
 
 
-def test_the_package_ships_exactly_the_contracts_its_registration_pins() -> None:
+def test_the_package_carries_exactly_the_contracts_its_operations_reach() -> None:
     registration = load_registration(PACKAGE_ROOT)
     named = {
         (ref.name, ref.version)
@@ -261,26 +257,37 @@ def test_the_private_address_detail_names_every_class_the_guard_can_return(
     assert set(members) == set(ADDRESS_CLASSES)
 
 
-def test_every_shipped_file_is_canonical_and_lives_at_its_tree_path() -> None:
-    for path in CONTRACTS_DIR.rglob("*.json"):
-        content = path.read_bytes()
-        document = json.loads(content)
-        assert path.relative_to(CONTRACTS_DIR) == Path(
-            document["name"], f"v{document['version']}.json"
-        )
+def test_every_carried_copy_is_a_first_version_and_the_file_is_as_written() -> None:
+    for document in CONTRACTS.values():
         assert document["artifact_format"] == "cruxible-contract-v1"
         assert document["version"] == 1 and "predecessor_digest" not in document
-        rendered = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        assert content == rendered.encode("utf-8")
+    registration = load_registration(PACKAGE_ROOT)
+    assert (PACKAGE_ROOT / "registration.json").read_bytes() == render_registration(
+        registration.descriptor
+    )
 
 
-def test_the_empty_selector_and_detail_are_zero_field_contracts() -> None:
-    assert CONTRACTS[("web.capture.selector", 1)]["fields"] == {}
-    assert CONTRACTS[("search.web.refusal.provider_declined", 1)]["fields"] == {}
-    assert _problems({}, CONTRACTS[("web.capture.selector", 1)]) == []
-    assert _problems({"part": "body"}, CONTRACTS[("web.capture.selector", 1)]) == [
-        "/part: undeclared field"
-    ]
+def test_the_empty_detail_is_a_zero_field_contract() -> None:
+    detail = CONTRACTS[("search.web.refusal.provider_declined", 1)]
+    assert detail["fields"] == {}
+    assert _problems({}, detail) == []
+    assert _problems({"part": "body"}, detail) == ["/part: undeclared field"]
+
+
+@pytest.mark.parametrize(
+    ("operation", "field"),
+    [
+        ("web.fetch", "capture"),
+        ("web.render", "capture"),
+        ("web.render.dom", "capture"),
+        ("search.web", "response"),
+    ],
+)
+def test_a_one_capture_result_is_one_named_capture_field(operation: str, field: str) -> None:
+    """A Capture is a named field of the result Contract, never the result itself."""
+
+    out = CONTRACTS[_spelling(_operation(operation).out.spelling)]
+    assert out["fields"] == {field: {"type": {"kind": "capture", "capture_kind": "*"}}}
 
 
 # -- the outputs -----------------------------------------------------------
@@ -306,8 +313,8 @@ def test_fetch_outputs_are_exactly_the_result_contract(payload: dict[str, Any]) 
     _conforms(payload, _operation("web.fetch").in_.spelling)
     result = WebFetch()(_context("web.fetch", input=payload))
     assert result.status == "ok", result
-    assert "source_effective_time" not in result.output
-    _conforms(result.output, _operation("web.fetch").out.spelling)
+    assert "source_effective_time" not in result.output["capture"]
+    _conforms(_typed(result.output), _operation("web.fetch").out.spelling)
 
 
 PAGES_QUERY = [
@@ -320,6 +327,12 @@ def _pages_typed(output: Mapping[str, Any]) -> dict[str, Any]:
     """A pages result as its Contract types it: each Capture member is its digest."""
 
     return {**output, "captures": [member["bytes_digest"] for member in output["captures"]]}
+
+
+def _typed(output: Mapping[str, Any]) -> dict[str, Any]:
+    """A one-Capture result as its Contract types it: the Capture field is its digest."""
+
+    return {name: wire["bytes_digest"] for name, wire in output.items()}
 
 
 @pytest.mark.parametrize("max_url_chars", [None, 160], ids=["one-page", "pages"])
@@ -370,7 +383,7 @@ def _fetched_wire(url: str) -> dict[str, Any]:
 
     fetched = WebFetch()(_context("web.fetch", input={"url": url}))
     assert fetched.status == "ok", fetched
-    return dict(fetched.output)
+    return dict(fetched.output["capture"])
 
 
 def _render_payload(form: str, url: str) -> dict[str, Any]:
@@ -392,8 +405,8 @@ def test_render_output_is_exactly_the_result_contract(form: str) -> None:
     _conforms(_as_typed(payload), _operation("web.render").in_.spelling)
     result = WebRender()(_context("web.render", input=payload))
     assert result.status == "ok", result
-    assert "source_effective_time" not in result.output
-    _conforms(result.output, _operation("web.render").out.spelling)
+    assert "source_effective_time" not in result.output["capture"]
+    _conforms(_typed(result.output), _operation("web.render").out.spelling)
 
 
 def test_dom_output_is_exactly_the_result_contract() -> None:
@@ -401,8 +414,8 @@ def test_dom_output_is_exactly_the_result_contract() -> None:
     _conforms(payload, _operation("web.render.dom").in_.spelling)
     result = WebRenderDom()(_context("web.render.dom", input=payload))
     assert result.status == "ok", result
-    assert "source_effective_time" not in result.output
-    _conforms(result.output, _operation("web.render.dom").out.spelling)
+    assert "source_effective_time" not in result.output["capture"]
+    _conforms(_typed(result.output), _operation("web.render.dom").out.spelling)
 
 
 def test_search_output_is_exactly_the_result_contract() -> None:
@@ -417,8 +430,8 @@ def test_search_output_is_exactly_the_result_contract() -> None:
         )
     )
     assert result.status == "ok", result
-    assert "source_effective_time" not in result.output
-    _conforms(result.output, _operation("search.web").out.spelling)
+    assert "source_effective_time" not in result.output["response"]
+    _conforms(_typed(result.output), _operation("search.web").out.spelling)
 
 
 def test_the_request_contracts_refuse_what_the_adapters_decline() -> None:

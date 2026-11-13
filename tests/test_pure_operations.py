@@ -23,6 +23,7 @@ import base64
 import hashlib
 import importlib
 import importlib.util
+import json
 import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -36,7 +37,6 @@ from cruxible_provider_runtime.egress import EgressRecorder, no_network
 from cruxible_provider_runtime.manifest import load_manifest
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
-from cruxible_provider_runtime.registration import load_registration
 
 ROOT = Path(__file__).resolve().parents[1]
 BUDGETS = Budgets(wall_clock_seconds=60.0, output_bytes=8_000_000)
@@ -44,16 +44,23 @@ REGISTRATIONS = sorted(ROOT.glob("packages/*/src/*/registration.json"))
 
 
 def _pure_operations() -> dict[str, tuple[str, tuple[str, ...]]]:
-    """Every pure operation: its entrypoint and its implementation's declared endpoints."""
+    """Every pure operation: its entrypoint and its implementation's declared endpoints.
+
+    Read from each file's ``operations`` directly rather than through
+    ``load_registration``: purity is a property of the code, and two packages
+    whose registrations are not schema 3 yet (``tests/test_package_registration.py``
+    ``PENDING``) still declare pure operations that must hold it.
+    """
 
     found: dict[str, tuple[str, tuple[str, ...]]] = {}
     for descriptor in REGISTRATIONS:
-        bundle = load_registration(descriptor.parent)
+        operations = json.loads(descriptor.read_bytes())["operations"]
         manifest = load_manifest(descriptor.parent / "manifest.yaml")
-        for operation in bundle.operations:
-            if operation.effect == "pure":
-                declared = manifest.implementation(operation.entrypoint).declared_endpoints
-                found[operation.name] = (operation.entrypoint, declared)
+        for operation in operations:
+            if operation["effect"] == "pure":
+                entrypoint = operation["entrypoint"]
+                declared = manifest.implementation(entrypoint).declared_endpoints
+                found[operation["name"]] = (entrypoint, declared)
     return found
 
 
@@ -117,18 +124,6 @@ def _web_source() -> dict[str, Any]:
     )
 
 
-def _workspace_input() -> dict[str, Any]:
-    data = b"alpha\nbeta\r\ngamma\n"
-    return {
-        "logical_source": "notes/readings.md",
-        "commitment_digest": "sha256:" + "c0" * 32,
-        "content_encoding": "base64",
-        "bytes": base64.b64encode(data).decode("ascii"),
-        "byte_length": len(data),
-        "bytes_digest": "sha256:" + hashlib.sha256(data).hexdigest(),
-    }
-
-
 def _docs_inputs() -> list[tuple[str, str, dict[str, Any]]]:
     csv = b"reach,nitrate_mg_l\nUpper,4.1\nLower,9.2\n"
     from cruxible_provider_docs.recordings import load_recordings
@@ -168,7 +163,6 @@ def _cases() -> dict[str, list[tuple[str, Callable[[], dict[str, Any]]]]]:
     cases: dict[str, list[tuple[str, Callable[[], dict[str, Any]]]]] = {
         "noop.echo": [("echo", lambda: {"mode": "echo", "text": "tide"})],
         "noop.captures": [("two-files", lambda: {"files": ["gamma.txt", "alpha.json"]})],
-        "workspace.file": [("text", _workspace_input)],
     }
     if importlib.util.find_spec("trafilatura") is not None:
         cases["web.render"] = [

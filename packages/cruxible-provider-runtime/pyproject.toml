@@ -1,6 +1,6 @@
 [project]
 name = "cruxible-provider-runtime"
-version = "0.4.0"
+version = "0.5.0"
 description = "The library every Cruxible provider package builds on: manifest, registration and protocol schemas, identity digests, install-time retrieval of locked wheels from pinned indexes, the sealed environment cache, secret delivery, run budgets and egress recording."
 readme = "README.md"
 requires-python = ">=3.11"

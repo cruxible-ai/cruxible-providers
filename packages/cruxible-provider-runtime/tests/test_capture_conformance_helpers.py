@@ -14,7 +14,9 @@ from cruxible_provider_runtime.testing import assert_payload_verbatim, captured_
 
 OBSERVED = datetime(2026, 11, 4, tzinfo=UTC)
 KINDS = {"source_identity": "test.source", "coordinate_type": "test-v1", "selector_type": "all-v1"}
-WHOLE = {"fields": {"content_base64": {"type": {"kind": "string"}}}}
+ONE = {"fields": {"capture": {"type": {"kind": "capture", "capture_kind": "*"}}}}
+#: An out Contract that spells the wire as its own fields: no Capture field, no Capture.
+SPELLED = {"fields": {"content_base64": {"type": {"kind": "string"}}}}
 LISTED = {
     "fields": {
         "captures": {
@@ -33,9 +35,13 @@ def _wire(content: bytes, coordinate: object) -> dict[str, object]:
     return external_capture_result(content, coordinate=coordinate, observed_at=OBSERVED, **KINDS)
 
 
-def test_a_whole_wire_output_is_one_capture() -> None:
-    (member,) = captured_members(_wire(b"body", {"n": 1}), WHOLE)
+def test_a_capture_field_is_one_capture() -> None:
+    (member,) = captured_members({"capture": _wire(b"body", {"n": 1})}, ONE)
     assert (member.at, member.stored, member.coordinate) == ("capture", b"body", {"n": 1})
+
+
+def test_a_capture_is_never_the_whole_output() -> None:
+    assert captured_members(_wire(b"body", {"n": 1}), SPELLED) == []
 
 
 def test_a_list_field_is_one_capture_per_member_in_order() -> None:
@@ -56,7 +62,7 @@ def test_a_list_field_is_one_capture_per_member_in_order() -> None:
 def test_a_wrapped_payload_or_a_shared_coordinate_fails() -> None:
     wrapped = json.dumps({"retrieved": {"body_base64": "eA=="}}).encode()
     with pytest.raises(AssertionError, match="wrapper keys"):
-        assert_payload_verbatim(captured_members(_wire(wrapped, {"n": 1}), WHOLE))
+        assert_payload_verbatim(captured_members({"capture": _wire(wrapped, {"n": 1})}, ONE))
     shared = {"captures": [_wire(b"one", {"n": 1}), _wire(b"two", {"n": 1})], "count": 2}
     with pytest.raises(AssertionError, match="share one coordinate"):
         assert_payload_verbatim(captured_members(shared, LISTED))

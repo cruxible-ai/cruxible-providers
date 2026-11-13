@@ -1,8 +1,16 @@
-"""Package registration (schema 2) is complete without the monorepo or core.
+"""Package registration (schema 3) is complete without the monorepo or core.
 
-Every package ships one ``registration.json`` declaring its typed operations
-and naming its manifest by path and digest. Reading it imports no provider
-code; every cross-link between the two declarations is checked.
+Every package ships one ``registration.json`` declaring its operations (what
+each does, where its code is, the capabilities it serves, its Contracts), the
+copies of every shape they reach (``declares``), and its manifest by path and
+digest. Reading it imports no provider code; every cross-link is checked.
+
+Two packages are not schema 3 yet, each for a reason recorded in
+:data:`PENDING`; the runtime refuses them, and their own suites say so.
+
+With ``CRUXIBLE_CORE_PYTHON`` set to an interpreter that has core
+(``cruxible_client``), every schema-3 registration is also held to core's own
+model and registration law (:func:`test_every_registration_is_valid_under_cores_model`).
 """
 
 from __future__ import annotations
@@ -19,15 +27,49 @@ from zipfile import ZipFile
 
 import pytest
 from cruxible_provider_runtime.canonical import canonical_json
-from cruxible_provider_runtime.registration import load_registration
-from cruxible_provider_runtime.registry import stub_contract_digest
+from cruxible_provider_runtime.operations import ProviderOperation, operation_signature_digest
+from cruxible_provider_runtime.registration import (
+    declared_closure,
+    load_registration,
+    render_registration,
+    write_registration,
+)
 from cruxible_provider_runtime.wheels import wheel_registration
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = tuple(sorted(ROOT.glob("packages/*/src/*/registration.json")))
 
+_NO_CONTRACTS = (
+    "its operations name Contracts that exist nowhere, so it cannot carry them "
+    "(design note F4); out of the 0.5.0 publish set (Q5)"
+)
+#: Packages whose registration is not schema 3, and why. Moving one takes it off.
+PENDING = {
+    "cruxible_provider_docs": _NO_CONTRACTS,
+    "cruxible_provider_quant": _NO_CONTRACTS,
+}
+MOVED = tuple(path for path in PACKAGES if path.parent.name not in PENDING)
 
-@pytest.mark.parametrize("descriptor", PACKAGES, ids=lambda p: p.parent.name)
+
+def _schema(descriptor: Path) -> object:
+    return json.loads(descriptor.read_bytes()).get("schema_version")
+
+
+def test_the_pending_list_is_exactly_the_packages_not_yet_on_schema_3() -> None:
+    assert {path.parent.name for path in PACKAGES if _schema(path) != 3} == set(PENDING)
+
+
+@pytest.mark.parametrize(
+    "descriptor",
+    [path for path in PACKAGES if path.parent.name in PENDING],
+    ids=lambda p: p.parent.name,
+)
+def test_a_pending_registration_is_refused_as_not_schema_3(descriptor: Path) -> None:
+    with pytest.raises(ValueError, match="is not read; schema 3"):
+        load_registration(descriptor.parent)
+
+
+@pytest.mark.parametrize("descriptor", MOVED, ids=lambda p: p.parent.name)
 def test_package_metadata_is_self_contained(descriptor: Path, tmp_path: Path) -> None:
     package = tmp_path / descriptor.parent.name
     shutil.copytree(descriptor.parent, package)
@@ -35,11 +77,30 @@ def test_package_metadata_is_self_contained(descriptor: Path, tmp_path: Path) ->
     assert bundle.operations
     for operation in bundle.operations:
         assert operation.entrypoint in {item.entrypoint for item in bundle.manifest.implementations}
-        assert not operation.pinned, "a package names Contracts by name@N; the install pins them"
+        assert not operation.pinned, "operations name Contracts by name@N; the install pins them"
+        assert all(bundle.contract(ref) for ref in operation.contract_refs())
     assert bundle.manifest.supported_protocol_majors == (2,)
 
 
-@pytest.mark.parametrize("descriptor", PACKAGES, ids=lambda p: p.parent.name)
+@pytest.mark.parametrize("descriptor", MOVED, ids=lambda p: p.parent.name)
+def test_the_file_is_exactly_what_the_writer_renders(descriptor: Path) -> None:
+    """Field order, two-space indentation, one final newline: no hand-formatting drift."""
+
+    bundle = load_registration(descriptor.parent)
+    assert descriptor.read_bytes() == render_registration(bundle.descriptor)
+
+
+@pytest.mark.parametrize("descriptor", MOVED, ids=lambda p: p.parent.name)
+def test_every_operation_names_its_source_in_this_repository(descriptor: Path) -> None:
+    for operation in load_registration(descriptor.parent).operations:
+        module = operation.entrypoint.split(":")[0]
+        assert operation.source.repository == "https://github.com/cruxible-ai/cruxible-providers"
+        assert operation.source.revision is None, "a build stamps the revision; the source not"
+        assert (ROOT / operation.source.path).is_file()
+        assert operation.source.path.endswith("/src/" + module.replace(".", "/") + ".py")
+
+
+@pytest.mark.parametrize("descriptor", MOVED, ids=lambda p: p.parent.name)
 def test_every_entrypoint_declares_exactly_the_operations_registered_for_it(
     descriptor: Path,
 ) -> None:
@@ -55,7 +116,7 @@ def test_every_entrypoint_declares_exactly_the_operations_registered_for_it(
         assert sorted(declared) == registered
 
 
-@pytest.mark.parametrize("descriptor", PACKAGES, ids=lambda p: p.parent.name)
+@pytest.mark.parametrize("descriptor", MOVED, ids=lambda p: p.parent.name)
 def test_inspection_does_not_import_provider_code(
     descriptor: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -86,22 +147,36 @@ def _refresh_manifest(root: Path, document: dict[str, Any]) -> None:
     ref["digest"] = "sha256:" + hashlib.sha256((root / ref["path"]).read_bytes()).hexdigest()
 
 
+def _with_operations(document: dict[str, Any], operations: list[dict[str, Any]]) -> None:
+    """``document`` keeping only ``operations``, its ``declares`` cut to their closure."""
+
+    declares = declared_closure(
+        [ProviderOperation.model_validate(item) for item in operations],
+        document["declares"]["contracts"],
+        document["declares"].get("capture_kinds", ()),
+        document["declares"].get("built_against", ()),
+    )
+    document["operations"] = operations
+    document["declares"] = declares.model_dump(mode="json")
+
+
+def _copy(tmp_path: Path, name: str) -> Path:
+    source = next(p.parent for p in PACKAGES if p.parent.name == name)
+    target = tmp_path / name
+    shutil.copytree(source, target)
+    return target
+
+
 @pytest.fixture()
 def package_copy(tmp_path: Path) -> Path:
-    source = next(p.parent for p in PACKAGES if p.parent.name == "cruxible_provider_noop")
-    target = tmp_path / "package"
-    shutil.copytree(source, target)
-    return target
+    return _copy(tmp_path, "cruxible_provider_noop")
 
 
 @pytest.fixture()
-def docs_copy(tmp_path: Path) -> Path:
-    """A package with two entrypoints and a runtime requirement on each."""
+def web_copy(tmp_path: Path) -> Path:
+    """A package with five entrypoints and two runtime requirements on one of them."""
 
-    source = next(p.parent for p in PACKAGES if p.parent.name == "cruxible_provider_docs")
-    target = tmp_path / "docs"
-    shutil.copytree(source, target)
-    return target
+    return _copy(tmp_path, "cruxible_provider_web")
 
 
 def test_a_tampered_manifest_is_refused(package_copy: Path) -> None:
@@ -131,9 +206,9 @@ def test_a_symlink_escape_is_refused(package_copy: Path, tmp_path: Path) -> None
         load_registration(package_copy)
 
 
-@pytest.mark.parametrize("version", [1, 3, None])
-def test_only_schema_2_is_read(package_copy: Path, version: int | None) -> None:
-    """A schema-1 registration exported interfaces; it is refused as such."""
+@pytest.mark.parametrize("version", [1, 2, 4, None])
+def test_only_schema_3_is_read(package_copy: Path, version: int | None) -> None:
+    """Schema 2 named Contracts the instance had to hold; schema 1 exported interfaces."""
 
     document = _document(package_copy)
     if version is None:
@@ -141,19 +216,7 @@ def test_only_schema_2_is_read(package_copy: Path, version: int | None) -> None:
     else:
         document["schema_version"] = version
     _rewrite(package_copy, document)
-    with pytest.raises(ValueError, match="is not read"):
-        load_registration(package_copy)
-
-
-def test_a_schema_1_registration_is_refused_whole(package_copy: Path) -> None:
-    document = {
-        "schema_version": 1,
-        "manifest": _document(package_copy)["manifest"],
-        "interfaces": [{"interface_id": "noop.echo"}],
-        "runtime_requirements": [],
-    }
-    _rewrite(package_copy, document)
-    with pytest.raises(ValueError, match="schema 1"):
+    with pytest.raises(ValueError, match="is not read; schema 3"):
         load_registration(package_copy)
 
 
@@ -163,19 +226,60 @@ def test_duplicate_operations_and_unknown_fields_refuse(package_copy: Path) -> N
     _rewrite(package_copy, document)
     with pytest.raises(ValueError, match="sorted by name and each named once"):
         load_registration(package_copy)
-    document["operations"] = document["operations"][:1]
+    document["operations"] = document["operations"][:2]
     document["trust_me"] = True
     _rewrite(package_copy, document)
     with pytest.raises(ValueError, match="trust_me"):
         load_registration(package_copy)
 
 
-def test_operations_must_be_sorted(docs_copy: Path) -> None:
-    document = _document(docs_copy)
+def test_enumerates_is_refused(package_copy: Path) -> None:
+    document = _document(package_copy)
+    document["operations"][0]["enumerates"] = {
+        "capture": "captures",
+        "selector": "/*",
+        "fields": {"id": {"at": "id"}},
+    }
+    _rewrite(package_copy, document)
+    with pytest.raises(ValueError, match="enumerates"):
+        load_registration(package_copy)
+
+
+def test_a_package_serving_a_workspace_capability_is_refused(package_copy: Path) -> None:
+    document = _document(package_copy)
+    document["operations"][0]["serves"] = ["workspace.file"]
+    _rewrite(package_copy, document)
+    with pytest.raises(ValueError, match=r"`workspace\.file` is served by core"):
+        load_registration(package_copy)
+
+
+def test_declares_must_carry_every_contract_the_operations_reach(web_copy: Path) -> None:
+    document = _document(web_copy)
+    document["declares"]["contracts"] = [
+        item
+        for item in document["declares"]["contracts"]
+        if item["name"] != "web.fetch.query_param"
+    ]
+    _rewrite(web_copy, document)
+    with pytest.raises(ValueError, match=r"names web\.fetch\.query_param@1, which declares does n"):
+        load_registration(web_copy)
+
+
+def test_declares_may_not_carry_what_nothing_reaches(web_copy: Path) -> None:
+    document = _document(web_copy)
+    keep = [item for item in document["operations"] if item["name"] != "web.render"]
+    document["operations"] = keep
+    _rewrite(web_copy, document)
+    with pytest.raises(ValueError, match=r"web\.render\.request@1, which no operation"):
+        load_registration(web_copy)
+
+
+def test_operations_must_be_sorted(web_copy: Path) -> None:
+    document = _document(web_copy)
     document["operations"].reverse()
-    _rewrite(docs_copy, document)
+    _rewrite(web_copy, document)
     with pytest.raises(ValueError, match="sorted by name"):
-        load_registration(docs_copy)
+        load_registration(web_copy)
 
 
 def test_an_operation_naming_an_undeclared_entrypoint_refuses(package_copy: Path) -> None:
@@ -186,17 +290,14 @@ def test_an_operation_naming_an_undeclared_entrypoint_refuses(package_copy: Path
         load_registration(package_copy)
 
 
-def test_an_implementation_serving_no_operation_refuses(docs_copy: Path) -> None:
-    document = _document(docs_copy)
-    document["operations"] = document["operations"][:1]
-    document["runtime_requirements"] = [
-        item
-        for item in document["runtime_requirements"]
-        if item["entrypoint"] == document["operations"][0]["entrypoint"]
-    ]
-    _rewrite(docs_copy, document)
+def test_an_implementation_serving_no_operation_refuses(web_copy: Path) -> None:
+    document = _document(web_copy)
+    fetch = [item for item in document["operations"] if item["name"] == "web.fetch"]
+    _with_operations(document, fetch)
+    document["runtime_requirements"] = []
+    _rewrite(web_copy, document)
     with pytest.raises(ValueError, match="serves at least one operation"):
-        load_registration(docs_copy)
+        load_registration(web_copy)
 
 
 def test_one_entrypoint_may_serve_two_operations(package_copy: Path) -> None:
@@ -221,25 +322,25 @@ def test_an_operation_may_not_declare_a_runtime_refusal_code(package_copy: Path,
         load_registration(package_copy)
 
 
-def test_a_runtime_requirement_belongs_to_a_declared_implementation(docs_copy: Path) -> None:
-    document = _document(docs_copy)
-    document["runtime_requirements"][0]["entrypoint"] = "cruxible_provider_docs.x:Absent"
-    _rewrite(docs_copy, document)
+def test_a_runtime_requirement_belongs_to_a_declared_implementation(web_copy: Path) -> None:
+    document = _document(web_copy)
+    document["runtime_requirements"][0]["entrypoint"] = "cruxible_provider_web.x:Absent"
+    _rewrite(web_copy, document)
     with pytest.raises(ValueError, match="undeclared implementation"):
-        load_registration(docs_copy)
-    document["runtime_requirements"][0]["entrypoint"] = document["operations"][1]["entrypoint"]
-    _rewrite(docs_copy, document)
+        load_registration(web_copy)
+    document["runtime_requirements"][0]["entrypoint"] = "cruxible_provider_web.fetch:WebFetch"
+    _rewrite(web_copy, document)
     with pytest.raises(ValueError, match="undeclared extra"):
-        load_registration(docs_copy)
+        load_registration(web_copy)
 
 
-def test_a_runtime_requirement_is_keyed_by_entrypoint_not_interface(docs_copy: Path) -> None:
-    document = _document(docs_copy)
+def test_a_runtime_requirement_is_keyed_by_entrypoint_not_interface(web_copy: Path) -> None:
+    document = _document(web_copy)
     requirement = document["runtime_requirements"][0]
     requirement["interface_id"] = requirement.pop("entrypoint")
-    _rewrite(docs_copy, document)
+    _rewrite(web_copy, document)
     with pytest.raises(ValueError, match="interface_id"):
-        load_registration(docs_copy)
+        load_registration(web_copy)
 
 
 def test_a_manifest_edit_needs_the_registration_digest_refreshed(package_copy: Path) -> None:
@@ -262,172 +363,213 @@ def test_built_wheels_are_discoverable_without_imports() -> None:
     seen = set()
     for wheel in wheels:
         with ZipFile(wheel) as archive:
-            if not any(name.endswith("/registration.json") for name in archive.namelist()):
+            names = [name for name in archive.namelist() if name.endswith("/registration.json")]
+            if not names or json.loads(archive.read(names[0])).get("schema_version") != 3:
                 continue
         with wheel_registration(wheel) as bundle:
             seen.add(bundle.manifest.distribution.name)
-    assert seen == {load_registration(p.parent).manifest.distribution.name for p in PACKAGES}
+    assert seen == {load_registration(p.parent).manifest.distribution.name for p in MOVED}
 
 
-def test_exported_packages_lower_through_core_without_provider_imports() -> None:
-    """Core's own schema-2 reader, pinning and build lowering, in core's interpreter.
+# -- parity with core's model ------------------------------------------------------------------
 
-    Each package directory is read with ``read_package_registration``; every
-    Contract it names is pinned to the stub digest this repository uses; the
-    build is lowered and round-trips through core's Provider law; and core's
-    signature digest of every pinned operation equals this runtime's.
+
+def _core_python() -> str:
+    """The interpreter with core's model; required in CI, optional on a workstation.
+
+    CI's ``core-parity`` lane checks core out at a pinned commit and sets
+    ``CRUXIBLE_CORE_PYTHON``. When ``CI`` is set and the variable is not, the
+    lane lost its prerequisite, and that is a failure rather than a skip.
     """
 
     core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
-    if not core_python:
-        pytest.skip("set CRUXIBLE_CORE_PYTHON for package-to-Core registration integration")
-    cases = []
-    for descriptor in PACKAGES:
-        bundle = load_registration(descriptor.parent)
-        cases.append(
-            {
-                "root": str(descriptor.parent),
-                "digests": {
-                    ref.spelling: stub_contract_digest(ref)
-                    for operation in bundle.operations
-                    for ref in operation.contract_refs()
-                },
-                "signatures": {
-                    operation.name: operation.model_copy(
-                        update={
-                            "in_": operation.in_.model_copy(
-                                update={"digest": stub_contract_digest(operation.in_)}
-                            ),
-                            "out": operation.out.model_copy(
-                                update={"digest": stub_contract_digest(operation.out)}
-                            ),
-                        }
-                    ).signature_digest()
-                    for operation in bundle.operations
-                },
-            }
-        )
-    code = """
+    if core_python:
+        return core_python
+    message = "set CRUXIBLE_CORE_PYTHON to an interpreter with core's model (cruxible_client)"
+    if os.environ.get("CI"):
+        pytest.fail(f"{message}: CI runs the core-parity checks and must not skip them")
+    pytest.skip(message)
+
+
+def test_ci_runs_the_core_parity_lane_against_a_pinned_core() -> None:
+    """The lane exists, pins core by full commit, sets the interpreter, and runs the marker."""
+
+    import re
+
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert re.fullmatch(r"[0-9a-f]{40}", workflow["env"]["CORE_COMMIT"])
+    steps = workflow["jobs"]["core-parity"]["steps"]
+    checkout = next(step for step in steps if step.get("with", {}).get("path") == "core")
+    assert checkout["with"] == {
+        "repository": "cruxible-ai/cruxible",
+        "ref": "${{ env.CORE_COMMIT }}",
+        "path": "core",
+    }
+    runs = "\n".join(str(step.get("run", "")) for step in steps)
+    assert "CRUXIBLE_CORE_PYTHON=" in runs and "core/packages/cruxible-client" in runs
+    assert "-m core_parity tests/test_package_registration.py" in runs
+    default = "\n".join(str(step.get("run", "")) for step in workflow["jobs"]["test"]["steps"])
+    assert "not core_parity" in default
+
+
+def _core_report(roots: list[str]) -> dict[str, Any]:
+    result = subprocess.run(
+        [_core_python(), "-c", _CORE_PARITY], input=canonical_json(roots), capture_output=True
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    report: dict[str, Any] = json.loads(result.stdout)
+    assert sorted(report) == sorted(roots)
+    return report
+
+
+_CORE_PARITY = """
 import json, sys
 from pathlib import Path
-from cruxible_client.contracts.provider_operations import operation_signature_digest
-from cruxible_client.contracts.providers import (
-    ProviderLocalDistributionPin, ProviderLocalEnvBackendPin, parse_provider, provider_digest,
-    provider_path, render_provider,
+from cruxible_client.contracts.provider_operations import (
+    OperationSignature, operation_signature_digest,
 )
-from cruxible_core.providers.package_metadata import read_package_registration
-count = 0
-for case in json.load(sys.stdin):
-    document = read_package_registration(Path(case["root"]))
-    pinned = document.pinned_operations(lambda ref: case["digests"].get(ref.spelling))
-    for operation in pinned:
-        assert operation_signature_digest(operation.signature()) == case["signatures"][operation.name]
-        count += 1
-    distribution = document.manifest.distribution
-    provider = document.provider_definition(
-        distribution=ProviderLocalDistributionPin(
-            name=distribution.name, version=distribution.version,
-            filename="fixture.whl", sha256="sha256:" + "a" * 64),
-        local_env=ProviderLocalEnvBackendPin(
-            lock_sha256="sha256:" + "b" * 64,
-            materialization_digests={"linux-cp312": "sha256:" + "c" * 64}),
-        control_domain="operator",
-        operations=pinned,
-    )
-    parsed = parse_provider(render_provider(provider), path=provider_path(provider.identity.name))
-    assert provider_digest(parsed) == provider_digest(provider)
-assert count == 17, count
+from cruxible_client.contracts.provider_registration import (
+    PackageRegistration, evaluate_registration_law,
+)
+from cruxible_client.contracts.shapes import contract_digest
+report = {}
+for root in json.load(sys.stdin):
+    raw = (Path(root) / "registration.json").read_bytes()
+    registration = PackageRegistration.model_validate_json(raw)
+    resolve = registration.declares.lookup()
+    signatures = {}
+    for operation in registration.operations:
+        def pin(ref):
+            return ref.model_copy(update={"digest": contract_digest(resolve(ref)).tagged})
+        signature = OperationSignature.model_validate(
+            {"in": pin(operation.in_), "out": pin(operation.out), "effect": operation.effect}
+        )
+        signatures[operation.name] = {
+            "in": signature.in_.digest, "out": signature.out.digest,
+            "digest": operation_signature_digest(signature),
+        }
+    report[root] = {
+        "problems": [f"{item.code}: {item.message}" for item in evaluate_registration_law(registration)],
+        "document": registration.model_dump(mode="json", by_alias=True),
+        "signatures": signatures,
+    }
 assert not any(name.startswith("cruxible_provider_") for name in sys.modules)
+json.dump(report, sys.stdout)
 """
-    result = subprocess.run(
-        [core_python, "-c", code], input=canonical_json(cases), capture_output=True
+
+
+def _filled_template(tmp_path: Path) -> Path:
+    """The template's manifest and registration with ``PLANE`` named and the digest filled in."""
+
+    template = ROOT / "packages" / "_template" / "src" / "cruxible_provider_PLANE"
+    root = tmp_path / "cruxible_provider_sample"
+    root.mkdir()
+    manifest = (template / "manifest.yaml.template").read_text().replace("PLANE", "sample")
+    (root / "manifest.yaml").write_text(manifest)
+    digest = "sha256:" + hashlib.sha256(manifest.encode()).hexdigest()
+    registration = (template / "registration.json.template").read_text()
+    registration = registration.replace("PLANE", "sample").replace(
+        "sha256:REPLACE_WITH_THE_SHA256_OF_MANIFEST_YAML", digest
     )
-    assert result.returncode == 0, result.stderr.decode()
+    (root / "registration.json").write_text(registration)
+    return root
 
 
-def test_the_web_contracts_are_core_canonical_and_pin_every_operation() -> None:
-    """The web plane's shipped Contracts, read by Core's own model in Core's interpreter.
+def test_the_template_filled_in_is_a_schema_3_package(tmp_path: Path) -> None:
+    bundle = load_registration(_filled_template(tmp_path))
+    assert [item.serves for item in bundle.operations] == [("sample.capability",)]
 
-    The files are what ``scripts/render_web_contracts.py`` writes; each parses
-    as an accepted Contract at its tree path (canonical bytes, every nested pin
-    digested and resolving to a shipped body); and Core pins all five operations,
-    their inputs, outputs and every declared refusal, to the shipped digests.
+
+@pytest.mark.core_parity
+def test_every_registration_is_valid_under_cores_model(tmp_path: Path) -> None:
+    """Core's own schema-3 model and registration law, in core's interpreter.
+
+    Each schema-3 ``registration.json`` this repository builds parses as core's
+    ``PackageRegistration`` and passes ``evaluate_registration_law`` with no
+    problem (every reference resolves inside ``declares``, every nested pin is
+    the carried copy's digest, nothing unreached, no ``workspace.`` capability).
+    Core reads the same document the runtime reads, field for field, and core's
+    signature digest of every operation, over the carried copies' digests,
+    equals this runtime's. The package template, filled in, is held to the same.
     """
 
-    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
-    if not core_python:
-        pytest.skip("set CRUXIBLE_CORE_PYTHON for package-to-Core registration integration")
+    roots = [str(path.parent) for path in MOVED] + [str(_filled_template(tmp_path))]
+    report = _core_report(roots)
+    for root, found in report.items():
+        assert found["problems"] == [], (root, found["problems"])
+        bundle = load_registration(Path(root))
+        assert found["document"] == bundle.descriptor.model_dump(mode="json", by_alias=True)
+        for operation in bundle.operations:
+            pinned = found["signatures"][operation.name]
+            assert pinned["digest"] == operation_signature_digest(
+                in_digest=pinned["in"], out_digest=pinned["out"], effect=operation.effect
+            )
+
+
+@pytest.mark.core_parity
+@pytest.mark.parametrize("script", ["render_web_contracts.py", "render_noop_contracts.py"])
+def test_the_carried_contracts_are_what_the_renderers_write(script: str) -> None:
+    """The renderers build each copy with core's Contract model; the files hold their output."""
+
     check = subprocess.run(
-        [core_python, str(ROOT / "scripts/render_web_contracts.py"), "--check"],
-        capture_output=True,
+        [_core_python(), str(ROOT / "scripts" / script), "--check"], capture_output=True
     )
     assert check.returncode == 0, check.stderr.decode()
-    web = ROOT / "packages/cruxible-provider-web/src/cruxible_provider_web"
-    code = """
-import sys
-from pathlib import Path
-from cruxible_client.contracts.shapes import contract_digest, parse_contract
-from cruxible_core.providers.package_metadata import read_package_registration
-root = Path(sys.argv[1])
-shipped = {}
-for path in sorted((root / "contracts").rglob("*.json")):
-    member = "contracts/" + path.relative_to(root / "contracts").as_posix()
-    contract = parse_contract(path.read_bytes(), path=member)
-    shipped[(contract.name, contract.version)] = contract
-for contract in shipped.values():
-    for ref in contract.refs():
-        assert contract_digest(shipped[(ref.name, ref.version)]).tagged == ref.digest, ref
-digests = {key: contract_digest(item).tagged for key, item in shipped.items()}
-pinned = read_package_registration(root).pinned_operations(
-    lambda ref: digests.get((ref.name, ref.version)))
-refs = [ref for operation in pinned for ref in (
-    operation.in_, operation.out, *(item.contract for item in operation.refusals.values()))]
-assert len(pinned) == 5 and len(refs) == 31, (len(pinned), len(refs))
-assert all(ref.digest == digests[(ref.name, ref.version)] for ref in refs)
-"""
-    result = subprocess.run([core_python, "-c", code, str(web)], capture_output=True)
-    assert result.returncode == 0, result.stderr.decode()
 
 
-def test_the_noop_contracts_are_core_canonical_and_pin_both_operations() -> None:
-    """The reference provider's shipped Contracts, read by Core's own model.
+@pytest.mark.core_parity
+def test_the_writer_output_for_a_spaced_layout_type_passes_cores_law(tmp_path: Path) -> None:
+    """A layout rule typed ``demo.dep @ 1`` (legal whitespace): the writer carries ``demo.dep``.
 
-    ``noop.echo``'s four are byte-identical to the ones Core's installer tests
-    accept, so shipping them moves no digest; ``noop.captures``'s out Contract
-    carries a ``list<capture<*>>`` field Core parses.
+    The noop package with one more request field, ``document: capture<demo.rows>``,
+    and the kind ``demo.rows`` whose header names ``demo.dep @ 1``. The runtime
+    loads what the writer wrote, and core's model and law accept the same file.
     """
 
-    core_python = os.environ.get("CRUXIBLE_CORE_PYTHON")
-    if not core_python:
-        pytest.skip("set CRUXIBLE_CORE_PYTHON for package-to-Core registration integration")
-    check = subprocess.run(
-        [core_python, str(ROOT / "scripts/render_noop_contracts.py"), "--check"],
-        capture_output=True,
-    )
-    assert check.returncode == 0, check.stderr.decode()
-    noop = ROOT / "packages/cruxible-provider-noop/src/cruxible_provider_noop"
-    code = """
-import sys
-from pathlib import Path
-from cruxible_client.contracts.provider_operations import capture_fields
-from cruxible_client.contracts.shapes import CaptureType, ListType, contract_digest, parse_contract
-from cruxible_core.providers.package_metadata import read_package_registration
-root = Path(sys.argv[1])
-shipped = {}
-for path in sorted((root / "contracts").rglob("*.json")):
-    member = "contracts/" + path.relative_to(root / "contracts").as_posix()
-    contract = parse_contract(path.read_bytes(), path=member)
-    shipped[(contract.name, contract.version)] = contract
-digests = {key: contract_digest(item).tagged for key, item in shipped.items()}
-pinned = read_package_registration(root).pinned_operations(
-    lambda ref: digests.get((ref.name, ref.version)))
-refs = [ref for operation in pinned for ref in (
-    operation.in_, operation.out, *(item.contract for item in operation.refusals.values()))]
-assert len(pinned) == 2 and len(refs) == 7, (len(pinned), len(refs))
-assert all(ref.digest == digests[(ref.name, ref.version)] for ref in refs)
-listed = shipped[("noop.captures.result", 1)].fields["captures"].type
-assert isinstance(listed, ListType) and isinstance(listed.item, CaptureType), listed
-assert listed.item.capture_kind == "*"
-"""
-    result = subprocess.run([core_python, "-c", code, str(noop)], capture_output=True)
-    assert result.returncode == 0, result.stderr.decode()
+    root = _copy(tmp_path, "cruxible_provider_noop")
+    document = _document(root)
+    contracts = list(document["declares"]["contracts"])
+    for index, item in enumerate(contracts):
+        if item["name"] == "noop.captures.request":
+            fields = {
+                **item["fields"],
+                "document": {
+                    "optional": True,
+                    "type": {"kind": "capture", "capture_kind": "demo.rows"},
+                },
+            }
+            contracts[index] = {**item, "fields": fields}
+    contracts += [
+        {"artifact_format": "cruxible-contract-v1", "name": "demo.dep", "version": 1, "fields": {}},
+        {
+            "artifact_format": "cruxible-contract-v1",
+            "name": "demo.row",
+            "version": 1,
+            "fields": {"value": {"type": {"kind": "string"}}},
+        },
+    ]
+    kind = {
+        "name": "demo.rows",
+        "decoding": {
+            "format": "json",
+            "encoding": "identity",
+            "limits": {"decoded_bytes": 1024, "depth": 8, "records": 100},
+        },
+        "layout": {
+            "header": {"extra": {"at": "/extra", "type": "demo.dep @ 1"}},
+            "records": {
+                "rows": {
+                    "at": "/rows/*",
+                    "row": {"name": "demo.row", "version": 1},
+                    "fields": {"value": {"at": "value", "type": "string"}},
+                }
+            },
+        },
+    }
+    write_registration(root, contracts=contracts, capture_kinds=[kind])
+    bundle = load_registration(root)
+    assert {"demo.dep", "demo.row"} <= {item.name for item in bundle.declares.contracts}
+    report = _core_report([str(root)])
+    assert report[str(root)]["problems"] == []

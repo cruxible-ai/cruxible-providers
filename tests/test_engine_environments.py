@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 from cruxible_provider_runtime.manifest import load_manifest
-from cruxible_provider_runtime.registration import load_registration
 from cruxible_provider_runtime.resolution import (
     MarkerEnvironment,
     ResolvedSet,
@@ -94,11 +93,13 @@ EXPECTED_ENGINE_ENVIRONMENTS = {
 ENGINE_ENVIRONMENTS: list[tuple[str, str, tuple[str, ...]]] = []
 for manifest_path in sorted((REPO_ROOT / "packages").glob("*/src/*/manifest.yaml")):
     manifest = load_manifest(manifest_path)
-    served = load_registration(manifest_path.parent).operations
+    # Read directly, not through load_registration: the engine environments are the
+    # manifests' and locks' business, and two registrations are not schema 3 yet.
+    served = json.loads((manifest_path.parent / "registration.json").read_bytes())["operations"]
     for implementation in manifest.implementations:
         if implementation.requires_extras:
             operations = ",".join(
-                item.name for item in served if item.entrypoint == implementation.entrypoint
+                item["name"] for item in served if item["entrypoint"] == implementation.entrypoint
             )
             subject = f"{operations}+{'+'.join(implementation.requires_extras)}"
             ENGINE_ENVIRONMENTS.append(
@@ -143,7 +144,6 @@ def test_every_engine_environment_resolves_for_every_declared_environment(
         "cruxible-provider-quant",
         "cruxible-provider-runtime",
         "cruxible-provider-web",
-        "cruxible-provider-workspace",
     ],
 )
 def test_every_base_environment_still_resolves(

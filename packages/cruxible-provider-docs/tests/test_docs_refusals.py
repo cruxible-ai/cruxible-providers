@@ -12,7 +12,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import cruxible_provider_docs
 import pytest
 import yaml
 from cruxible_provider_runtime.artifact import ProviderArtifactPayload
@@ -22,9 +21,15 @@ from cruxible_provider_runtime.errors import RefusalCode, RefusalError
 from cruxible_provider_runtime.manifest import BackendKind, load_manifest, manifest_digest
 from cruxible_provider_runtime.registry import StubRegistry
 from cruxible_provider_runtime.resolution import environment_pin_key
-from cruxible_provider_runtime.testing import FakeContainerDriver, register_package
+from cruxible_provider_runtime.testing import FakeContainerDriver
 
-from .conftest import MARKDOWN_EXTRAS, MARKER_ENVIRONMENT, PROVIDER_ID
+from .conftest import (
+    MARKDOWN_EXTRAS,
+    MARKER_ENVIRONMENT,
+    PROVIDER_ID,
+    package_registration,
+    register,
+)
 
 
 def _request(
@@ -57,7 +62,7 @@ def _edited(manifest_path: Path, tmp_path: Path, edit: Any) -> Path:
 
 def _registry_for(payload: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    register_package(stub, payload, cruxible_provider_docs.PACKAGE_ROOT)
+    register(stub, payload)
     return stub
 
 
@@ -173,9 +178,7 @@ def test_an_operation_naming_an_undeclared_entrypoint_refuses_at_registration(
 ) -> None:
     """Registration and manifest are two declarations; they must name one entrypoint."""
 
-    from cruxible_provider_runtime.registration import load_registration
-
-    operations = load_registration(cruxible_provider_docs.PACKAGE_ROOT).operations
+    operations = package_registration().operations
     moved = operations[0].model_copy(update={"entrypoint": "cruxible_provider_docs.ocr:Other"})
     with pytest.raises(RefusalError) as exc:
         StubRegistry().register_provider(accepted_artifact, (moved, *operations[1:]))

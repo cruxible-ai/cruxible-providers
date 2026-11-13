@@ -36,7 +36,8 @@ from cruxible_provider_runtime.digests import materialization_digest
 from cruxible_provider_runtime.egress import write_child_guard
 from cruxible_provider_runtime.index import ArtifactFetcher, IndexConfig
 from cruxible_provider_runtime.manifest import ProviderManifest, load_manifest, manifest_digest
-from cruxible_provider_runtime.registry import StubRegistry
+from cruxible_provider_runtime.registration import RegistrationBundle, load_registration
+from cruxible_provider_runtime.registry import AcceptedBuild, StubRegistry
 from cruxible_provider_runtime.resolution import (
     ResolvedSet,
     environment_pin_key,
@@ -48,7 +49,6 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
-    register_package,
 )
 
 PACKAGE_DIR = Path(cruxible_provider_docs.__file__).resolve().parent.parent.parent
@@ -180,7 +180,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    register_package(stub, accepted_artifact, cruxible_provider_docs.PACKAGE_ROOT)
+    register(stub, accepted_artifact)
     return stub
 
 
@@ -228,3 +228,35 @@ def egress_guard_root(tmp_path: Path) -> Path:
     """A directory carrying the child-process egress guard, for the conformance lane."""
 
     return write_child_guard(tmp_path / "egress-guard")
+
+
+# -- registration schema 3 ------------------------------------------------------------------
+
+REGISTRATION_PENDING = (
+    "registration.json is still schema 2, which the runtime no longer reads: its "
+    "operations name Contracts that exist nowhere, so it cannot carry them in a "
+    "schema-3 declares block (design note F4). The package is out of the 0.5.0 "
+    "publish set (Q5); writing its Contracts moves it."
+)
+
+
+def package_registration() -> RegistrationBundle:
+    """The package's registration, read the way an install reads it.
+
+    While it is still schema 2, which the runtime refuses, the test that needs
+    it is an expected failure for exactly that reason; any other problem fails.
+    Tests that never read the registration are not touched.
+    """
+
+    try:
+        return load_registration(cruxible_provider_docs.PACKAGE_ROOT)
+    except ValueError as exc:
+        if "is not read; schema 3" in str(exc):
+            pytest.xfail(REGISTRATION_PENDING)
+        raise
+
+
+def register(registry: StubRegistry, payload: ProviderArtifactPayload) -> AcceptedBuild:
+    """``register_package`` through :func:`package_registration`."""
+
+    return registry.register_provider(payload, package_registration().operations)

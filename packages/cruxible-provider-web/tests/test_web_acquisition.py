@@ -31,7 +31,7 @@ def test_structured_and_binary_observations_are_the_exact_origin_bytes(media, bo
         )
     )
     assert result.status == "ok", result
-    envelope = result.output
+    envelope = result.output["capture"]
     assert envelope["tag"] == "playbill-provider-result-to-external-capture-v1"
     assert envelope["replayability"] == "attested_only"
     assert envelope["coordinate_type"] == "http-response-v1"

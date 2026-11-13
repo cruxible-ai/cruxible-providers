@@ -4,10 +4,9 @@ The rule (D-R25): a Capture's bytes are the document an operation returns --
 the body an origin sent, the DOM a browser assembled, or the derived document a
 derive made -- and how it was obtained is the typed coordinate, never inside the
 bytes. Held here against the recorded exchanges this distribution ships, for
-every operation whose result carries Captures, in any of the three forms Core
-reads (``cruxible_provider_runtime.testing.captured_members``): the whole result
-as Capture wire, a ``capture<K>`` field, or each member of a
-``list<capture<K>>`` field:
+every operation whose result carries Captures, in either form Core reads
+(``cruxible_provider_runtime.testing.captured_members``): a ``capture<K>``
+field, or each member of a ``list<capture<K>>`` field:
 
 * each member's stored bytes are the origin bytes (digest equality with the
   recording);
@@ -37,7 +36,7 @@ from cruxible_provider_runtime.testing import (
     assert_payload_verbatim,
     captured_members,
 )
-from cruxible_provider_web import PACKAGE_ROOT, contract_members
+from cruxible_provider_web import PACKAGE_ROOT
 from cruxible_provider_web.dom import WebRenderDom
 from cruxible_provider_web.fetch import WebFetch
 from cruxible_provider_web.pages import WebFetchPages
@@ -48,8 +47,8 @@ from cruxible_provider_web.search import SearxngSearch
 from .test_web_secrets import _context
 
 SHIPPED = {
-    (document["name"], document["version"]): document
-    for document in (json.loads(body) for body in contract_members().values())
+    (item.name, item.version): item.model_dump(mode="json")
+    for item in load_registration(PACKAGE_ROOT).declares.contracts
 }
 
 
@@ -59,8 +58,6 @@ def _digest(payload: bytes) -> str:
 
 def _carries_captures(out: Mapping[str, Any]) -> bool:
     fields: Mapping[str, Any] = out["fields"]
-    if "content_base64" in fields:
-        return True
     return any(
         declared["type"]["kind"] == "capture"
         or (declared["type"]["kind"] == "list" and declared["type"]["item"]["kind"] == "capture")
@@ -69,7 +66,7 @@ def _carries_captures(out: Mapping[str, Any]) -> bool:
 
 
 def _capture_operations() -> list[str]:
-    """Every operation whose result carries Captures (whole, in a field, or in a list)."""
+    """Every operation whose result carries Captures (in a field, or in a list)."""
 
     return sorted(
         operation.name
@@ -170,7 +167,9 @@ def _render_case(recording: Recording, form: str) -> None:
     (source,) = _members("web.fetch", fetched)
     result = WebRender()(
         _context(
-            "web.render", input={"form": form, "source": fetched.output}, declared_endpoints=()
+            "web.render",
+            input={"form": form, "source": fetched.output["capture"]},
+            declared_endpoints=(),
         )
     )
     (member,) = _members("web.render", result)

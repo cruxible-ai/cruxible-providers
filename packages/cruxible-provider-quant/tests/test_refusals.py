@@ -17,7 +17,6 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-import cruxible_provider_quant
 import pytest
 from cruxible_provider_quant.refusals import (
     DECLARED_FAMILY_MISMATCH,
@@ -38,14 +37,9 @@ from cruxible_provider_quant.refusals import (
     decline,
 )
 from cruxible_provider_runtime.errors import RefusalCode
-from cruxible_provider_runtime.registration import load_registration
 
-from .conftest import run_in_process
+from .conftest import package_registration, run_in_process
 from .fixtures import FIXTURES
-
-BUNDLE_REFUSALS = (
-    load_registration(cruxible_provider_quant.PACKAGE_ROOT).operation("score.rank").refusals
-)
 
 
 def _declined(operation: str, payload: dict[str, Any]) -> str:
@@ -265,7 +259,10 @@ def test_a_model_whose_bytes_do_not_match_its_pin_is_an_integrity_refusal(
     # from the shape failures above, so it is declared on its own.
     assert result.refusal.code == MODEL_DIGEST_MISMATCH
     assert not result.refusal.is_runtime
-    assert BUNDLE_REFUSALS["model_digest_mismatch"].absorbable is False
+    assert (
+        package_registration().operation("score.rank").refusals["model_digest_mismatch"].absorbable
+        is False
+    )
     assert result.refusal.detail["pinned"] == pin
     assert result.refusal.detail["observed"] != pin
     assert result.refusal.code not in QUANT_DECLINES

@@ -7,8 +7,8 @@ module is never imported into the daemon to execute provider code.
 
 from importlib import import_module
 
+from .operations import callable_path
 from .provider_api import ProviderResult, ProviderRunContext
-from .registration import callable_path
 
 RESOURCE_PROBE_OPERATION = "cruxible.package.resource"
 

@@ -54,7 +54,7 @@ class CapturedMember:
     """One Capture an operation's output carries, at its place in the output."""
 
     at: str
-    """``capture`` for a whole-wire output, the field name, or ``field/<index>``."""
+    """The field name, or ``field/<index>`` for a member of a Capture list."""
     stored: bytes
     """The exact bytes Core would commit: the wire's content, verified."""
     coordinate: Any
@@ -64,16 +64,13 @@ class CapturedMember:
 def captured_members(output: Mapping[str, Any], out: Mapping[str, Any]) -> list[CapturedMember]:
     """Every Capture in ``output``, read against its out Contract document ``out``.
 
-    Three forms, as Core reads them: an out Contract that *is* Capture wire (it
-    declares ``content_base64``) makes the whole output one Capture; a
+    A Capture is always a named field of the out Contract, as Core reads it: a
     ``capture<K>`` field holds one; a ``list<capture<K>>`` field holds one per
     member, in order. Each member's bytes are verified against its own stated
     length and digest (:func:`.acquisition.capture_input`).
     """
 
     fields: Mapping[str, Any] = out["fields"]
-    if "content_base64" in fields:
-        return [_member("capture", output)]
     members: list[CapturedMember] = []
     for name, declared in sorted(fields.items()):
         kind = declared["type"]

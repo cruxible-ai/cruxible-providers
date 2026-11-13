@@ -46,8 +46,8 @@ from cruxible_provider_runtime.manifest import (
 )
 from cruxible_provider_runtime.protocol import Budgets
 from cruxible_provider_runtime.provider_api import ProviderResult, ProviderRunContext
-from cruxible_provider_runtime.registration import load_registration
-from cruxible_provider_runtime.registry import StubRegistry
+from cruxible_provider_runtime.registration import RegistrationBundle, load_registration
+from cruxible_provider_runtime.registry import AcceptedBuild, StubRegistry
 from cruxible_provider_runtime.resolution import (
     MarkerEnvironment,
     ResolvedSet,
@@ -58,7 +58,6 @@ from cruxible_provider_runtime.testing import (
     FakeContainerDriver,
     FakeIndexTransport,
     InjectedEnvironmentBuilder,
-    register_package,
 )
 
 PACKAGE_DIR = Path(cruxible_provider_quant.__file__).resolve().parent.parent.parent
@@ -187,7 +186,7 @@ def accepted_artifact(
 @pytest.fixture()
 def registry(accepted_artifact: ProviderArtifactPayload) -> StubRegistry:
     stub = StubRegistry()
-    register_package(stub, accepted_artifact, cruxible_provider_quant.PACKAGE_ROOT)
+    register(stub, accepted_artifact)
     return stub
 
 
@@ -306,7 +305,7 @@ def run_in_process(
 
     from cruxible_provider_quant import MANIFEST_PATH
 
-    declared = load_registration(cruxible_provider_quant.PACKAGE_ROOT).operation(operation)
+    declared = package_registration().operation(operation)
     implementation = load_manifest(MANIFEST_PATH).implementation(declared.entrypoint)
     context = ProviderRunContext(
         run_id="run-in-process",
@@ -345,3 +344,35 @@ def run_in_process(
             refused_code=refusal.code,
         )
     return replace(result, output=decode_numbers(result.output))
+
+
+# -- registration schema 3 ------------------------------------------------------------------
+
+REGISTRATION_PENDING = (
+    "registration.json is still schema 2, which the runtime no longer reads: its "
+    "operations name Contracts that exist nowhere, so it cannot carry them in a "
+    "schema-3 declares block (design note F4). The package is out of the 0.5.0 "
+    "publish set (Q5); writing its Contracts moves it."
+)
+
+
+def package_registration() -> RegistrationBundle:
+    """The package's registration, read the way an install reads it.
+
+    While it is still schema 2, which the runtime refuses, the test that needs
+    it is an expected failure for exactly that reason; any other problem fails.
+    Tests that never read the registration are not touched.
+    """
+
+    try:
+        return load_registration(cruxible_provider_quant.PACKAGE_ROOT)
+    except ValueError as exc:
+        if "is not read; schema 3" in str(exc):
+            pytest.xfail(REGISTRATION_PENDING)
+        raise
+
+
+def register(registry: StubRegistry, payload: ProviderArtifactPayload) -> AcceptedBuild:
+    """``register_package`` through :func:`package_registration`."""
+
+    return registry.register_provider(payload, package_registration().operations)

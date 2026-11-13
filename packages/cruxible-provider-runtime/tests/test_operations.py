@@ -1,4 +1,4 @@
-"""Typed operations: the registration's wire shape, refusal codes and signature digest."""
+"""Typed operations (registration schema 3): wire shape, serves, source, refusals, signature."""
 
 from __future__ import annotations
 
@@ -19,6 +19,12 @@ OUT_DIGEST = "sha256:" + "2b" * 32
 
 OPERATION = {
     "name": "sample.echo",
+    "description": "Echoes its input back.",
+    "source": {
+        "path": "packages/sample/src/sample_provider/impl.py",
+        "repository": "https://github.com/example/sample",
+    },
+    "serves": ["sample.echo"],
     "in": "sample.echo.request@1",
     "out": "sample.echo.result@2",
     "effect": "pure",
@@ -40,15 +46,114 @@ def test_contracts_are_written_name_at_version() -> None:
 
 
 def test_the_wire_form_is_the_one_core_reads() -> None:
-    """``in`` by alias, refusals sorted by code, nothing empty emitted."""
+    """Core's field order, ``in`` by alias, refusals sorted by code, nothing empty emitted."""
 
     wire = ProviderOperation.model_validate(OPERATION).wire()
+    assert list(wire) == [
+        "name",
+        "description",
+        "source",
+        "serves",
+        "in",
+        "out",
+        "effect",
+        "refusals",
+        "entrypoint",
+    ]
     assert list(wire["refusals"]) == ["empty", "too_long"]
     assert wire["in"] == {"name": "sample.echo.request", "version": 1}
-    assert "enumerates" not in wire
     bare = ProviderOperation.model_validate({**OPERATION, "refusals": {}}).wire()
     assert "refusals" not in bare
+    assert "may_truncate" not in bare
     assert ProviderOperation.model_validate(wire) == ProviderOperation.model_validate(OPERATION)
+    truncating = ProviderOperation.model_validate({**OPERATION, "may_truncate": True}).wire()
+    assert truncating["may_truncate"] is True
+
+
+def test_enumerates_is_gone() -> None:
+    """Schema 3 withdrew ``enumerates``: a derived kind's layout is the declared enumeration."""
+
+    enumerates = {"capture": "document", "selector": "/rows/*", "fields": {"id": {"at": "id"}}}
+    with pytest.raises(ValidationError, match="enumerates"):
+        ProviderOperation.model_validate({**OPERATION, "enumerates": enumerates})
+
+
+@pytest.mark.parametrize("missing", ["description", "source", "serves"])
+def test_description_source_and_serves_are_required(missing: str) -> None:
+    document = {key: value for key, value in OPERATION.items() if key != missing}
+    with pytest.raises(ValidationError, match=missing):
+        ProviderOperation.model_validate(document)
+
+
+@pytest.mark.parametrize("description", ["", " Echoes.", "Echoes. ", "x" * 2049, "Cafe\u0301"])
+def test_a_description_is_trimmed_nfc_text_of_bounded_length(description: str) -> None:
+    with pytest.raises(ValidationError):
+        ProviderOperation.model_validate({**OPERATION, "description": description})
+
+
+@pytest.mark.parametrize(
+    "serves",
+    [
+        [],
+        ["web.search", "web.fetch"],
+        ["web.fetch", "web.fetch"],
+        ["Web.Fetch"],
+        ["web.fetch@1"],
+        [f"sample.c{index:02d}" for index in range(17)],
+    ],
+)
+def test_serves_names_capabilities_sorted_once_each_at_most_sixteen(serves: list[str]) -> None:
+    with pytest.raises(ValidationError):
+        ProviderOperation.model_validate({**OPERATION, "serves": serves})
+
+
+def test_serves_takes_names_not_versions() -> None:
+    serves = [f"sample.c{index:02d}" for index in range(16)]
+    operation = ProviderOperation.model_validate({**OPERATION, "serves": serves})
+    assert operation.serves == tuple(serves)
+
+
+@pytest.mark.parametrize("name", ["workspace.file", "workspace.files", "workspace.anything"])
+def test_no_package_serves_a_workspace_capability(name: str) -> None:
+    """Core's builtin serves ``workspace.`` capabilities; a package claiming one refuses."""
+
+    with pytest.raises(ValidationError, match=f"`{name}` is served by core"):
+        ProviderOperation.model_validate({**OPERATION, "serves": [name]})
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"path": "/abs/impl.py"},
+        {"path": "a/../impl.py"},
+        {"path": "./impl.py"},
+        {"path": "a\\impl.py"},
+        {"path": "impl.py", "repository": "http://github.com/example/sample"},
+        {"path": "impl.py", "revision": "a" * 40},
+        {"path": "impl.py", "repository": "https://github.com/x/y", "revision": "abc123"},
+        {"path": "impl.py", "repository": "https://github.com/x/y", "revision": "A" * 40},
+        {"path": "impl.py", "line": 3},
+    ],
+)
+def test_a_source_is_a_relative_path_with_an_https_repository_and_full_revision(
+    source: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        ProviderOperation.model_validate({**OPERATION, "source": source})
+
+
+def test_a_local_build_names_only_its_path_and_a_revision_is_a_full_commit_id() -> None:
+    local = ProviderOperation.model_validate({**OPERATION, "source": {"path": "impl.py"}})
+    assert local.wire()["source"] == {"path": "impl.py"}
+    for revision in ("a" * 40, "b" * 64):
+        source = {"path": "impl.py", "repository": "https://github.com/x/y", "revision": revision}
+        assert ProviderOperation.model_validate({**OPERATION, "source": source}).source.revision
+
+
+@pytest.mark.parametrize("entrypoint", ["sample", "sample:", "sample.impl:Echo.x", "1sample:Echo"])
+def test_an_entrypoint_is_module_colon_callable(entrypoint: str) -> None:
+    with pytest.raises(ValidationError):
+        ProviderOperation.model_validate({**OPERATION, "entrypoint": entrypoint})
 
 
 @pytest.mark.parametrize("spelling", ["sample.echo.request", "sample@one", "Sample@1", "@1"])

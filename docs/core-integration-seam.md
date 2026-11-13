@@ -1,8 +1,8 @@
 # The core-integration seam
 
-Core owns governance: the Provider build artifact, the Contracts an operation
-names, Procedure slots, and the Line that binds each slot to one exact
-`{build, operation}` when it is accepted. This repository owns the package side
+Core owns governance: the Provider build artifact, capabilities, Procedure
+slots, the fit of an operation to a slot, and the Line that binds each slot to
+one exact `{build, operation}` when it is accepted. This repository owns the package side
 — the manifest, the registration descriptor, the provider runtime protocol and
 the child harness — and exports package-owned registration data through
 `cruxible_provider_runtime.registration`. It never installs into an instance or
@@ -16,21 +16,36 @@ no input bucket, no classifier and no shared decline vocabulary.
 
 ## 1. What a package declares
 
-**`registration.json`, schema 2.** The manifest by package-relative path and
-digest, and the package's typed operations:
+**`registration.json`, schema 3.** The manifest by package-relative path and
+digest, the package's operations, and the shapes they carry:
 
 ```json
-{"name": "web.fetch", "in": "web.fetch.request@1", "out": "web.fetch.result@1",
+{"name": "web.fetch",
+ "description": "Retrieves one resource with one HTTP GET ...",
+ "source": {"path": "packages/cruxible-provider-web/src/cruxible_provider_web/fetch.py",
+            "repository": "https://github.com/cruxible-ai/cruxible-providers"},
+ "serves": ["web.fetch"],
+ "in": "web.fetch.request@1", "out": "web.fetch.result@1",
  "effect": "external_read",
  "refusals": {"provider_declined": {"contract": "web.fetch.refusal.provider_declined@1",
                                     "absorbable": true}},
  "entrypoint": "cruxible_provider_web.fetch:WebFetch"}
 ```
 
-The shape is core's `ProviderOperation` exactly (`cruxible_provider_runtime
-.operations.ProviderOperation` mirrors it). Contracts are named `name@N`; the
-install pins each to the version accepted at its base. Runtime requirements
-are keyed by the `entrypoint` of the manifest row they belong to.
+The shape is core's `DeclaredOperation` and `PackageRegistration`
+(`cruxible_client.contracts.provider_registration`) exactly;
+`cruxible_provider_runtime.operations.ProviderOperation` and
+`cruxible_provider_runtime.registration.PackageRegistration` mirror them, and
+`tests/test_package_registration.py` holds every schema-3 registration here to
+core's model and registration law. `serves` names capabilities (no versions,
+never `workspace.`, which only core's builtin serves); core binds a slot to an
+operation that serves its capability and fits it. Contracts are named `name@N`
+and resolve inside `declares`, which carries a copy of every Contract and
+CaptureKind the operations reach and nothing else (the install needs no kit
+and installs none of them as instance state), plus `built_against`, the
+capability and kind versions the copies came from. `enumerates` is gone.
+Runtime requirements are keyed by the `entrypoint` of the manifest row they
+belong to.
 
 **`manifest.yaml`, schema 2.** One row per entrypoint: backends, declared
 endpoints, required extras, `deterministic`. `supported_protocol_majors: [2]`.
@@ -106,7 +121,7 @@ outcome = invoke(binding, registry=registry, payload=..., budgets=..., secrets=.
 | An `EnvironmentBuilder` | `UvSyncBuilder` is the production spelling; the seam is injectable so that conformance suites need no network. |
 | A `ContainerDriver` | The container-engine seam, for the cloud backend. |
 | Resolved secret material | Core resolves secret-refs; this library delivers the material over an inherited descriptor. |
-| Contract digests | Core pins every Contract an operation names; the stub pins with a stand-in digest. |
+| Contract digests | Core pins every Contract an operation names to its carried copy's digest; the stub pins with a stand-in digest. |
 | `Budgets` | Wall clock and output size. Cost enforcement belongs to the metering substrate. |
 
 `Binding.snapshot()` and `InvocationOutcome.receipt_fields()` carry the build
@@ -115,9 +130,11 @@ materialization digests.
 
 ## 4. What core must enforce that this library cannot
 
-- **Contracts.** The runtime never interprets an operation's Contracts. Core
-  validates input before the run, output after it, and a refusal's detail
-  against its declared Contract.
+- **Contracts.** The runtime never interprets an operation's Contracts at run.
+  Core validates input before the run, output after it, and a refusal's detail
+  against the operation's own carried Contracts. The registration reader checks
+  the carried closure by name and version only; core judges the copies'
+  digests, types and layouts, and an operation's fit to a capability.
 - **Structural egress.** The cloud backend needs default-deny plus an allowlist
   read from the accepted artifact. *Recording conformance* (declared equals
   observed) holds in both backends and is what this repository's conformance

@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "manifest": {
     "path": "manifest.yaml",
     "digest": "sha256:1955faa836ada4155c61382ac2ed65dd231ebb0e1b980003a816008a61082ee4"
@@ -7,31 +7,203 @@
   "operations": [
     {
       "name": "noop.captures",
+      "description": "Returns one Capture per recorded file named, in order: the reference for an operation that returns several Captures from one call.",
+      "source": {
+        "path": "packages/cruxible-provider-noop/src/cruxible_provider_noop/captures.py",
+        "repository": "https://github.com/cruxible-ai/cruxible-providers"
+      },
+      "serves": [
+        "noop.captures"
+      ],
       "in": "noop.captures.request@1",
       "out": "noop.captures.result@1",
       "effect": "pure",
       "refusals": {
         "provider_declined": {
-          "contract": "noop.captures.refusal.provider_declined@1"
+          "contract": "noop.captures.refusal.provider_declined@1",
+          "absorbable": false
         }
       },
       "entrypoint": "cruxible_provider_noop.captures:NoopCaptures"
     },
     {
       "name": "noop.echo",
+      "description": "Echoes its text back, or takes the protocol branch its mode names (a refusal, an error, a credential read, a secret leak, chatty output, an egress attempt): the reference every provider's conformance suite follows.",
+      "source": {
+        "path": "packages/cruxible-provider-noop/src/cruxible_provider_noop/provider.py",
+        "repository": "https://github.com/cruxible-ai/cruxible-providers"
+      },
+      "serves": [
+        "noop.echo"
+      ],
       "in": "noop.echo.request@1",
       "out": "noop.echo.result@1",
       "effect": "pure",
       "refusals": {
         "credential_missing": {
-          "contract": "noop.echo.refusal.credential_missing@1"
+          "contract": "noop.echo.refusal.credential_missing@1",
+          "absorbable": false
         },
         "provider_declined": {
-          "contract": "noop.echo.refusal.provider_declined@1"
+          "contract": "noop.echo.refusal.provider_declined@1",
+          "absorbable": false
         }
       },
       "entrypoint": "cruxible_provider_noop.provider:NoopEcho"
     }
   ],
+  "declares": {
+    "contracts": [
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "noop.captures.refusal.provider_declined",
+        "version": 1,
+        "description": "Detail of a provider_declined refusal: for an unknown file, its name and the recorded files there are.",
+        "fields": {
+          "file": {
+            "optional": true,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "known": {
+            "optional": true,
+            "type": {
+              "item": {
+                "kind": "string"
+              },
+              "kind": "list",
+              "max_items": 16
+            }
+          }
+        }
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "noop.captures.request",
+        "version": 1,
+        "description": "The recorded files to return, in order: each is one request and becomes its own Capture.",
+        "fields": {
+          "files": {
+            "type": {
+              "item": {
+                "kind": "string"
+              },
+              "kind": "list",
+              "max_items": 16
+            }
+          }
+        }
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "noop.captures.result",
+        "version": 1,
+        "description": "One Capture per named file, in order: each member is the file's exact bytes, identified by its coordinate (the file and a request digest).",
+        "fields": {
+          "captures": {
+            "type": {
+              "item": {
+                "capture_kind": "*",
+                "kind": "capture"
+              },
+              "kind": "list",
+              "max_items": 16
+            }
+          }
+        }
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "noop.echo.refusal.credential_missing",
+        "version": 1,
+        "fields": {
+          "ref": {
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "noop.echo.refusal.provider_declined",
+        "version": 1,
+        "fields": {
+          "known": {
+            "optional": true,
+            "type": {
+              "item": {
+                "kind": "string"
+              },
+              "kind": "list",
+              "max_items": 32
+            }
+          },
+          "mode": {
+            "optional": true,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "run_id": {
+            "optional": true,
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "noop.echo.request",
+        "version": 1,
+        "fields": {
+          "mode": {
+            "optional": true,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "text": {
+            "optional": true,
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "noop.echo.result",
+        "version": 1,
+        "fields": {
+          "context_repr": {
+            "optional": true,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "credential_fingerprint": {
+            "optional": true,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "credential_length": {
+            "optional": true,
+            "type": {
+              "kind": "int"
+            }
+          },
+          "echo": {
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      }
+    ]
+  },
   "runtime_requirements": []
 }

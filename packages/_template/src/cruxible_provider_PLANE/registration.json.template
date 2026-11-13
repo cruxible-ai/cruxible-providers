@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "manifest": {
     "path": "manifest.yaml",
     "digest": "sha256:REPLACE_WITH_THE_SHA256_OF_MANIFEST_YAML"
@@ -7,6 +7,14 @@
   "operations": [
     {
       "name": "PLANE.operation",
+      "description": "REPLACE: what the operation does, in one sentence that starts with a verb.",
+      "source": {
+        "path": "packages/cruxible-provider-PLANE/src/cruxible_provider_PLANE/provider.py",
+        "repository": "https://github.com/cruxible-ai/cruxible-providers"
+      },
+      "serves": [
+        "PLANE.capability"
+      ],
       "in": "PLANE.operation.request@1",
       "out": "PLANE.operation.result@1",
       "effect": "pure",
@@ -19,5 +27,42 @@
       "entrypoint": "cruxible_provider_PLANE.provider:Implementation"
     }
   ],
+  "declares": {
+    "contracts": [
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "PLANE.operation.refusal.provider_declined",
+        "version": 1,
+        "description": "Detail of a provider_declined refusal.",
+        "fields": {}
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "PLANE.operation.request",
+        "version": 1,
+        "description": "REPLACE: what the operation is asked.",
+        "fields": {
+          "value": {
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "PLANE.operation.result",
+        "version": 1,
+        "description": "REPLACE: what the operation returns.",
+        "fields": {
+          "value": {
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      }
+    ]
+  },
   "runtime_requirements": []
 }

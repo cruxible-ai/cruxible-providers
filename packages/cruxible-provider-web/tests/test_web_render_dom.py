@@ -374,7 +374,7 @@ def test_every_origin_the_page_contacts_reaches_the_recorder() -> None:
 def test_the_capture_is_the_assembled_dom_with_the_main_frame_s_coordinate() -> None:
     result, _ = _run(_page())
     assert result.status == "ok", result
-    output = result.output
+    output = result.output["capture"]
     stored = base64.b64decode(output["content_base64"])
     assert stored == ASSEMBLED.encode("utf-8")
     assert output["bytes_digest"] == "sha256:" + hashlib.sha256(stored).hexdigest()
@@ -523,8 +523,8 @@ def test_the_capture_describes_the_one_document_it_holds() -> None:
     )
     result, _ = _run(page)
     assert result.status == "ok", result
-    assert base64.b64decode(result.output["content_base64"]) == ASSEMBLED.encode("utf-8")
-    coordinate = result.output["coordinate"]
+    assert base64.b64decode(result.output["capture"]["content_base64"]) == ASSEMBLED.encode("utf-8")
+    coordinate = result.output["capture"]["coordinate"]
     assert coordinate["final_url"] == FIRST_DOC
     assert coordinate["headers"] == {"etag": '"first"'}
 
@@ -681,8 +681,11 @@ def test_a_recorded_render_replays_the_recorded_dom_labelled() -> None:
     recorder = EgressRecorder()
     replayed = WebRenderDom()(_context(input={"url": recording.request_url}, egress=recorder))
     assert replayed.status == "ok", replayed
-    assert base64.b64decode(replayed.output["content_base64"]) == recording.rendered_body.encode()
-    coordinate = replayed.output["coordinate"]
+    assert (
+        base64.b64decode(replayed.output["capture"]["content_base64"])
+        == recording.rendered_body.encode()
+    )
+    coordinate = replayed.output["capture"]["coordinate"]
     assert coordinate["renderer"] == f"recorded:{recording.id}"
     assert coordinate["source"] == "packaged-recording"
     assert [event["kind"] for event in replayed.events] == ["recorded_render"]

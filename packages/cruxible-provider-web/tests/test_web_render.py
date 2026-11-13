@@ -117,8 +117,8 @@ def test_a_text_derive_extracts_the_cited_bytes_and_contacts_nothing() -> None:
     )
     assert result.status == "ok", result
     assert extractor.read == [(PAGE, "markdown", True)]
-    assert base64.b64decode(result.output["content_base64"]) == b"# Gauge report\n"
-    coordinate = result.output["coordinate"]
+    assert base64.b64decode(result.output["capture"]["content_base64"]) == b"# Gauge report\n"
+    coordinate = result.output["capture"]["coordinate"]
     assert coordinate["renderer"] == "fixed-extractor"
     assert coordinate["content_type"] == "text/markdown; charset=utf-8"
     assert recorder.observed() == []
@@ -129,7 +129,7 @@ def test_a_json_derive_is_the_canonical_reading_of_the_page() -> None:
     result = WebRender(extractor=extractor)(_context({"form": "json", "source": _source()}))
     assert result.status == "ok", result
     assert extractor.read == [(PAGE, "text", False)]
-    stored = base64.b64decode(result.output["content_base64"])
+    stored = base64.b64decode(result.output["capture"]["content_base64"])
     document = json.loads(stored)
     assert document == {
         "url": REQUESTED,
@@ -149,7 +149,7 @@ def test_a_json_derive_is_the_canonical_reading_of_the_page() -> None:
     assert stored == json.dumps(
         document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
-    assert result.output["coordinate"]["content_type"] == "application/json"
+    assert result.output["capture"]["coordinate"]["content_type"] == "application/json"
 
 
 def test_a_page_without_a_title_or_main_content_still_has_a_reading() -> None:
@@ -171,7 +171,7 @@ def test_the_derived_capture_cites_the_source_and_keeps_its_observation_time() -
     source = _source(source="packaged-recording")
     result = WebRender(extractor=_Extractor())(_context({"form": "text", "source": source}))
     assert result.status == "ok", result
-    output = result.output
+    output = result.output["capture"]
     coordinate = output["coordinate"]
     assert coordinate["derived_from"] == "sha256:" + hashlib.sha256(PAGE.encode()).hexdigest()
     assert coordinate["derived_from"] == source["bytes_digest"]

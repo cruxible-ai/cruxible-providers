@@ -128,29 +128,28 @@ class WebRenderDom:
                 observed_weight=page_weight_class(len(assembled)),
             )
         recorded = page.engine.startswith("recorded:")
-        return ProviderResult.ok(
-            external_capture_result(
-                assembled,
-                source_identity=logical_source,
-                coordinate_type=COORDINATE_TYPE,
-                selector_type=SELECTOR_TYPE,
-                coordinate=http_coordinate(
-                    url=url,
-                    final_url=page.final_url,
-                    status=page.status_code,
-                    content_type=DOM_MEDIA,
-                    # The main frame's length is not the assembled DOM's; only
-                    # its freshness validators describe these bytes.
-                    response_headers={
-                        name: value
-                        for name, value in page.headers.items()
-                        if name != "content-length"
-                    },
-                    from_recording=recorded,
-                    renderer=page.engine,
-                ),
-                observed_at=datetime.now(UTC),
+        wire = external_capture_result(
+            assembled,
+            source_identity=logical_source,
+            coordinate_type=COORDINATE_TYPE,
+            selector_type=SELECTOR_TYPE,
+            coordinate=http_coordinate(
+                url=url,
+                final_url=page.final_url,
+                status=page.status_code,
+                content_type=DOM_MEDIA,
+                # The main frame's length is not the assembled DOM's; only
+                # its freshness validators describe these bytes.
+                response_headers={
+                    name: value for name, value in page.headers.items() if name != "content-length"
+                },
+                from_recording=recorded,
+                renderer=page.engine,
             ),
+            observed_at=datetime.now(UTC),
+        )
+        return ProviderResult.ok(
+            {"capture": wire},
             metrics={"byte_count": float(len(assembled))},
             events=[{"kind": "recorded_render", "url": url}] if recorded else [],
         )

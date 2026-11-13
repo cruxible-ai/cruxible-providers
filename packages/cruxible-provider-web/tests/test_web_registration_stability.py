@@ -75,9 +75,38 @@ def test_the_registration_declares_what_each_entrypoint_serves() -> None:
         assert operation.entrypoint == f"{entrypoint.__module__}:{entrypoint.__qualname__}"
         assert operation.effect == EFFECTS[operation.name]
         assert operation.in_.spelling == f"{operation.name}.request@1"
-        assert operation.out.spelling == f"{operation.name}.result@1"
+        # The result Contract is the served capability's own (the base kit's copy).
+        (served,) = operation.serves
+        assert operation.out.spelling == f"{served}.result@1"
         for code, refusal in operation.refusals.items():
             assert refusal.contract.spelling == f"{operation.name}.refusal.{code}@1"
+
+
+#: The base kit capability each operation serves (design note §7.4.1).
+SERVES = {
+    operations.FETCH_OPERATION: ("web.fetch",),
+    operations.FETCH_PAGES_OPERATION: ("web.fetch.pages",),
+    operations.RENDER_OPERATION: ("web.render",),
+    operations.RENDER_DOM_OPERATION: ("web.render.dom",),
+    operations.SEARCH_OPERATION: ("web.search",),
+}
+REPOSITORY = "https://github.com/cruxible-ai/cruxible-providers"
+
+
+def test_each_operation_serves_its_base_kit_capability_and_names_its_source() -> None:
+    """``serves`` names the capability; ``source`` is the entrypoint's module in this repo."""
+
+    repo_root = SRC.parents[3]
+    for operation in BUNDLE.operations:
+        assert operation.serves == SERVES[operation.name]
+        module = operation.entrypoint.split(":")[0]
+        assert operation.source.repository == REPOSITORY
+        assert operation.source.revision is None, "a revision is stamped by a build, not here"
+        assert operation.source.path == (
+            "packages/cruxible-provider-web/src/" + module.replace(".", "/") + ".py"
+        )
+        assert (repo_root / operation.source.path).is_file()
+        assert operation.description and not operation.may_truncate
 
 
 @pytest.mark.parametrize("name", sorted(REACHED_MODULES))

@@ -30,8 +30,9 @@ The support library every [Cruxible](https://github.com/cruxible-ai/cruxible)
 provider package is built on. Apache-2.0.
 
 A Cruxible provider is one Python package with its own committed lock, a
-package-side manifest, a `registration.json` declaring its typed operations,
-and one or more entrypoints serving them (`web.fetch`, `doc.to_markdown`, …).
+package-side manifest, a `registration.json` declaring its typed operations
+(the capabilities each serves, and copies of the Contracts each accepts and
+returns), and one or more entrypoints serving them (`web.fetch`, `doc.to_markdown`, …).
 Cruxible runs it out of process, on an exact build an operator accepted through
 governance. This library is both halves of that contract: the small surface a
 provider implements, and the machinery the executor uses to resolve,
@@ -70,7 +71,7 @@ Three identifiers, deliberately separate:
 | `manifest` | The package-side manifest schema. Unknown fields fail closed. |
 | `artifact` | The governed Provider artifact payload and its digest |
 | `protocol` | The run context and result envelope, and `protocol_version` (2.0: one operation of one build per run) |
-| `operations` | The typed operation declaration a registration carries, Contract pins, and the operation signature digest |
+| `operations` | The typed operation declaration a registration carries (description, source, the capabilities it serves, Contracts, effect, refusals), Contract pins, and the operation signature digest |
 | `canonical` | Canonical JSON and domain-tagged digests |
 | `digests` | `implementation_digest` and `materialization_digest` |
 | `resolution` | Lock resolution for an explicit marker environment, including per-implementation extras |
@@ -79,7 +80,7 @@ Three identifiers, deliberately separate:
 | `secrets` | Credential delivery over an inherited descriptor, and redaction |
 | `budget` | Out-of-process wall-clock and output-size enforcement |
 | `egress` | Endpoints declared versus endpoints actually contacted |
-| `registration` | Data-only `registration.json` (schema 2) reader; verifies the manifest, the operations and their entrypoints without executing provider code |
+| `registration` | Data-only `registration.json` (schema 3) reader and writer; verifies the manifest, the operations, their entrypoints and that `declares` carries exactly the shapes they reach, without executing provider code; `write_registration` rewrites `declares` to that closure |
 | `registry` | A **stub** registry standing in for Cruxible core, for conformance tests |
 | `backends` | The two backend kinds (`local_env`, `container`) and their injected drivers |
 | `binding`, `execute` | Bind and invoke |
