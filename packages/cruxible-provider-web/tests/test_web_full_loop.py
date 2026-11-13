@@ -240,11 +240,12 @@ def test_fetch_success_path(
     assert outcome.status == "ok"
     assert outcome.receipt_fields()["operation"] == "web.fetch"
     assert outcome.envelope.output is not None
-    # The adapter states no validity window: the optional key is absent, never null.
-    assert "source_effective_time" not in outcome.envelope.output
+    # The Capture is the result's one field. The adapter states no validity
+    # window: the optional key is absent, never null.
+    output = outcome.envelope.output["capture"]
+    assert "source_effective_time" not in output
     # The Capture is the body the origin sent, verbatim; how it was obtained is
     # the coordinate, never inside the bytes.
-    output = outcome.envelope.output
     body = base64.b64decode(output["content_base64"])
     recorded = load_recordings()["article-static"].response
     assert body == recorded.body.encode("utf-8")
@@ -313,10 +314,10 @@ def test_dom_fetch_captures_the_assembled_page(
     )
     assert outcome.status == "ok", outcome.envelope
     assert outcome.envelope.output is not None
-    assembled = base64.b64decode(outcome.envelope.output["content_base64"])
+    assembled = base64.b64decode(outcome.envelope.output["capture"]["content_base64"])
     assert assembled == recording.rendered_body.encode("utf-8")
     assert b"3.214" in assembled
-    coordinate = outcome.envelope.output["coordinate"]
+    coordinate = outcome.envelope.output["capture"]["coordinate"]
     assert coordinate["renderer"] == "recorded:dashboard-rendered"
     assert "derived_from" not in coordinate
     # A recorded render is a replay too, and carries a label on the trace.
@@ -361,12 +362,13 @@ def test_render_derives_a_fetched_capture_and_contacts_nothing(
     )
     assert outcome.status == "ok", outcome.envelope
     assert outcome.envelope.output is not None
-    document = json.loads(base64.b64decode(outcome.envelope.output["content_base64"]))
+    derived = outcome.envelope.output["capture"]
+    document = json.loads(base64.b64decode(derived["content_base64"]))
     assert document["url"] == recording.request_url
     assert document["title"] == "Recalibrating the Newlyn tide gauge"
-    coordinate = outcome.envelope.output["coordinate"]
+    coordinate = derived["coordinate"]
     assert coordinate["derived_from"] == "sha256:" + hashlib.sha256(fetched).hexdigest()
-    assert outcome.envelope.output["observed_at"] == "2026-11-04T00:00:00Z"
+    assert derived["observed_at"] == "2026-11-04T00:00:00Z"
     assert outcome.receipt_fields()["endpoints_contacted"] == []
 
 
@@ -495,13 +497,12 @@ def test_search_success_path(
     assert outcome.status == "ok"
     assert outcome.receipt_fields()["operation"] == "search.web"
     assert outcome.envelope.output is not None
-    assert "source_effective_time" not in outcome.envelope.output
+    response = outcome.envelope.output["response"]
+    assert "source_effective_time" not in response
     # The Capture is the instance's answer, verbatim: no ranking is derived here.
-    answer = base64.b64decode(outcome.envelope.output["content_base64"])
+    answer = base64.b64decode(response["content_base64"])
     assert answer == load_recordings()["searxng-answer"].response.body.encode("utf-8")
-    assert outcome.envelope.output["coordinate"]["final_url"].startswith(
-        "https://fixture.invalid/search?"
-    )
+    assert response["coordinate"]["final_url"].startswith("https://fixture.invalid/search?")
     # A configuration-derived target is recorded, not mistaken for an allowlist.
     assert outcome.egress.observed == ("https://fixture.invalid",)
     assert outcome.egress.dynamic_forms == (DYNAMIC_TARGET_FROM_CONFIGURATION,)

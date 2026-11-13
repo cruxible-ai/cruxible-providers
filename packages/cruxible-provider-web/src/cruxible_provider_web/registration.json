@@ -2,7 +2,7 @@
   "schema_version": 3,
   "manifest": {
     "path": "manifest.yaml",
-    "digest": "sha256:508a90ab5bcc90bef2b1b8920f41d59c00ac98d8eb32e6d65b13733d8bd0f671"
+    "digest": "sha256:de43ecdb17cefbfdfceb8918b1638e5785c43b3b6dffa208b151fe4c3e499f18"
   },
   "operations": [
     {
@@ -16,7 +16,7 @@
         "web.search"
       ],
       "in": "search.web.request@1",
-      "out": "search.web.result@1",
+      "out": "web.search.result@1",
       "effect": "external_read",
       "refusals": {
         "cross_origin_credentialed_redirect": {
@@ -312,286 +312,6 @@
                 "day",
                 "month",
                 "year"
-              ]
-            }
-          }
-        }
-      },
-      {
-        "artifact_format": "cruxible-contract-v1",
-        "name": "search.web.result",
-        "version": 1,
-        "description": "One search answer as Capture wire: the exact response body the instance sent, its HTTP coordinate and the observation time.",
-        "fields": {
-          "byte_length": {
-            "type": {
-              "kind": "int",
-              "min": 0
-            }
-          },
-          "bytes_digest": {
-            "type": {
-              "kind": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          },
-          "content_base64": {
-            "type": {
-              "kind": "string"
-            }
-          },
-          "content_encoding": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "base64"
-              ]
-            }
-          },
-          "coordinate": {
-            "type": {
-              "contract": {
-                "digest": "sha256:323753c310e7af28b18a5dcc1f6bb434a88c286affa7c84bd1c04477f664bd5d",
-                "name": "web.capture.coordinate",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "coordinate_type": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "http-response-v1"
-              ]
-            }
-          },
-          "observed_at": {
-            "type": {
-              "kind": "datetime"
-            }
-          },
-          "replayability": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "attested_only"
-              ]
-            }
-          },
-          "selector": {
-            "type": {
-              "contract": {
-                "digest": "sha256:3333934af2eaa8df454a1b8720481a073de5633eac6e7b923db224f5570682fe",
-                "name": "web.capture.selector",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "selector_type": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "whole-response-v1"
-              ]
-            }
-          },
-          "source_effective_time": {
-            "optional": true,
-            "type": {
-              "contract": {
-                "digest": "sha256:4f77f75bc2bbec9b949e3d9e5f86aa28d6a51df8a51dfd8fdddd183422ad27c0",
-                "name": "web.capture.source_effective_time",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "source_identity": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "search.response"
-              ]
-            }
-          },
-          "tag": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "playbill-provider-result-to-external-capture-v1"
-              ]
-            }
-          }
-        }
-      },
-      {
-        "artifact_format": "cruxible-contract-v1",
-        "name": "web.capture.coordinate",
-        "version": 1,
-        "description": "How a web Capture's bytes were obtained, never inside them: the URL requested and the URL settled on, the 2xx status, the bytes' media type, the request digest, the kept freshness headers and whether a network or a packaged recording answered; for a derived document, the engine that made it and the content digest of the Capture it was made from; for an assembled listing, its pages.",
-        "fields": {
-          "content_type": {
-            "type": {
-              "kind": "string"
-            }
-          },
-          "derived_from": {
-            "optional": true,
-            "type": {
-              "kind": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          },
-          "final_url": {
-            "type": {
-              "kind": "string"
-            }
-          },
-          "headers": {
-            "optional": true,
-            "type": {
-              "contract": {
-                "digest": "sha256:c2ccf272aca44d964aaa14f1dcf9d0f0c49757a8f26b05c90cbe097115d3e679",
-                "name": "web.capture.headers",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "pages": {
-            "optional": true,
-            "type": {
-              "item": {
-                "contract": {
-                  "digest": "sha256:24a95d5e9bd0df3d0365adc7ff21771135e6804cdf91d62c16d04b280122b018",
-                  "name": "web.capture.page",
-                  "version": 1
-                },
-                "kind": "contract"
-              },
-              "kind": "list",
-              "max_items": 10000
-            }
-          },
-          "renderer": {
-            "optional": true,
-            "type": {
-              "kind": "string",
-              "min_len": 1
-            }
-          },
-          "request_digest": {
-            "type": {
-              "kind": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          },
-          "source": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "network",
-                "packaged-recording"
-              ]
-            }
-          },
-          "status": {
-            "type": {
-              "kind": "int",
-              "max": 299,
-              "min": 200
-            }
-          },
-          "url": {
-            "type": {
-              "kind": "string"
-            }
-          }
-        }
-      },
-      {
-        "artifact_format": "cruxible-contract-v1",
-        "name": "web.capture.headers",
-        "version": 1,
-        "description": "The response headers a web Capture keeps for freshness, each present only when the origin sent it.",
-        "fields": {
-          "content_length": {
-            "optional": true,
-            "type": {
-              "kind": "string"
-            }
-          },
-          "etag": {
-            "optional": true,
-            "type": {
-              "kind": "string"
-            }
-          },
-          "last_modified": {
-            "optional": true,
-            "type": {
-              "kind": "string"
-            }
-          }
-        }
-      },
-      {
-        "artifact_format": "cruxible-contract-v1",
-        "name": "web.capture.page",
-        "version": 1,
-        "description": "One page of a listing an operation assembled into one document: its URL, its 2xx status and its body's digest.",
-        "fields": {
-          "bytes_digest": {
-            "type": {
-              "kind": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          },
-          "status": {
-            "type": {
-              "kind": "int",
-              "max": 299,
-              "min": 200
-            }
-          },
-          "url": {
-            "type": {
-              "kind": "string"
-            }
-          }
-        }
-      },
-      {
-        "artifact_format": "cruxible-contract-v1",
-        "name": "web.capture.selector",
-        "version": 1,
-        "description": "The whole document: a web Capture selects no part of it.",
-        "fields": {}
-      },
-      {
-        "artifact_format": "cruxible-contract-v1",
-        "name": "web.capture.source_effective_time",
-        "version": 1,
-        "description": "The half-open interval a web observation is valid for.",
-        "fields": {
-          "effective_from": {
-            "type": {
-              "kind": "datetime"
-            }
-          },
-          "effective_until": {
-            "optional": true,
-            "type": {
-              "kind": "datetime"
-            }
-          },
-          "tag": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "playbill-source-effective-time-v1"
               ]
             }
           }
@@ -1200,105 +920,12 @@
         "artifact_format": "cruxible-contract-v1",
         "name": "web.fetch.result",
         "version": 1,
-        "description": "One retrieved web resource as Capture wire: the exact body the origin sent, its HTTP coordinate and the observation time.",
+        "description": "The exact body the origin sent, as one Capture. Its HTTP coordinate (method, URL, status, headers) and observation time are the Capture's own, never fields here.",
         "fields": {
-          "byte_length": {
+          "capture": {
             "type": {
-              "kind": "int",
-              "min": 0
-            }
-          },
-          "bytes_digest": {
-            "type": {
-              "kind": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          },
-          "content_base64": {
-            "type": {
-              "kind": "string"
-            }
-          },
-          "content_encoding": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "base64"
-              ]
-            }
-          },
-          "coordinate": {
-            "type": {
-              "contract": {
-                "digest": "sha256:323753c310e7af28b18a5dcc1f6bb434a88c286affa7c84bd1c04477f664bd5d",
-                "name": "web.capture.coordinate",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "coordinate_type": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "http-response-v1"
-              ]
-            }
-          },
-          "observed_at": {
-            "type": {
-              "kind": "datetime"
-            }
-          },
-          "replayability": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "attested_only"
-              ]
-            }
-          },
-          "selector": {
-            "type": {
-              "contract": {
-                "digest": "sha256:3333934af2eaa8df454a1b8720481a073de5633eac6e7b923db224f5570682fe",
-                "name": "web.capture.selector",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "selector_type": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "whole-response-v1"
-              ]
-            }
-          },
-          "source_effective_time": {
-            "optional": true,
-            "type": {
-              "contract": {
-                "digest": "sha256:4f77f75bc2bbec9b949e3d9e5f86aa28d6a51df8a51dfd8fdddd183422ad27c0",
-                "name": "web.capture.source_effective_time",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "source_identity": {
-            "type": {
-              "kind": "string",
-              "pattern": "^[a-z][a-z0-9_.-]{0,255}$"
-            }
-          },
-          "tag": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "playbill-provider-result-to-external-capture-v1"
-              ]
+              "capture_kind": "*",
+              "kind": "capture"
             }
           }
         }
@@ -1442,105 +1069,12 @@
         "artifact_format": "cruxible-contract-v1",
         "name": "web.render.dom.result",
         "version": 1,
-        "description": "One browser-assembled page as Capture wire: the exact serialized DOM, an HTTP coordinate naming the main-frame exchange and the engine that assembled it, and the observation time.",
+        "description": "The serialized DOM the browser assembled, as one Capture. Its HTTP coordinate (the main-frame exchange and the engine that assembled it) and observation time are the Capture's own, never fields here.",
         "fields": {
-          "byte_length": {
+          "capture": {
             "type": {
-              "kind": "int",
-              "min": 0
-            }
-          },
-          "bytes_digest": {
-            "type": {
-              "kind": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          },
-          "content_base64": {
-            "type": {
-              "kind": "string"
-            }
-          },
-          "content_encoding": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "base64"
-              ]
-            }
-          },
-          "coordinate": {
-            "type": {
-              "contract": {
-                "digest": "sha256:323753c310e7af28b18a5dcc1f6bb434a88c286affa7c84bd1c04477f664bd5d",
-                "name": "web.capture.coordinate",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "coordinate_type": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "http-response-v1"
-              ]
-            }
-          },
-          "observed_at": {
-            "type": {
-              "kind": "datetime"
-            }
-          },
-          "replayability": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "attested_only"
-              ]
-            }
-          },
-          "selector": {
-            "type": {
-              "contract": {
-                "digest": "sha256:3333934af2eaa8df454a1b8720481a073de5633eac6e7b923db224f5570682fe",
-                "name": "web.capture.selector",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "selector_type": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "whole-response-v1"
-              ]
-            }
-          },
-          "source_effective_time": {
-            "optional": true,
-            "type": {
-              "contract": {
-                "digest": "sha256:4f77f75bc2bbec9b949e3d9e5f86aa28d6a51df8a51dfd8fdddd183422ad27c0",
-                "name": "web.capture.source_effective_time",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "source_identity": {
-            "type": {
-              "kind": "string",
-              "pattern": "^[a-z][a-z0-9_.-]{0,255}$"
-            }
-          },
-          "tag": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "playbill-provider-result-to-external-capture-v1"
-              ]
+              "capture_kind": "*",
+              "kind": "capture"
             }
           }
         }
@@ -1625,105 +1159,26 @@
         "artifact_format": "cruxible-contract-v1",
         "name": "web.render.result",
         "version": 1,
-        "description": "One derived web document as Capture wire: the exact bytes the derive produced (main-content Markdown or the page's canonical JSON), a coordinate naming the engine and the content digest of the Capture it was made from, and that Capture's observation time.",
+        "description": "The derived document, as one Capture: main-content Markdown or the page's canonical JSON. Its coordinate (the engine, and the content digest of the Capture it was made from) and observation time are the Capture's own, never fields here.",
         "fields": {
-          "byte_length": {
+          "capture": {
             "type": {
-              "kind": "int",
-              "min": 0
+              "capture_kind": "*",
+              "kind": "capture"
             }
-          },
-          "bytes_digest": {
+          }
+        }
+      },
+      {
+        "artifact_format": "cruxible-contract-v1",
+        "name": "web.search.result",
+        "version": 1,
+        "description": "The search service's response body, verbatim, as one Capture in the vendor's own format.",
+        "fields": {
+          "response": {
             "type": {
-              "kind": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          },
-          "content_base64": {
-            "type": {
-              "kind": "string"
-            }
-          },
-          "content_encoding": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "base64"
-              ]
-            }
-          },
-          "coordinate": {
-            "type": {
-              "contract": {
-                "digest": "sha256:323753c310e7af28b18a5dcc1f6bb434a88c286affa7c84bd1c04477f664bd5d",
-                "name": "web.capture.coordinate",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "coordinate_type": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "http-response-v1"
-              ]
-            }
-          },
-          "observed_at": {
-            "type": {
-              "kind": "datetime"
-            }
-          },
-          "replayability": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "attested_only"
-              ]
-            }
-          },
-          "selector": {
-            "type": {
-              "contract": {
-                "digest": "sha256:3333934af2eaa8df454a1b8720481a073de5633eac6e7b923db224f5570682fe",
-                "name": "web.capture.selector",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "selector_type": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "whole-response-v1"
-              ]
-            }
-          },
-          "source_effective_time": {
-            "optional": true,
-            "type": {
-              "contract": {
-                "digest": "sha256:4f77f75bc2bbec9b949e3d9e5f86aa28d6a51df8a51dfd8fdddd183422ad27c0",
-                "name": "web.capture.source_effective_time",
-                "version": 1
-              },
-              "kind": "contract"
-            }
-          },
-          "source_identity": {
-            "type": {
-              "kind": "string",
-              "pattern": "^[a-z][a-z0-9_.-]{0,255}$"
-            }
-          },
-          "tag": {
-            "type": {
-              "kind": "enum",
-              "members": [
-                "playbill-provider-result-to-external-capture-v1"
-              ]
+              "capture_kind": "*",
+              "kind": "capture"
             }
           }
         }

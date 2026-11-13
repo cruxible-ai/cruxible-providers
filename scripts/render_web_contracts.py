@@ -23,12 +23,14 @@ manifest digest.
 The definitions below are derived from the adapters' code: the request fields
 ``FetchRequest.parse`` / ``_query`` (fetch), ``pages._paging`` (fetch.pages),
 ``_parse_input`` (search),
-``_RenderRequest.parse`` (render) and ``dom._parse`` (render.dom) read, the
-shared acquisition result ``cruxible_provider_runtime.acquisition`` builds and
-the HTTP coordinate every operation passes it (``coordinate.http_coordinate``),
-and the detail keys of every refusal each operation raises. An optional field is an absent key;
-``null`` is never valid. The results are today's wire shape (the whole result is
-Capture wire); the every-Capture-is-a-field change rewrites them.
+``_RenderRequest.parse`` (render) and ``dom._parse`` (render.dom) read, and
+the detail keys of every refusal each operation raises. An optional field is an
+absent key; ``null`` is never valid. Every Capture an operation returns is a
+named field of its result Contract (``capture: capture<*>``; ``response`` for
+search, ``captures`` for pages): its wire, coordinate and observation time
+travel in that field, never as fields of the Contract. The one-Capture result
+Contracts are byte for byte the base kit's (core's
+``src/cruxible_core/kits/base/artifacts/contracts``), so their fit is identical.
 """
 
 from __future__ import annotations
@@ -65,31 +67,11 @@ MAX_URL_LENGTH = 8192
 #: ``pages.MAX_PAGES``: the most page requests one web.fetch.pages call sends.
 MAX_PAGES = 64
 
-ACQUISITION_TAG = "playbill-provider-result-to-external-capture-v1"
-EFFECTIVE_TIME_TAG = "playbill-source-effective-time-v1"
 
+def _one_capture(description: str, field: str = "capture") -> dict[str, Any]:
+    """A result that is one Capture, in its one named field (the base kit's form)."""
 
-def _result(description: str, source_identity: str) -> dict[str, Any]:
-    """The shared external-capture result every operation returns."""
-
-    return {
-        "description": description,
-        "fields": {
-            "tag": f'enum["{ACQUISITION_TAG}"]',
-            "source_identity": source_identity,
-            "coordinate_type": 'enum["http-response-v1"]',
-            "coordinate": "web.capture.coordinate@1",
-            "selector_type": 'enum["whole-response-v1"]',
-            "selector": "web.capture.selector@1",
-            "replayability": 'enum["attested_only"]',
-            "content_encoding": 'enum["base64"]',
-            "content_base64": "string",
-            "byte_length": "int{0..}",
-            "bytes_digest": SHA256,
-            "observed_at": "datetime",
-            "source_effective_time": "web.capture.source_effective_time@1?",
-        },
-    }
+    return {"description": description, "fields": {field: "capture<*>"}}
 
 
 def _redirect_refusals(operation: str) -> dict[str, dict[str, Any]]:
@@ -189,58 +171,6 @@ _FETCH_DECLINED_FIELDS = {
 
 #: Name to definition, nested Contracts before the Contracts that pin them.
 DEFINITIONS: dict[str, dict[str, Any]] = {
-    "web.capture.headers": {
-        "description": (
-            "The response headers a web Capture keeps for freshness, each present only "
-            "when the origin sent it."
-        ),
-        "fields": {
-            "etag": "string?",
-            "last_modified": "string?",
-            "content_length": "string?",
-        },
-    },
-    "web.capture.page": {
-        "description": (
-            "One page of a listing an operation assembled into one document: its URL, "
-            "its 2xx status and its body's digest."
-        ),
-        "fields": {"url": "string", "status": "int{200..299}", "bytes_digest": SHA256},
-    },
-    "web.capture.coordinate": {
-        "description": (
-            "How a web Capture's bytes were obtained, never inside them: the URL "
-            "requested and the URL settled on, the 2xx status, the bytes' media type, "
-            "the request digest, the kept freshness headers and whether a network or a "
-            "packaged recording answered; for a derived document, the engine that made "
-            "it and the content digest of the Capture it was made from; for an "
-            "assembled listing, its pages."
-        ),
-        "fields": {
-            "url": "string",
-            "final_url": "string",
-            "status": "int{200..299}",
-            "content_type": "string",
-            "request_digest": SHA256,
-            "source": 'enum["network", "packaged-recording"]',
-            "headers": "web.capture.headers@1?",
-            "renderer": "string{min_len: 1}?",
-            "derived_from": SHA256 + "?",
-            "pages": "list<web.capture.page@1>{max_items: 10000}?",
-        },
-    },
-    "web.capture.selector": {
-        "description": "The whole document: a web Capture selects no part of it.",
-        "fields": {},
-    },
-    "web.capture.source_effective_time": {
-        "description": "The half-open interval a web observation is valid for.",
-        "fields": {
-            "tag": f'enum["{EFFECTIVE_TIME_TAG}"]',
-            "effective_from": "datetime",
-            "effective_until": "datetime?",
-        },
-    },
     "web.fetch.query_param": {
         "description": (
             "One query parameter of a fetch: its name and its values, each sent as its "
@@ -262,10 +192,9 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
         ),
         "fields": FETCH_REQUEST_FIELDS,
     },
-    "web.fetch.result": _result(
-        "One retrieved web resource as Capture wire: the exact body the origin sent, its "
-        "HTTP coordinate and the observation time.",
-        LOGICAL_NAME,
+    "web.fetch.result": _one_capture(
+        "The exact body the origin sent, as one Capture. Its HTTP coordinate (method, URL, "
+        "status, headers) and observation time are the Capture's own, never fields here."
     ),
     "web.fetch.refusal.credential_unavailable": {
         "description": (
@@ -360,12 +289,10 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "max_bytes": "int{1..33554432}?",
         },
     },
-    "web.render.result": _result(
-        "One derived web document as Capture wire: the exact bytes the derive produced "
-        "(main-content Markdown or the page's canonical JSON), a coordinate naming the "
-        "engine and the content digest of the Capture it was made from, and that "
-        "Capture's observation time.",
-        LOGICAL_NAME,
+    "web.render.result": _one_capture(
+        "The derived document, as one Capture: main-content Markdown or the page's "
+        "canonical JSON. Its coordinate (the engine, and the content digest of the Capture "
+        "it was made from) and observation time are the Capture's own, never fields here."
     ),
     "web.render.refusal.provider_declined": {
         "description": (
@@ -392,11 +319,10 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "max_bytes": "int{1..33554432}?",
         },
     },
-    "web.render.dom.result": _result(
-        "One browser-assembled page as Capture wire: the exact serialized DOM, an HTTP "
-        "coordinate naming the main-frame exchange and the engine that assembled it, "
-        "and the observation time.",
-        LOGICAL_NAME,
+    "web.render.dom.result": _one_capture(
+        "The serialized DOM the browser assembled, as one Capture. Its HTTP coordinate (the "
+        "main-frame exchange and the engine that assembled it) and observation time are the "
+        "Capture's own, never fields here."
     ),
     "web.render.dom.refusal.engine_unavailable": {
         "description": (
@@ -431,10 +357,9 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
             "time_range": "enum[day, month, year]?",
         },
     },
-    "search.web.result": _result(
-        "One search answer as Capture wire: the exact response body the instance sent, "
-        "its HTTP coordinate and the observation time.",
-        'enum["search.response"]',
+    "web.search.result": _one_capture(
+        "The search service's response body, verbatim, as one Capture in the vendor's own format.",
+        field="response",
     ),
     "search.web.refusal.provider_declined": {
         "description": (

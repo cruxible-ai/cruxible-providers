@@ -102,7 +102,9 @@ carries the rule.
 
 ## A Capture is the payload, verbatim
 
-Every operation here returns the shared
+Every operation here returns each Capture as a named field of its result
+(`capture: capture<*>`; `response` for `search.web`; `captures` for
+`web.fetch.pages`), carrying the shared
 `playbill-provider-result-to-external-capture-v1` Capture wire, and its bytes are
 the document itself, in whatever format it is — never a bundle around it:
 
@@ -129,8 +131,7 @@ the document itself, in whatever format it is — never a bundle around it:
   input gives a byte-identical result, the same Capture, and Claims that
   re-observe. The result is its own derived Capture, citing the fetched one.
 
-How the bytes were obtained is the typed coordinate, `web.capture.coordinate@1`,
-never inside the bytes: `url` and `final_url` (core's acquisition origin gate
+How the bytes were obtained is the Capture's coordinate, never inside the bytes: `url` and `final_url` (core's acquisition origin gate
 reads both), the 2xx `status`, the bytes' `content_type`, `request_digest`, the
 kept freshness `headers` (`etag`, `last_modified`, `content_length`), and
 `source` (`network`, or `packaged-recording`). A derived document adds
@@ -193,7 +194,7 @@ The operation's effect is `external_read`: it reads the world and mutates nothin
 This still contacts external systems and records egress. `credential_header`
 selects a header for an admitted `credential_ref`.
 
-No adapter mints a Capture. Each returns Capture wire plus trace; the executor
+No adapter mints a Capture. Each returns Capture wire in a result field plus trace; the executor
 carries both to the CaptureKind, which governs them. A provider that graded its
 own output would be certifying itself.
 
@@ -322,21 +323,18 @@ declares the typed refusals it may return, each with a detail Contract:
 
 | Operation | Serves | In | Out | Effect | Refusals |
 |---|---|---|---|---|---|
-| `search.web` | `web.search` | `search.web.request@1` | `search.web.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
+| `search.web` | `web.search` | `search.web.request@1` | `web.search.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `undeclared_instance` |
 | `web.fetch` | `web.fetch` | `web.fetch.request@1` | `web.fetch.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `private_or_internal_address` |
 | `web.fetch.pages` | `web.fetch.pages` | `web.fetch.pages.request@1` | `web.fetch.pages.result@1` | `external_read` | `provider_declined` (absorbable), `redirect_limit`, `unsupported_redirect_scheme`, `cross_origin_credentialed_redirect`, `credential_unavailable`, `private_or_internal_address` |
 | `web.render` | `web.render` | `web.render.request@1` | `web.render.result@1` | `pure` | `provider_declined` (absorbable) |
 | `web.render.dom` | `web.render.dom` | `web.render.dom.request@1` | `web.render.dom.result@1` | `external_read` | `provider_declined` (absorbable), `engine_unavailable`, `private_or_internal_address` |
 
-The registration carries a copy of all thirty-one, and of the seven nested
-Contracts they pin (`web.capture.coordinate@1` with `web.capture.headers@1` and
-`web.capture.page@1`, the zero-field `web.capture.selector@1`,
-`web.capture.source_effective_time@1`, `web.fetch.query_param@1`, and
-`web.fetch.pages.failure@1`), in its `declares` block. An install reads them
-from the package; no kit and no accepted instance Contract is needed. The
-results are still today's wire shape (the whole result is Capture wire); they
-become a `capture` field per Capture before release, and then they fit the base
-kit's capabilities.
+The registration carries a copy of all thirty-one, and of the two nested
+Contracts they pin (`web.fetch.query_param@1` and `web.fetch.pages.failure@1`),
+in its `declares` block. An install reads them from the package; no kit and no
+accepted instance Contract is needed. Each result Contract is the base kit's,
+byte for byte (a Capture is always a named field of the result, never the
+result itself), so each result fits its capability as `identical`.
 [`scripts/render_web_contracts.py`](https://github.com/cruxible-ai/cruxible-providers/blob/main/scripts/render_web_contracts.py)
 renders them from definitions derived from the
 adapters' code, with Core's Contract model, and writes them into the

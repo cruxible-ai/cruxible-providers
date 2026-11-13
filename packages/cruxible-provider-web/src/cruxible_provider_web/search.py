@@ -124,22 +124,23 @@ class SearxngSearch:
                 instance=instance,
             )
         results = document.get("results")
-        return ProviderResult.ok(
-            external_capture_result(
-                response.body,
-                source_identity="search.response",
-                coordinate_type=COORDINATE_TYPE,
-                selector_type=SELECTOR_TYPE,
-                coordinate=http_coordinate(
-                    url=request_url,
-                    final_url=response.final_url,
-                    status=response.status_code,
-                    content_type=response.content_type,
-                    response_headers=response.headers,
-                    from_recording=response.from_recording is not None,
-                ),
-                observed_at=datetime.now(UTC),
+        wire = external_capture_result(
+            response.body,
+            source_identity="search.response",
+            coordinate_type=COORDINATE_TYPE,
+            selector_type=SELECTOR_TYPE,
+            coordinate=http_coordinate(
+                url=request_url,
+                final_url=response.final_url,
+                status=response.status_code,
+                content_type=response.content_type,
+                response_headers=response.headers,
+                from_recording=response.from_recording is not None,
             ),
+            observed_at=datetime.now(UTC),
+        )
+        return ProviderResult.ok(
+            {"response": wire},
             metrics={"result_count": float(len(results) if isinstance(results, list) else 0)},
         )
 

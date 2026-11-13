@@ -8,9 +8,10 @@ recording answered) is the typed coordinate (:mod:`.coordinate`). A reading of
 the document — rendered, extracted, converted — is a different operation,
 ``web.render``, whose output is a derived Capture citing this one.
 
-The adapter never mints a Capture. It returns Capture wire and the executor
-carries it to the CaptureKind; core commits the bytes and never looks inside
-them except through a declared ``extract``.
+The adapter never mints a Capture. It returns the Capture's wire in its
+result's one field, ``capture`` (a Capture is always a named field of the result
+Contract), and the executor carries it to the CaptureKind; core commits the
+bytes and never looks inside them except through a declared ``extract``.
 
 **Egress.** This implementation cannot enumerate its endpoints: the resource is
 named by the caller, which is the whole point of the operation. Its manifest
@@ -143,22 +144,23 @@ class WebFetch:
         )
         if isinstance(exchanged, ProviderResult):
             return exchanged
-        return ProviderResult.ok(
-            external_capture_result(
-                exchanged.body,
-                source_identity=request.logical_source,
-                coordinate_type=COORDINATE_TYPE,
-                selector_type=SELECTOR_TYPE,
-                coordinate=http_coordinate(
-                    url=request.url,
-                    final_url=exchanged.final_url,
-                    status=exchanged.status_code,
-                    content_type=exchanged.content_type,
-                    response_headers=exchanged.headers,
-                    from_recording=exchanged.from_recording is not None,
-                ),
-                observed_at=datetime.now(UTC),
+        wire = external_capture_result(
+            exchanged.body,
+            source_identity=request.logical_source,
+            coordinate_type=COORDINATE_TYPE,
+            selector_type=SELECTOR_TYPE,
+            coordinate=http_coordinate(
+                url=request.url,
+                final_url=exchanged.final_url,
+                status=exchanged.status_code,
+                content_type=exchanged.content_type,
+                response_headers=exchanged.headers,
+                from_recording=exchanged.from_recording is not None,
             ),
+            observed_at=datetime.now(UTC),
+        )
+        return ProviderResult.ok(
+            {"capture": wire},
             metrics={"byte_count": float(len(exchanged.body))},
             events=recording_events(exchanged, request.url),
         )

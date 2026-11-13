@@ -8,9 +8,9 @@ default lane and without Core:
   resolves to a carried copy by its exact digest, and nothing else is carried;
 * the outputs: what ``web.fetch``, ``web.fetch.pages``, ``search.web``,
   ``web.render`` and ``web.render.dom`` actually return, on the packaged
-  recordings, is exactly their result Contract (a ``capture<K>`` input, or a
-  ``list<capture<K>>`` member, is checked in the digest form the Contract types;
-  the Capture wire itself travels outside it);
+  recordings, is exactly their result Contract (every Capture is a named
+  ``capture<K>`` field or a ``list<capture<K>>`` member, checked in the digest
+  form the Contract types; the Capture's wire travels in that field);
 * the refusals: every refusal each operation declares, produced by driving the
   adapter into it, carries a detail that is exactly its detail Contract.
 
@@ -267,13 +267,27 @@ def test_every_carried_copy_is_a_first_version_and_the_file_is_as_written() -> N
     )
 
 
-def test_the_empty_selector_and_detail_are_zero_field_contracts() -> None:
-    assert CONTRACTS[("web.capture.selector", 1)]["fields"] == {}
-    assert CONTRACTS[("search.web.refusal.provider_declined", 1)]["fields"] == {}
-    assert _problems({}, CONTRACTS[("web.capture.selector", 1)]) == []
-    assert _problems({"part": "body"}, CONTRACTS[("web.capture.selector", 1)]) == [
-        "/part: undeclared field"
-    ]
+def test_the_empty_detail_is_a_zero_field_contract() -> None:
+    detail = CONTRACTS[("search.web.refusal.provider_declined", 1)]
+    assert detail["fields"] == {}
+    assert _problems({}, detail) == []
+    assert _problems({"part": "body"}, detail) == ["/part: undeclared field"]
+
+
+@pytest.mark.parametrize(
+    ("operation", "field"),
+    [
+        ("web.fetch", "capture"),
+        ("web.render", "capture"),
+        ("web.render.dom", "capture"),
+        ("search.web", "response"),
+    ],
+)
+def test_a_one_capture_result_is_one_named_capture_field(operation: str, field: str) -> None:
+    """A Capture is a named field of the result Contract, never the result itself."""
+
+    out = CONTRACTS[_spelling(_operation(operation).out.spelling)]
+    assert out["fields"] == {field: {"type": {"kind": "capture", "capture_kind": "*"}}}
 
 
 # -- the outputs -----------------------------------------------------------
@@ -299,8 +313,8 @@ def test_fetch_outputs_are_exactly_the_result_contract(payload: dict[str, Any]) 
     _conforms(payload, _operation("web.fetch").in_.spelling)
     result = WebFetch()(_context("web.fetch", input=payload))
     assert result.status == "ok", result
-    assert "source_effective_time" not in result.output
-    _conforms(result.output, _operation("web.fetch").out.spelling)
+    assert "source_effective_time" not in result.output["capture"]
+    _conforms(_typed(result.output), _operation("web.fetch").out.spelling)
 
 
 PAGES_QUERY = [
@@ -313,6 +327,12 @@ def _pages_typed(output: Mapping[str, Any]) -> dict[str, Any]:
     """A pages result as its Contract types it: each Capture member is its digest."""
 
     return {**output, "captures": [member["bytes_digest"] for member in output["captures"]]}
+
+
+def _typed(output: Mapping[str, Any]) -> dict[str, Any]:
+    """A one-Capture result as its Contract types it: the Capture field is its digest."""
+
+    return {name: wire["bytes_digest"] for name, wire in output.items()}
 
 
 @pytest.mark.parametrize("max_url_chars", [None, 160], ids=["one-page", "pages"])
@@ -363,7 +383,7 @@ def _fetched_wire(url: str) -> dict[str, Any]:
 
     fetched = WebFetch()(_context("web.fetch", input={"url": url}))
     assert fetched.status == "ok", fetched
-    return dict(fetched.output)
+    return dict(fetched.output["capture"])
 
 
 def _render_payload(form: str, url: str) -> dict[str, Any]:
@@ -385,8 +405,8 @@ def test_render_output_is_exactly_the_result_contract(form: str) -> None:
     _conforms(_as_typed(payload), _operation("web.render").in_.spelling)
     result = WebRender()(_context("web.render", input=payload))
     assert result.status == "ok", result
-    assert "source_effective_time" not in result.output
-    _conforms(result.output, _operation("web.render").out.spelling)
+    assert "source_effective_time" not in result.output["capture"]
+    _conforms(_typed(result.output), _operation("web.render").out.spelling)
 
 
 def test_dom_output_is_exactly_the_result_contract() -> None:
@@ -394,8 +414,8 @@ def test_dom_output_is_exactly_the_result_contract() -> None:
     _conforms(payload, _operation("web.render.dom").in_.spelling)
     result = WebRenderDom()(_context("web.render.dom", input=payload))
     assert result.status == "ok", result
-    assert "source_effective_time" not in result.output
-    _conforms(result.output, _operation("web.render.dom").out.spelling)
+    assert "source_effective_time" not in result.output["capture"]
+    _conforms(_typed(result.output), _operation("web.render.dom").out.spelling)
 
 
 def test_search_output_is_exactly_the_result_contract() -> None:
@@ -410,8 +430,8 @@ def test_search_output_is_exactly_the_result_contract() -> None:
         )
     )
     assert result.status == "ok", result
-    assert "source_effective_time" not in result.output
-    _conforms(result.output, _operation("search.web").out.spelling)
+    assert "source_effective_time" not in result.output["response"]
+    _conforms(_typed(result.output), _operation("search.web").out.spelling)
 
 
 def test_the_request_contracts_refuse_what_the_adapters_decline() -> None:

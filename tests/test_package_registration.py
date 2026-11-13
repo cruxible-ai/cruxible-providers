@@ -256,10 +256,12 @@ def test_a_package_serving_a_workspace_capability_is_refused(package_copy: Path)
 def test_declares_must_carry_every_contract_the_operations_reach(web_copy: Path) -> None:
     document = _document(web_copy)
     document["declares"]["contracts"] = [
-        item for item in document["declares"]["contracts"] if item["name"] != "web.capture.page"
+        item
+        for item in document["declares"]["contracts"]
+        if item["name"] != "web.fetch.query_param"
     ]
     _rewrite(web_copy, document)
-    with pytest.raises(ValueError, match=r"names web\.capture\.page@1, which declares does not"):
+    with pytest.raises(ValueError, match=r"names web\.fetch\.query_param@1, which declares does n"):
         load_registration(web_copy)
 
 

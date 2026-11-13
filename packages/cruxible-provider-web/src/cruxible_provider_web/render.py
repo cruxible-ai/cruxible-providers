@@ -97,24 +97,25 @@ class WebRender:
                 observed_weight=page_weight_class(len(derived)),
             )
         cited = request.coordinate
-        return ProviderResult.ok(
-            external_capture_result(
-                derived,
-                source_identity=request.logical_source,
-                coordinate_type=COORDINATE_TYPE,
-                selector_type=SELECTOR_TYPE,
-                coordinate=http_coordinate(
-                    url=cited["url"],
-                    final_url=request.final_url,
-                    status=cited["status"],
-                    content_type=media,
-                    response_headers={},
-                    from_recording=cited["source"] == "packaged-recording",
-                    renderer=engine,
-                    derived_from=content_digest(request.document),
-                ),
-                observed_at=request.observed_at,
+        wire = external_capture_result(
+            derived,
+            source_identity=request.logical_source,
+            coordinate_type=COORDINATE_TYPE,
+            selector_type=SELECTOR_TYPE,
+            coordinate=http_coordinate(
+                url=cited["url"],
+                final_url=request.final_url,
+                status=cited["status"],
+                content_type=media,
+                response_headers={},
+                from_recording=cited["source"] == "packaged-recording",
+                renderer=engine,
+                derived_from=content_digest(request.document),
             ),
+            observed_at=request.observed_at,
+        )
+        return ProviderResult.ok(
+            {"capture": wire},
             metrics={"byte_count": float(len(derived))},
         )
 

@@ -74,7 +74,7 @@ def test_the_built_url_is_the_request_the_coordinate_records() -> None:
     assert result.status == "ok", result
     built = f"{BASE}?cve=CVE-2021-44228,CVE-2023-4863&limit=100"
     assert client.urls == [built]
-    coordinate = result.output["coordinate"]
+    coordinate = result.output["capture"]["coordinate"]
     assert coordinate["url"] == built
     assert coordinate["request_digest"] == "sha256:" + hashlib.sha256(built.encode()).hexdigest()
 
@@ -83,10 +83,11 @@ def test_the_same_parameters_build_the_same_request() -> None:
     query = [{"name": "cve", "values": ["CVE-1", "CVE-2"], "join": "comma"}]
     first, _ = _fetch({"url": BASE, "query": query})
     second, _ = _fetch({"url": BASE, "query": [dict(item) for item in query]})
-    assert first.output["coordinate"] == second.output["coordinate"]
+    assert first.output["capture"]["coordinate"] == second.output["capture"]["coordinate"]
     other, _ = _fetch({"url": BASE, "query": [{**query[0], "values": ["CVE-2", "CVE-1"]}]})
     assert (
-        other.output["coordinate"]["request_digest"] != first.output["coordinate"]["request_digest"]
+        other.output["capture"]["coordinate"]["request_digest"]
+        != first.output["capture"]["coordinate"]["request_digest"]
     )
 
 

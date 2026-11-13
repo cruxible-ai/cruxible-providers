@@ -75,7 +75,9 @@ def test_the_registration_declares_what_each_entrypoint_serves() -> None:
         assert operation.entrypoint == f"{entrypoint.__module__}:{entrypoint.__qualname__}"
         assert operation.effect == EFFECTS[operation.name]
         assert operation.in_.spelling == f"{operation.name}.request@1"
-        assert operation.out.spelling == f"{operation.name}.result@1"
+        # The result Contract is the served capability's own (the base kit's copy).
+        (served,) = operation.serves
+        assert operation.out.spelling == f"{served}.result@1"
         for code, refusal in operation.refusals.items():
             assert refusal.contract.spelling == f"{operation.name}.refusal.{code}@1"
 
