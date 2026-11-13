@@ -29,7 +29,6 @@ def test_there_are_real_packages() -> None:
         "cruxible-provider-quant",
         "cruxible-provider-runtime",
         "cruxible-provider-web",
-        "cruxible-provider-workspace",
         "cruxible-providers",
     ]
 
@@ -132,8 +131,6 @@ def test_the_umbrella_offers_one_extra_per_plane_plus_all() -> None:
 
     One extra per plane, plus `all` -- which must be exactly the full union of
     the plane extras: an `all` that means "all but one" is worse than no `all`.
-    The workspace package is not a plane of the umbrella: it stays in the
-    repository for its tests, is not published, and no extra pulls it in.
     """
 
     document = tomllib.loads(
@@ -143,9 +140,6 @@ def test_the_umbrella_offers_one_extra_per_plane_plus_all() -> None:
     assert set(extras) == {"web", "docs", "quant", "all"}
     plane_union = {dep for name, deps in extras.items() if name != "all" for dep in deps}
     assert set(extras["all"]) == plane_union
-    named = {dep for deps in extras.values() for dep in deps}
-    assert not any(dep.startswith("cruxible-provider-workspace") for dep in named)
-    assert "cruxible-provider-workspace" not in document["tool"]["uv"]["sources"]
 
 
 def test_ci_typechecks_every_real_package() -> None:

@@ -17,7 +17,6 @@ Supported platforms: Linux on x86-64 and macOS on Apple silicon, with Python
 | `cruxible-provider-web` | Fetching web pages and searching the web, then turning a fetched page into readable text | `web.fetch`, `web.fetch.pages`, `search.web`, `web.render`, `web.render.dom` |
 | `cruxible-provider-docs` | **Not yet released.** Turning documents (PDF, text, CSV) into Markdown, and reading text out of page images (OCR) | `doc.to_markdown`, `ocr.extract` |
 | `cruxible-provider-quant` | **Not yet released.** Standard numeric methods: totals and averages, forecasts, anomaly checks, statistical tests, ranking, record matching, checking how well past predictions held up | `calc.calibrate`, `calc.reduce`, `match.record`, `score.rank`, `stat.test`, `ts.anomaly`, `ts.forecast` |
-| `cruxible-provider-workspace` | Turning a file's bytes into a structured text or binary body. Core already has this built in; the package is kept for testing | `workspace.file` |
 | `cruxible-provider-noop` | A test package that does nothing useful on purpose; it checks that the provider rules hold | `noop.echo`, `noop.captures` |
 | `cruxible-provider-runtime` | The shared library every provider package depends on. You install it directly only if you write a provider | none |
 | `cruxible-providers` | A convenience package with no code that pulls in the web, docs and quant packages, for development | none |
@@ -89,8 +88,8 @@ for approval. The operations' Contracts come from the package itself, so no kit
 needs to be installed first; whether an operation fits a slot is checked when a
 Line is accepted. Installing grants no permission to run anything.
 
-Every new instance already has `workspace.file` built in; it needs no install
-(see `packages/cruxible-provider-workspace/README.md`).
+Reading workspace files is built into core (`workspace.file` and
+`workspace.files`); no provider package serves it, and none may.
 
 ### Installing from a checkout
 
@@ -128,8 +127,6 @@ packages/cruxible-provider-docs/       the document plane: doc.to_markdown, ocr.
 packages/cruxible-providers/          the umbrella meta-package: zero code, plane extras
 packages/cruxible-provider-quant/     the quantitative plane: classical
                                       baselines on the seven quant operations
-packages/cruxible-provider-workspace/ workspace.file, the pure Source adapter
-                                      core's built-in was ported from
 packages/_template/                   copy this to start a new plane package
 ci/marker-environments.json           the environments every digest is computed for
 scripts/                              digest computation, the packaging checks, and

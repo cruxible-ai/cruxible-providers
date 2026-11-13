@@ -5,7 +5,7 @@ each does, where its code is, the capabilities it serves, its Contracts), the
 copies of every shape they reach (``declares``), and its manifest by path and
 digest. Reading it imports no provider code; every cross-link is checked.
 
-Three packages are not schema 3 yet, each for a reason recorded in
+Two packages are not schema 3 yet, each for a reason recorded in
 :data:`PENDING`; the runtime refuses them, and their own suites say so.
 
 With ``CRUXIBLE_CORE_PYTHON`` set to an interpreter that has core
@@ -47,10 +47,6 @@ _NO_CONTRACTS = (
 PENDING = {
     "cruxible_provider_docs": _NO_CONTRACTS,
     "cruxible_provider_quant": _NO_CONTRACTS,
-    "cruxible_provider_workspace": (
-        "its one operation serves workspace.file, which only core's builtin serves, "
-        "so it has nothing to serve; ruling pending (design note §7.4.7)"
-    ),
 }
 MOVED = tuple(path for path in PACKAGES if path.parent.name not in PENDING)
 

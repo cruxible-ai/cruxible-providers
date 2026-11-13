@@ -20,10 +20,6 @@ kit uses them yet and they ship no Contracts, so an instance cannot install
 them, and the `docs`, `quant` and `all` extras resolve only in a checkout of
 this repository. They will be released when a kit uses them.
 
-`cruxible-provider-workspace` is not offered here: core has `workspace.file`
-built in, and that package stays in the repository only to test the built-in
-against.
-
 Each extra installs the package without its own heavy optional engines (for
 example the browser for `web.render.dom`); add those on the package itself,
 as *Extras and engines* below shows.
@@ -97,8 +93,4 @@ anticipated: naming a distribution that does not exist yet would produce an
 umbrella that cannot resolve, and an `all` extra that means "all but one" is
 worse than no `all` at all.
 
-`cruxible-provider-workspace` is deliberately left out. It is the package
-core's built-in `workspace.file` was ported from; core does not need it,
-because every new instance already runs its own in-process copy, so it is not
-published and nothing installed through the umbrella pulls it in. Its source and
-tests stay in this repository.
+Reading workspace files is built into core, so no plane here offers it.

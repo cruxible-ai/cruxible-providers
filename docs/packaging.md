@@ -304,11 +304,11 @@ does not repeat it. Runtime resource requirements, such as Playwright's browser
 executable, are declared separately from Python extras and must not be reported
 ready merely because a wheel exists.
 
-Three packages are not on schema 3 yet: `cruxible-provider-docs` and
+Two packages are not on schema 3 yet: `cruxible-provider-docs` and
 `cruxible-provider-quant` name Contracts that exist nowhere (they are outside
-the release set until their Contracts are written), and
-`cruxible-provider-workspace` serves only `workspace.file`, which core's builtin
-serves. The runtime refuses their registrations; each suite reads it through one
+the release set until their Contracts are written). File reading
+(`workspace.file`, `workspace.files`) is built into core, and no package in this
+repository serves it. The runtime refuses their registrations; each suite reads it through one
 helper that marks a test an expected failure for exactly that refusal, and every
 test that does not read the registration runs as usual.
 
