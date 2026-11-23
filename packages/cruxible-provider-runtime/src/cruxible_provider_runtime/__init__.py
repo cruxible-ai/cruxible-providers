@@ -96,7 +96,7 @@ from .single_file import (
 if TYPE_CHECKING:  # pragma: no cover - resolved lazily at runtime, see __getattr__
     from .container_entry import SECRET_CHANNEL_FD, container_secret_channel
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "DYNAMIC_ENDPOINT_FORMS",
