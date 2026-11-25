@@ -68,6 +68,9 @@ Three identifiers, deliberately separate:
 | Module | Responsibility |
 |---|---|
 | `provider_api` | The provider-facing surface: `ProviderRunContext` in, `ProviderResult` out |
+| `derive` | `@derive`: a plain function as a pure operation, with its input fields as parameters and its Capture inputs read for it |
+| `capture_view` | `CaptureView`, a read-only, digest-checked view of a Capture input; `derived_capture`, the wire for a document a pure operation computes |
+| `single_file` | Single-file providers: discover a module's derives and build its schema-3 `registration.json` and manifest, from Python or the command line |
 | `manifest` | The package-side manifest schema. Unknown fields fail closed. |
 | `artifact` | The governed Provider artifact payload and its digest |
 | `protocol` | The run context and result envelope, and `protocol_version` (2.0: one operation of one build per run) |
@@ -136,6 +139,90 @@ Credentials arrive already resolved in `context.secrets`, keyed by ref. Endpoint
 are recorded through `context.egress.record(url)`. Budgets are in
 `context.budgets` so a provider can report against them, but they are enforced
 around the process rather than inside it.
+
+## A provider in one file: `@derive`
+
+A pure operation, which computes a document from its input and nothing else,
+needs no class, no package directory and no hand-written registration:
+
+```python
+"""Triage: summarize a fetched advisory."""
+
+from cruxible_provider_runtime import CaptureView, derive
+
+
+@derive(
+    "triage.summarize",
+    serves="triage.summarize",
+    input_contract="triage.input@1",
+    output_contract="triage.output@1",
+)
+def summarize(source: CaptureView, max_items: int = 5) -> dict:
+    """Summarizes the advisory's top findings into one document."""
+    findings = source.json()["findings"][:max_items]
+    return {"summary": source.derive({"findings": findings})}
+```
+
+- **Declared once.** `@derive(name, *, serves, input_contract, output_contract,
+  description=None, may_truncate=False, refusals=None, capture_inputs=())` is
+  checked when the function is defined, against the model a registration is read
+  with. The effect is always `pure`; a derive has no endpoints, secrets or
+  extras to declare. The description defaults to the docstring's first
+  paragraph.
+- **Parameters are input fields, by name.** A parameter with a default may be
+  absent; `**fields` receives the fields nothing else names (other fields are not
+  passed). There is no run context: a pure operation depends on its input alone.
+- **Capture inputs arrive as `CaptureView`s.** A parameter annotated
+  `CaptureView`, `list[CaptureView]`, `Sequence[CaptureView]` or
+  `tuple[CaptureView, ...]` (each optionally `| None`), or named in
+  `capture_inputs`, gets the wire core sent checked (base64, `byte_length`,
+  `bytes_digest`) and handed over as a view: `raw_bytes`, `text`, `json()`, the
+  metadata as attributes, and `raw`/`wire()` for the wire itself. Any other
+  annotation that mentions `CaptureView` is refused rather than guessed at.
+- **Returning.** A mapping is the output. `source.derive(body)` or
+  `derived_capture(body, observed_at=... | derived_from=...)` builds the wire for
+  a computed document (bytes verbatim, `str` as UTF-8, anything else as canonical
+  JSON) for a `capture<K>` output field, including a `procedure_output` kind. Its
+  observation time is the source's, or stated, and never the clock, so a re-run
+  is byte-identical. `raise decline(code, ...)` refuses under a declared code; a
+  returned `ProviderResult` passes through unchanged.
+- **Testing.** `summarize.fn(...)` is the plain function, and
+  `summarize.run(payload)` runs the operation over an input mapping exactly as
+  the child harness does. The decorated object *is* the entrypoint
+  (`module:summarize`): it declares `operations` and takes a
+  `ProviderRunContext`, so the harness runs it with no special case.
+
+**Packaging.** `discover_derives(module)` lists a module's derives sorted by
+operation name. It refuses a module with none, an operation defined twice, and a
+derive imported from another module. `build_single_file_package(module, *,
+distribution, version, contracts, capture_kinds=(), built_against=(),
+module_name=None, source_path=None, repository=None, revision=None,
+backends=("local_env",))` builds the package's `registration.json` (schema 3,
+`declares` trimmed to exactly what the operations reach out of the shapes given)
+and `manifest.json` (one pure, endpoint-free, deterministic row per operation).
+Every entrypoint is `<module_name>:<attribute>`, and the result is read back with
+`load_registration` before it is returned. `load_single_file_module(path, *,
+module_name=None)` imports a file by path under the packaged name and leaves no
+import behind.
+
+Core does not import this library, so a publisher in core drives the same thing
+from an interpreter that has it installed:
+
+```
+python -m cruxible_provider_runtime.single_file describe FILE [--module-name NAME]
+python -m cruxible_provider_runtime.single_file build FILE --distribution NAME \
+    --version VERSION --declares DECLARES.json --out DIR [--module-name NAME] \
+    [--source-path PATH] [--repository URL --revision SHA] [--backend KIND ...]
+```
+
+Each command prints one JSON document on stdout and exits 0. A failure prints
+`{"error": {"kind", "message"}}` and exits 1, with `kind` one of
+`import_failed`, `invalid_derive` or `invalid_package`. Anything the file prints
+while it is imported goes to stderr. `build` writes `registration.json` and
+`manifest.json` into `DIR` and reports the entry points, file digests,
+operations and the runtime requirement. The distribution ships the module as
+package `<module_name>/__init__.py` with both files beside it, and declares
+exactly those entry points.
 
 ## Secret delivery in containers
 

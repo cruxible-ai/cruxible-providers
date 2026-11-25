@@ -21,12 +21,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from .acquisition import CaptureInputError
 from .artifact import ProviderArtifactPayload, artifact_digest, load_provider_artifact
 from .backends import MaterializationRequest, UvSyncBuilder, verify_environment
 from .binding import Binding, BindRequest, bind
 from .budget import ProcessOutcome, enforce_cost_budget, run_with_budget
 from .cache import MaterializationCache
 from .canonical import canonical_json, domain_digest
+from .capture_view import CaptureView, derived_capture
+from .derive import (
+    DeriveDefinitionError,
+    DeriveInputError,
+    DeriveOperation,
+    DeriveOutputError,
+    derive,
+)
 
 # dependency_closure_digest and CLOSURE_DOMAIN_TAG are deliberately NOT
 # re-exported here. They belong to the packaging-scope gate, not to identity: a
@@ -75,11 +84,19 @@ from .resolution import (
     load_uv_lock,
     resolve,
 )
+from .single_file import (
+    DiscoveredDerive,
+    SingleFileError,
+    SingleFilePackage,
+    build_single_file_package,
+    discover_derives,
+    load_single_file_module,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - resolved lazily at runtime, see __getattr__
     from .container_entry import SECRET_CHANNEL_FD, container_secret_channel
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "DYNAMIC_ENDPOINT_FORMS",
@@ -93,8 +110,15 @@ __all__ = [
     "BindRequest",
     "Binding",
     "Budgets",
+    "CaptureInputError",
+    "CaptureView",
     "ContractRef",
     "Declined",
+    "DeriveDefinitionError",
+    "DeriveInputError",
+    "DeriveOperation",
+    "DeriveOutputError",
+    "DiscoveredDerive",
     "EgressRecorder",
     "IndexConfig",
     "InvocationOutcome",
@@ -118,15 +142,21 @@ __all__ = [
     "ResolvedSet",
     "ResultEnvelope",
     "RunContext",
+    "SingleFileError",
+    "SingleFilePackage",
     "StubRegistry",
     "UvSyncBuilder",
     "__version__",
     "artifact_digest",
     "bind",
+    "build_single_file_package",
     "canonical_json",
     "compare_egress",
     "container_secret_channel",
     "decline",
+    "derive",
+    "derived_capture",
+    "discover_derives",
     "domain_digest",
     "enforce_cost_budget",
     "enforce_egress",
@@ -136,6 +166,7 @@ __all__ = [
     "load_manifest",
     "load_provider_artifact",
     "load_registration",
+    "load_single_file_module",
     "load_uv_lock",
     "manifest_digest",
     "materialization_digest",

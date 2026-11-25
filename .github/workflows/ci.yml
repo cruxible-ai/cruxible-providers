@@ -66,7 +66,11 @@ jobs:
       - name: Hold every schema-3 registration to core's model and law
         # With CI set, a missing CRUXIBLE_CORE_PYTHON fails these tests rather
         # than skipping them, so the lane cannot go green without running them.
-        run: uv run pytest -q -m core_parity tests/test_package_registration.py
+        # test_single_file.py holds the authoring layer to the same models: a
+        # derived Capture's wire, and a single-file package's registration.
+        run: >-
+          uv run pytest -q -m core_parity tests/test_package_registration.py
+          packages/cruxible-provider-runtime/tests/test_single_file.py
 
   engine-collect:
     name: engine lane collects without engines

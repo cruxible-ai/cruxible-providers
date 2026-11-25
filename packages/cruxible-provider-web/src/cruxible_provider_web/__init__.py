@@ -35,7 +35,7 @@ from .recordings import FIXTURE_HOST, load_recordings
 from .render import WebRender
 from .search import SearxngSearch
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = PACKAGE_ROOT / "manifest.yaml"

@@ -1,6 +1,6 @@
 [project]
 name = "cruxible-provider-runtime"
-version = "0.5.0"
+version = "0.6.0"
 description = "The library every Cruxible provider package builds on: manifest, registration and protocol schemas, identity digests, install-time retrieval of locked wheels from pinned indexes, the sealed environment cache, secret delivery, run budgets and egress recording."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -37,7 +37,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling==1.32.1"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
